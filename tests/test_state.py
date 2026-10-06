@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from calculatro.__main__ import odds, summarize
+from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.source import FileStateSource
 from calculatro.state import GameState
@@ -81,13 +82,40 @@ def test_snapshot_parses(lua):
 
 def test_odds_for_selection(lua):
     state = GameState.from_json(snapshot_json(lua))
-    # Hand holds 5 of 8, so discarding 99 draws the whole 4-card deck. The
-    # unknowns (4 draws + the face-down card) are the entire 5-card pool
-    # Q♣ A* St T♦ 2♥, so Q♣ is guaranteed; keeping draws 3 + 1 of 5 (80%).
-    out = odds(state, [get_target("trips"), get_target("pair")])
-    assert "discard 9♣ 9♦ and draw 4" in out
-    assert "Three of a Kind   80.00%  ->  100.00%" in out
-    assert len(out.splitlines()) == 4
+    # Hand holds 5 of 8. Keeping it draws 3 of the 4-card deck, so 4 of the 5
+    # unseen cards (Q♣ A* St T♦ 2♥, counting the face-down one) end up in hand:
+    # trips needs Q♣, 4 in 5. Discarding 99 draws the whole deck: Q♣ guaranteed.
+    out = odds(state, [get_target("trips"), get_target("pair")], [parse_query("no face")])
+    assert out.splitlines() == [
+        "Odds: keep hand (draw 3)  ->  discard 9♣ 9♦ and draw 4",
+        "  Any target       100.00%  ->  100.00%",
+        "  Three of a Kind   80.00%  ->  100.00%",
+        "  Pair             100.00%  ->  100.00%",
+        "  In the 4 drawn cards:",
+        "  Face card: none                20.00%",  # only if the face-down card is Q♣: 1 in 5
+    ]
+
+
+def test_odds_without_selection(lua):
+    rt, _ = lua
+    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
+    state = GameState.from_json(snapshot_json(lua))
+    assert odds(state, [get_target("trips")], [parse_query("queen")]).splitlines() == [
+        "Odds (current hand, drawing 3):",
+        "  Three of a Kind   80.00%",
+        "Select cards in game to see the odds after discarding them.",
+    ]
+    assert odds(state, [], [parse_query("queen")]) == (
+        "Select cards in game to see the odds after discarding them.")
+
+
+def test_odds_cards_only(lua):
+    out = odds(GameState.from_json(snapshot_json(lua)), [], [parse_query("queen")])
+    assert out.splitlines() == [
+        "Odds: discard 9♣ 9♦ and draw 4",
+        "  In the 4 drawn cards:",
+        "  Queen: at least 1   80.00%",
+    ]
 
 
 def test_counts_exclude_stone_and_wild(lua):
