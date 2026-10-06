@@ -1,0 +1,22 @@
+[project]
+name = "calculatro"
+version = "0.1.0"
+description = "Interactive probability calculator for Balatro"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "lupa"]
+
+[project.scripts]
+calculatro = "calculatro.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["calculatro"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

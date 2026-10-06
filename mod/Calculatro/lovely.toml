@@ -1,0 +1,20 @@
+[manifest]
+version = "0.1.0"
+dump_lua = true
+priority = 0
+
+# Make calculatro.lua available as require("calculatro").
+[[patches]]
+[patches.module]
+source = "calculatro.lua"
+before = "main.lua"
+name = "calculatro"
+
+# Poll game state once per frame (the module throttles itself).
+[[patches]]
+[patches.pattern]
+target = "game.lua"
+pattern = "function Game:update(dt)"
+position = "after"
+payload = "require('calculatro').update(dt)"
+match_indent = true
