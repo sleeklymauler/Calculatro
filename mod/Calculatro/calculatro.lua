@@ -5,7 +5,7 @@ local Calculatro = {
     interval = 0.2,  -- seconds between snapshots
     elapsed = 0,
     last_json = nil,
-    schema = 1,
+    schema = 2,
 }
 
 ---------------------------------------------------------------------------
@@ -61,10 +61,10 @@ Calculatro.encode = encode
 -- Snapshot
 ---------------------------------------------------------------------------
 local function card_info(card, hide_face_down)
+    local highlighted = card.highlighted and true or false
     if hide_face_down and card.facing == 'back' then
-        return { hidden = true }
+        return { hidden = true, highlighted = highlighted }
     end
-    local ability = card.ability or {}
     return {
         rank = card.base and card.base.value,   -- '2'..'10', 'Jack', 'Queen', 'King', 'Ace'
         rank_id = card.base and card.base.id,   -- 2..14 (Ace = 14)
@@ -73,6 +73,7 @@ local function card_info(card, hide_face_down)
         edition = card.edition and card.edition.type or nil,
         seal = card.seal,
         debuff = card.debuff and true or false,
+        highlighted = highlighted,
     }
 end
 
@@ -84,15 +85,35 @@ local function area_cards(area, hide_face_down)
     return out
 end
 
--- Deck as a multiset: sort so the export never leaks draw order.
-local function sorted_deck(area)
-    local cards = area_cards(area, false)
+-- Export a list of cards as a sorted multiset so order/position never leaks.
+local function sorted_cards(cards)
     local keys = {}
     for i, c in ipairs(cards) do keys[i] = { encode(c), c } end
     table.sort(keys, function(a, b) return a[1] < b[1] end)
     local out = array()
     for i, k in ipairs(keys) do out[i] = k[2] end
     return out
+end
+
+local function sorted_deck(area)
+    return sorted_cards(area_cards(area, false))
+end
+
+-- Identities of face-down hand cards. The player can't tell which is which,
+-- but knows they come from the unseen pool, so the engine treats them like
+-- undrawn deck cards.
+local function hidden_pool(area)
+    local cards = array()
+    if area and area.cards then
+        for _, card in ipairs(area.cards) do
+            if card.facing == 'back' then
+                local info = card_info(card, false)
+                info.highlighted = nil
+                cards[#cards + 1] = info
+            end
+        end
+    end
+    return sorted_cards(cards)
 end
 
 local function state_name(state)
@@ -124,6 +145,7 @@ function Calculatro.snapshot()
         hand = area_cards(G.hand, true),
         played = area_cards(G.play, true),
         deck = sorted_deck(G.deck),
+        hidden_pool = hidden_pool(G.hand),
         discard = area_cards(G.discard, false),
         jokers = jokers,
     }

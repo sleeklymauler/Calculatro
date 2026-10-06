@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA = 1
+SCHEMA = 2
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -24,6 +24,7 @@ class Card:
     seal: str | None = None
     debuff: bool = False
     hidden: bool = False  # face-down in hand: identity unknown to the player
+    highlighted: bool = False  # selected in hand
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Card:
@@ -36,6 +37,7 @@ class Card:
             seal=d.get("seal"),
             debuff=bool(d.get("debuff", False)),
             hidden=bool(d.get("hidden", False)),
+            highlighted=bool(d.get("highlighted", False)),
         )
 
     @property
@@ -76,6 +78,7 @@ class GameState:
     played: list[Card] = field(default_factory=list)
     deck: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
+    hidden_pool: list[Card] = field(default_factory=list)  # identities of face-down hand cards
     jokers: list[str] = field(default_factory=list)
 
     @classmethod
@@ -96,8 +99,14 @@ class GameState:
             played=_cards(d.get("played")),
             deck=_cards(d.get("deck")),
             discard=_cards(d.get("discard")),
+            hidden_pool=_cards(d.get("hidden_pool")),
             jokers=[j.get("key") for j in (d.get("jokers") or []) if j.get("key")],
         )
+
+    @property
+    def selected(self) -> list[int]:
+        """Indices of hand cards currently highlighted in game."""
+        return [i for i, c in enumerate(self.hand) if c.highlighted]
 
     def rank_counts(self) -> Counter[str]:
         """Remaining deck cards per rank (stone cards excluded)."""

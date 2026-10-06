@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from calculatro.__main__ import summarize
+from calculatro.__main__ import odds, summarize
+from calculatro.hands import get_target
 from calculatro.source import FileStateSource
 from calculatro.state import GameState
 
@@ -26,6 +27,7 @@ local function card(value, id, suit, opts)
     seal = opts.seal,
     debuff = opts.debuff,
     facing = opts.facing or 'front',
+    highlighted = opts.highlighted,
   }
 end
 G = {
@@ -34,7 +36,8 @@ G = {
   GAME = {current_round = {hands_left = 4, discards_left = 3}, blind = {name = 'Big Blind'}},
   hand = {config = {card_limit = 8}, cards = {
     card('Queen', 12, 'Hearts'), card('Queen', 12, 'Spades'),
-    card('9', 9, 'Clubs', {seal = 'Red'}), card('9', 9, 'Diamonds', {edition = 'foil'}),
+    card('9', 9, 'Clubs', {seal = 'Red', highlighted = true}),
+    card('9', 9, 'Diamonds', {edition = 'foil', highlighted = true}),
     card('2', 2, 'Hearts', {facing = 'back'}),
   }},
   play = {cards = {}},
@@ -72,6 +75,19 @@ def test_snapshot_parses(lua):
     assert state.hand[2].seal == "Red" and state.hand[3].edition == "foil"
     assert len(state.deck) == 4 and len(state.discard) == 1
     assert state.jokers == ["j_four_fingers"]
+    assert state.selected == [2, 3]
+    assert [c.short() for c in state.hidden_pool] == ["2♥"]
+
+
+def test_odds_for_selection(lua):
+    state = GameState.from_json(snapshot_json(lua))
+    # Hand holds 5 of 8, so discarding 99 draws the whole 4-card deck. The
+    # unknowns (4 draws + the face-down card) are the entire 5-card pool
+    # Q♣ A* St T♦ 2♥, so Q♣ is guaranteed; keeping draws 3 + 1 of 5 (80%).
+    out = odds(state, [get_target("trips"), get_target("pair")])
+    assert "discard 9♣ 9♦ and draw 4" in out
+    assert "Three of a Kind   80.00%  ->  100.00%" in out
+    assert len(out.splitlines()) == 4
 
 
 def test_counts_exclude_stone_and_wild(lua):
