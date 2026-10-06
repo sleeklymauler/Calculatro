@@ -14,3 +14,20 @@ The deck is exported as a sorted multiset, so draw order is never leaked, and fa
 ## Tests
 
 `.venv\Scripts\python -m pytest` runs the mod's Lua (via `lupa`) against a mocked game state and parses the result.
+
+## Usage
+
+```
+.venv\Scripts\python -m calculatro watch -t trips -t "full house" -c "queen" -c "no face cards"
+```
+
+Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
+Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
+
+- `-t/--target`: hand types (`pair`, `two pair`, `trips`, `straight`, `flush`, `full house`, `quads`,
+  `straight flush`, `royal`, `five of a kind`, `flush house`, `flush five`). A target counts if you could
+  play a hand Balatro scores as containing it (a Straight Flush counts as a Straight). Several targets also
+  show the odds of hitting any of them.
+- `-c/--cards`: counts over the newly drawn cards only — `queen`, `2+ queens`, `at most 1 spade`,
+  `exactly 2 hearts`, `no face cards`, `2 of clubs` / `2c`. A bare number means "at least";
+  `QS`/`10s` are poker notation for a specific card (use `tens` for the rank).

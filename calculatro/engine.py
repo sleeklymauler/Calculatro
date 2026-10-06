@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from math import comb
 
+from .cards import CardQuery
 from .hands import Target, card_key
 from .state import Card, GameState
 
@@ -130,13 +131,46 @@ class DiscardOutcome:
     probability: Fraction
 
 
-def evaluate_discard(state: GameState, target: Target, discard: list[int]) -> DiscardOutcome:
-    """Probability of reaching `target` after discarding hand cards at indices `discard`."""
+@dataclass(frozen=True)
+class _Discard:
+    discarded: list[Card]
+    kept_known: list[Card]
+    hidden_kept: int
+    draws: int
+    pool: list[Card]  # unseen cards: undrawn deck + face-down hand cards
+
+
+def _discard(state: GameState, discard: list[int]) -> _Discard:
     discard_set = set(discard)
     kept = [c for i, c in enumerate(state.hand) if i not in discard_set]
     kept_known = [c for c in kept if not c.hidden]
-    hidden_kept = len(kept) - len(kept_known)
     draws = max(0, min(state.hand_size - len(kept), len(state.deck)))
-    pool = state.deck + state.hidden_pool
-    p = probability(target, kept_known, pool, hidden_kept + draws)
-    return DiscardOutcome([state.hand[i] for i in sorted(discard_set)], draws, p)
+    return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
+                    len(kept) - len(kept_known), draws, state.deck + state.hidden_pool)
+
+
+def evaluate_discard(state: GameState, target: Target, discard: list[int]) -> DiscardOutcome:
+    """Probability of reaching `target` after discarding hand cards at indices `discard`."""
+    d = _discard(state, discard)
+    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws)
+    return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def count_probability(query: CardQuery, pool: list[Card], draws: int) -> Fraction:
+    """P(the number of matching cards among `draws` drawn from `pool` satisfies `query`)."""
+    draws = max(0, min(draws, len(pool)))
+    matches = sum(1 for c in pool if query.filter.test(c))
+    others = len(pool) - matches
+    hits = sum(comb(matches, k) * comb(others, draws - k)
+               for k in range(min(matches, draws) + 1) if query.accepts(k))
+    return Fraction(hits, comb(len(pool), draws))
+
+
+def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> DiscardOutcome:
+    """Probability that the cards drawn after discarding satisfy `query`.
+
+    Only the newly drawn cards count. From the player's view they are a uniform
+    sample of the unseen pool, even when face-down cards are kept in hand.
+    """
+    d = _discard(state, discard)
+    return DiscardOutcome(d.discarded, d.draws, count_probability(query, d.pool, d.draws))

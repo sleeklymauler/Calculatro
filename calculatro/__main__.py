@@ -1,4 +1,4 @@
-"""CLI: `python -m calculatro watch --target trips` prints live game state and odds."""
+"""CLI: `python -m calculatro watch -t trips -c "2+ queens"` prints live game state and odds."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import sys
 from fractions import Fraction
 from pathlib import Path
 
-from .engine import evaluate_discard
+from .cards import CardQuery, parse_query
+from .engine import DiscardOutcome, evaluate_cards, evaluate_discard
 from .hands import TARGETS, Target, combine, get_target
 from .source import FileStateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
@@ -37,29 +38,48 @@ def _pct(p: Fraction) -> str:
     return f"{float(p) * 100:6.2f}%"
 
 
-def odds(state: GameState, targets: list[Target]) -> str:
-    """Odds of each target for the hand as it stands and after discarding the selection."""
-    if not state.in_run or not state.hand or not targets:
-        return ""
-    names = [t.name for t in targets]
-    if len(targets) > 1:
-        targets = [combine(targets), *targets]
-        names = ["Any target", *names]
-    width = max(len(n) for n in names)
+def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ()) -> str:
+    """Target odds for keeping the hand vs. discarding the in-game selection,
+    plus card-query odds for the cards drawn after that discard.
 
-    keep = [evaluate_discard(state, t, []) for t in targets]
+    Keeping the hand draws nothing (unless it isn't full), so card queries only
+    have a discard column.
+    """
+    if not state.in_run or not state.hand or not (targets or queries):
+        return ""
+    hint = "Select cards in game to see the odds after discarding them."
+
+    named = [(t.name, t) for t in targets]
+    if len(targets) > 1:
+        named.insert(0, ("Any target", combine(targets)))
+    keep = [(name, evaluate_discard(state, t, [])) for name, t in named]
+
     selected = state.selected
     if not selected:
-        lines = ["Odds (current hand" + (f", drawing {keep[0].draws}" if keep[0].draws else "") + ")"]
-        lines += [f"  {name:<{width}}  {_pct(k.probability)}" for name, k in zip(names, keep)]
-        lines.append("  Select cards in game to see the odds after discarding them.")
-        return "\n".join(lines)
+        if not keep:
+            return hint
+        width = max(len(name) for name, _ in keep)
+        draws = keep[0][1].draws
+        lines = ["Odds (current hand" + (f", drawing {draws}" if draws else "") + "):"]
+        lines += [f"  {name:<{width}}  {_pct(o.probability)}" for name, o in keep]
+        return "\n".join([*lines, hint])
 
-    after = [evaluate_discard(state, t, selected) for t in targets]
-    discarded = " ".join(c.short() for c in after[0].discarded)
-    lines = [f"Odds: keep hand  ->  discard {discarded} and draw {after[0].draws}"]
+    after = [evaluate_discard(state, t, selected) for _, t in named]
+    card_rows = [(q.label, evaluate_cards(state, q, selected)) for q in queries]
+    first = (after or [o for _, o in card_rows])[0]
+    discarded = " ".join(c.short() for c in first.discarded)
+    width = max(len(name) for name, _ in keep + card_rows)
+    # Card rows leave the keep column blank so the discard column lines up.
+    blank = " " * len(f"{_pct(Fraction(0))}  ->  ") if keep else ""
+
+    keep_desc = "keep hand" + (f" (draw {keep[0][1].draws})" if keep and keep[0][1].draws else "")
+    discard_desc = f"discard {discarded} and draw {first.draws}"
+    lines = [f"Odds: {keep_desc}  ->  {discard_desc}" if keep else f"Odds: {discard_desc}"]
     lines += [f"  {name:<{width}}  {_pct(k.probability)}  ->  {_pct(a.probability)}"
-              for name, k, a in zip(names, keep, after)]
+              for (name, k), a in zip(keep, after)]
+    if card_rows:
+        lines.append(f"  In the {first.draws} drawn cards:")
+        lines += [f"  {name:<{width}}  {blank}{_pct(o.probability)}" for name, o in card_rows]
     if state.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
@@ -72,6 +92,13 @@ def _target(name: str) -> Target:
         raise argparse.ArgumentTypeError(str(e.args[0])) from None
 
 
+def _query(text: str) -> CardQuery:
+    try:
+        return parse_query(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="calculatro")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -80,6 +107,9 @@ def main(argv: list[str] | None = None) -> int:
     watch.add_argument("-t", "--target", type=_target, action="append", default=[],
                        help=f"hand type to aim for; repeat for several ({', '.join(TARGETS)}, "
                             "or trips, quads, royal)")
+    watch.add_argument("-c", "--cards", type=_query, action="append", default=[],
+                       help='odds for the drawn cards, e.g. "queen", "2+ queens", "no face cards", '
+                            '"exactly 1 spade", "2 of clubs"; repeat for several')
     args = parser.parse_args(argv)
     # Suit symbols: Windows pipes/redirects default to cp1252.
     if hasattr(sys.stdout, "reconfigure"):
@@ -91,8 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             for state in source.watch():
                 out = summarize(state)
-                if args.target:
-                    out += "\n" + odds(state, args.target)
+                if args.target or args.cards:
+                    out += "\n" + odds(state, args.target, args.cards)
                 print("\n" + "=" * 72 + "\n" + out, flush=True)
         except KeyboardInterrupt:
             pass
