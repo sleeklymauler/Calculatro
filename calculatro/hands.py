@@ -8,8 +8,11 @@ contain Two Pair.
 
 A Target names the hand types; its patterns depend on the joker Rules in
 play (Four Fingers, Shortcut, Smeared) and are built per Rules on demand.
-Each target is a list of patterns (OR). A pattern is a tuple of disjoint
-requirements (AND): "at least `need` cards whose class is in `keys`".
+Each target is a list of patterns (OR). A pattern is a tuple of requirements
+(AND): "at least `need` cards whose class is in `keys`". Requirements are
+usually disjoint, so each card fills one slot; when they overlap, a card counts
+towards every requirement it matches (e.g. Four Fingers' "at least 4 suited
+cards" alongside "a suited card of each of these ranks").
 Card classes are (rank_id, suit) where suit is one of SUITS or "Wild".
 """
 
@@ -68,16 +71,74 @@ def _suit(s: str) -> frozenset[ClassKey]:
     return frozenset(k for r in RANKS for k in _suited_rank(r, s))
 
 
-# Ace-low A-2-3-4-5 through 10-J-Q-K-A; Balatro straights don't wrap around.
-STRAIGHT_WINDOWS = [(14, 2, 3, 4, 5)] + [tuple(range(lo, lo + 5)) for lo in range(2, 11)]
+def _straight_windows(rules: Rules) -> list[tuple[int, ...]]:
+    """Runs of ranks that make a Straight: 5 long, or 4 with Four Fingers.
+
+    Ace plays low (A-2-3-4-5) or high (10-J-Q-K-A); Balatro straights don't wrap around.
+    """
+    n = 4 if rules.four_fingers else 5
+    return [tuple(14 if r == 1 else r for r in range(lo, lo + n)) for lo in range(1, 16 - n)]
 
 
 def _n_of_a_kind(n: int) -> tuple[Pattern, ...]:
     return tuple((Requirement(_rank(r), n),) for r in RANKS)
 
 
+def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
+    """Straight Flush patterns; `royal` keeps every scoring card at 10 or above.
+
+    The game scores the flush cards plus the straight cards, and only names the
+    hand a Royal Flush if none of them is below 10.
+    """
+    patterns: list[Pattern] = []
+    for s in SUITS:
+        # Only cards of rank 10+ may score in a Royal Flush, so only they count
+        # towards its flush.
+        suited = frozenset(k for r in RANKS if r >= 10 or not royal for k in _suited_rank(r, s))
+        for w in _straight_windows(rules):
+            if royal and min(w) < 10:
+                continue
+            if not rules.four_fingers:
+                patterns.append(tuple(Requirement(_suited_rank(r, s), 1) for r in w))
+                continue
+            # With Four Fingers the flush and the straight may be different cards, as
+            # long as all of them fit in 5 played cards. That means: 3 run ranks have a
+            # suited card, the 4th (`m`) has any card, and there are 4 suited cards in
+            # all. The 4th suited card can't be an `m` unless the whole run is suited,
+            # so it's either the 5th card or a run card itself. These requirements
+            # overlap: suited run cards also count towards the 4.
+            for m in w:
+                patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in w if r != m),
+                                 Requirement(_rank(m), 1), Requirement(suited, 4)))
+    return tuple(patterns)
+
+
+def _flush_house(rules: Rules) -> tuple[Pattern, ...]:
+    patterns: list[Pattern] = []
+    for s in SUITS:
+        for a, b in permutations(RANKS, 2):
+            sa, sb = _suited_rank(a, s), _suited_rank(b, s)
+            patterns.append((Requirement(sa, 3), Requirement(sb, 2)))
+            if rules.four_fingers:  # one of the five cards may be off-suit
+                patterns.append((Requirement(sa, 3), Requirement(sb, 1), Requirement(_rank(b) - sb, 1)))
+                patterns.append((Requirement(sa, 2), Requirement(_rank(a) - sa, 1), Requirement(sb, 2)))
+    return tuple(patterns)
+
+
+def _flush_five(rules: Rules) -> tuple[Pattern, ...]:
+    patterns: list[Pattern] = []
+    for s in SUITS:
+        for r in RANKS:
+            sr = _suited_rank(r, s)
+            patterns.append((Requirement(sr, 5),))
+            if rules.four_fingers:  # one of the five cards may be off-suit
+                patterns.append((Requirement(sr, 4), Requirement(_rank(r) - sr, 1)))
+    return tuple(patterns)
+
+
 @cache
 def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
+    flush_size = 4 if rules.four_fingers else 5
     return {
         "Pair": _n_of_a_kind(2),
         "Two Pair": tuple(
@@ -85,29 +146,19 @@ def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
         ),
         "Three of a Kind": _n_of_a_kind(3),
         "Straight": tuple(
-            tuple(Requirement(_rank(r), 1) for r in w) for w in STRAIGHT_WINDOWS
+            tuple(Requirement(_rank(r), 1) for r in w) for w in _straight_windows(rules)
         ),
-        "Flush": tuple((Requirement(_suit(s), 5),) for s in SUITS),
+        "Flush": tuple((Requirement(_suit(s), flush_size),) for s in SUITS),
         "Full House": tuple(
             (Requirement(_rank(a), 3), Requirement(_rank(b), 2)) for a, b in permutations(RANKS, 2)
         ),
         "Four of a Kind": _n_of_a_kind(4),
-        "Straight Flush": tuple(
-            tuple(Requirement(_suited_rank(r, s), 1) for r in w)
-            for s in SUITS for w in STRAIGHT_WINDOWS
-        ),
-        # Balatro scores a Royal Flush as a Straight Flush; it's just the 10-A window.
-        "Royal Flush": tuple(
-            tuple(Requirement(_suited_rank(r, s), 1) for r in range(10, 15)) for s in SUITS
-        ),
+        "Straight Flush": _straight_flush(rules),
+        # Balatro scores a Royal Flush as a Straight Flush; it's only the display name.
+        "Royal Flush": _straight_flush(rules, royal=True),
         "Five of a Kind": _n_of_a_kind(5),
-        "Flush House": tuple(
-            (Requirement(_suited_rank(a, s), 3), Requirement(_suited_rank(b, s), 2))
-            for s in SUITS for a, b in permutations(RANKS, 2)
-        ),
-        "Flush Five": tuple(
-            (Requirement(_suited_rank(r, s), 5),) for s in SUITS for r in RANKS
-        ),
+        "Flush House": _flush_house(rules),
+        "Flush Five": _flush_five(rules),
     }
 
 
