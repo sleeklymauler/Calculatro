@@ -27,13 +27,15 @@ from math import comb
 
 from .cards import CardQuery
 from .hands import Target, card_key
+from .rules import Rules
 from .state import Card, GameState
 
 
-def probability(target: Target, kept: list[Card], pool: list[Card], draws: int) -> Fraction:
-    """P(kept + `draws` random cards from `pool` contains `target`)."""
+def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
+                rules: Rules = Rules()) -> Fraction:
+    """P(kept + `draws` random cards from `pool` contains `target` under `rules`)."""
     draws = max(0, min(draws, len(pool)))
-    patterns = target.patterns
+    patterns = target.patterns(rules)
 
     # Which (pattern, requirement) slots each class key counts towards.
     members: dict[object, list[tuple[int, int]]] = defaultdict(list)
@@ -44,14 +46,14 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int) 
 
     have = [[0] * len(pattern) for pattern in patterns]
     for card in kept:
-        for p, q in members.get(card_key(card), ()):
+        for p, q in members.get(card_key(card, rules), ()):
             have[p][q] += 1
 
     # Merge pool cards with identical membership into one class; cards that
     # count towards nothing go into the dead class.
     class_counts: Counter[tuple[tuple[int, int], ...]] = Counter()
     for card in pool:
-        sig = tuple(members.get(card_key(card), ()))
+        sig = tuple(members.get(card_key(card, rules), ()))
         class_counts[sig] += 1
     dead = class_counts.pop((), 0)
     classes = sorted(class_counts.items(),
@@ -152,14 +154,15 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
 def evaluate_discard(state: GameState, target: Target, discard: list[int]) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`."""
     d = _discard(state, discard)
-    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws)
+    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def count_probability(query: CardQuery, pool: list[Card], draws: int) -> Fraction:
+def count_probability(query: CardQuery, pool: list[Card], draws: int,
+                      rules: Rules = Rules()) -> Fraction:
     """P(the number of matching cards among `draws` drawn from `pool` satisfies `query`)."""
     draws = max(0, min(draws, len(pool)))
-    matches = sum(1 for c in pool if query.filter.test(c))
+    matches = sum(1 for c in pool if query.filter.test(c, rules))
     others = len(pool) - matches
     hits = sum(comb(matches, k) * comb(others, draws - k)
                for k in range(min(matches, draws) + 1) if query.accepts(k))
@@ -173,4 +176,4 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
     sample of the unseen pool, even when face-down cards are kept in hand.
     """
     d = _discard(state, discard)
-    return DiscardOutcome(d.discarded, d.draws, count_probability(query, d.pool, d.draws))
+    return DiscardOutcome(d.discarded, d.draws, count_probability(query, d.pool, d.draws, state.rules))

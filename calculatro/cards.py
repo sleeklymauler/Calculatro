@@ -10,6 +10,7 @@ filter and are ANDed with it: "foil queen" is a Queen with the Foil edition.
 A bare count means "at least" ("2 queens" = at least 2); "no"/"zero"/"0"
 means none. Suits follow Balatro's flush rules: Wild Cards (unless
 debuffed) count as every suit, and Stone Cards have no rank or suit.
+Face cards follow `Card:is_face`: a debuffed card is never a face card.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .rules import Rules
 from .state import RANK_SHORT, SUIT_SHORT, SUITS, Card
 
 _RANK_WORDS = {
@@ -38,16 +40,20 @@ _SUIT_WORDS = {
 }
 
 
-def _has_rank(card: Card, rank: int) -> bool:
+def _has_rank(card: Card, rank: int, rules: Rules) -> bool:
     return not card.is_stone and card.rank_id == rank
 
 
-def _has_suit(card: Card, suit: str) -> bool:
+def _has_suit(card: Card, suit: str, rules: Rules) -> bool:
     if card.is_stone:
         return False
     if card.is_wild and not card.debuff:
         return True
     return card.suit == suit
+
+
+def _is_face(card: Card, rules: Rules) -> bool:
+    return not card.debuff and not card.is_stone and card.rank_id in (11, 12, 13)
 
 
 def _rank_name(r: int) -> str:
@@ -57,7 +63,7 @@ def _rank_name(r: int) -> str:
 @dataclass(frozen=True)
 class CardFilter:
     name: str
-    test: Callable[[Card], bool]
+    test: Callable[[Card, Rules], bool]
 
 
 @dataclass(frozen=True)
@@ -100,13 +106,16 @@ _SEALS = ["Red", "Blue", "Gold", "Purple"]
 
 def _modifiers() -> list[tuple[str, CardFilter]]:
     """(phrase, filter) pairs, longest phrase first so "gold seal" beats "gold"."""
-    mods = [(f"{s.lower()} seal", CardFilter(f"{s} Seal", lambda c, s=s: c.seal == s)) for s in _SEALS]
-    mods += [(w, CardFilter("Sealed", lambda c: c.seal is not None)) for w in ("any seal", "sealed", "seal")]
-    mods += [(w, CardFilter(name, lambda c, e=e: c.edition == e)) for w, (e, name) in _EDITIONS.items()]
-    mods += [(w, CardFilter("Edition", lambda c: c.edition is not None)) for w in ("editioned", "edition")]
-    mods += [(w, CardFilter(w.capitalize(), lambda c, k=k: c.enhancement == k))
+    mods = [(f"{s.lower()} seal", CardFilter(f"{s} Seal", lambda c, rules, s=s: c.seal == s)) for s in _SEALS]
+    mods += [(w, CardFilter("Sealed", lambda c, rules: c.seal is not None))
+             for w in ("any seal", "sealed", "seal")]
+    mods += [(w, CardFilter(name, lambda c, rules, e=e: c.edition == e))
+             for w, (e, name) in _EDITIONS.items()]
+    mods += [(w, CardFilter("Edition", lambda c, rules: c.edition is not None))
+             for w in ("editioned", "edition")]
+    mods += [(w, CardFilter(w.capitalize(), lambda c, rules, k=k: c.enhancement == k))
              for w, k in _ENHANCEMENTS.items()]
-    mods.append(("enhanced", CardFilter("Enhanced", lambda c: c.enhancement not in (None, "c_base"))))
+    mods.append(("enhanced", CardFilter("Enhanced", lambda c, rules: c.enhancement not in (None, "c_base"))))
     return sorted(mods, key=lambda m: len(m[0]), reverse=True)
 
 
@@ -133,19 +142,19 @@ def parse_filter(text: str) -> CardFilter:
     base = _parse_base(t, text) if t else None
     filters = mods + ([base] if base else [])
     name = " ".join(f.name for f in mods) + " " + (base.name if base else "card")
-    return CardFilter(name, lambda c: all(f.test(c) for f in filters))
+    return CardFilter(name, lambda c, rules: all(f.test(c, rules) for f in filters))
 
 
 def _parse_base(t: str, text: str) -> CardFilter:
     t = _singular(t)
     if t == "face":
-        return CardFilter("Face card", lambda c: not c.is_stone and c.rank_id in (11, 12, 13))
+        return CardFilter("Face card", _is_face)
     if t in _RANK_WORDS:
         r = _RANK_WORDS[t]
-        return CardFilter(_rank_name(r), lambda c, r=r: _has_rank(c, r))
+        return CardFilter(_rank_name(r), lambda c, rules, r=r: _has_rank(c, r, rules))
     if t in _SUIT_WORDS:
         s = _SUIT_WORDS[t]
-        return CardFilter(s[:-1], lambda c, s=s: _has_suit(c, s))
+        return CardFilter(s[:-1], lambda c, rules, s=s: _has_suit(c, s, rules))
     # Specific card: "2c", "QS", "2♣" or "2 of clubs" (but not "2 clubs", a count).
     for word in sorted(_RANK_WORDS, key=len, reverse=True):
         if not t.startswith(word):
@@ -155,7 +164,8 @@ def _parse_base(t: str, text: str) -> CardFilter:
         if suit in _SUIT_WORDS:
             r, s = _RANK_WORDS[word], _SUIT_WORDS[suit]
             name = RANK_SHORT.get(_rank_name(r), _rank_name(r)) + SUIT_SHORT[s]
-            return CardFilter(name, lambda c, r=r, s=s: _has_rank(c, r) and _has_suit(c, s))
+            return CardFilter(name, lambda c, rules, r=r, s=s:
+                              _has_rank(c, r, rules) and _has_suit(c, s, rules))
     raise ValueError(
         f"unknown card filter {text!r}; use a rank (queen, Q, 10), suit (spade), "
         "specific card (2 of clubs, 2C), 'face', or a modifier (lucky, mult, foil, "

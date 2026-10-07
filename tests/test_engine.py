@@ -144,7 +144,7 @@ def test_combined_targets_match_brute_force():
 def test_overlapping_targets_match_brute_force(names):
     rng = random.Random(" ".join(names))
     target = combine([get_target(n) for n in names])
-    assert len(target.patterns) < sum(len(get_target(n).patterns) for n in names)  # pruned
+    assert len(target.patterns()) < sum(len(get_target(n).patterns()) for n in names)  # pruned
     for _ in range(6):
         kept = [random_card(rng) for _ in range(3)]
         pool = [random_card(rng) for _ in range(11)]

@@ -11,6 +11,7 @@ import pytest
 
 from calculatro.cards import parse_query
 from calculatro.engine import count_probability, evaluate_cards
+from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
@@ -19,6 +20,10 @@ RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
 def card(rank_id: int, suit: str, enhancement: str = "c_base", debuff: bool = False, **kw) -> Card:
     return Card(rank=RANK_NAMES.get(rank_id, str(rank_id)), rank_id=rank_id, suit=suit,
                 enhancement=enhancement, debuff=debuff, **kw)
+
+
+def matches(text: str, c: Card, rules: Rules = Rules()) -> bool:
+    return parse_query(text).filter.test(c, rules)
 
 
 @pytest.mark.parametrize("text, label", [
@@ -78,13 +83,13 @@ def test_match_rules():
     wild = card(5, "Hearts", "m_wild")
     stone = card(12, "Spades", "m_stone")
     debuffed_wild = card(5, "Hearts", "m_wild", debuff=True)
-    spade = parse_query("spade").filter.test
-    assert spade(wild) and not spade(stone) and not spade(debuffed_wild)
-    assert not parse_query("queen").filter.test(stone)
-    assert not parse_query("face").filter.test(stone)
-    assert parse_query("face").filter.test(card(11, "Clubs"))
-    assert not parse_query("face").filter.test(card(14, "Clubs"))
-    assert parse_query("5 of spades").filter.test(wild)
+    assert matches("spade", wild) and not matches("spade", stone) and not matches("spade", debuffed_wild)
+    assert not matches("queen", stone)
+    assert not matches("face", stone)
+    assert matches("face", card(11, "Clubs"))
+    assert not matches("face", card(14, "Clubs"))
+    assert not matches("face", card(11, "Clubs", debuff=True))
+    assert matches("5 of spades", wild)
 
 
 def test_modifier_rules():
@@ -93,25 +98,22 @@ def test_modifier_rules():
     gold = card(3, "Clubs", "m_gold")
     gold_seal = card(3, "Clubs", seal="Gold")
 
-    def test(text, c):
-        return parse_query(text).filter.test(c)
-
-    assert test("lucky", lucky_q) and not test("lucky", plain_q)
-    assert test("lucky red seal queen", lucky_q) and not test("lucky red seal king", lucky_q)
-    assert test("foil heart", lucky_q) and not test("polychrome", lucky_q)
-    assert test("gold", gold) and not test("gold", gold_seal)
-    assert test("gold seal", gold_seal) and not test("gold seal", gold)
-    assert test("sealed", gold_seal) and not test("sealed", gold)
-    assert test("enhanced", gold) and not test("enhanced", gold_seal) and not test("enhanced", plain_q)
-    assert test("edition", lucky_q) and not test("edition", plain_q)
+    assert matches("lucky", lucky_q) and not matches("lucky", plain_q)
+    assert matches("lucky red seal queen", lucky_q) and not matches("lucky red seal king", lucky_q)
+    assert matches("foil heart", lucky_q) and not matches("polychrome", lucky_q)
+    assert matches("gold", gold) and not matches("gold", gold_seal)
+    assert matches("gold seal", gold_seal) and not matches("gold seal", gold)
+    assert matches("sealed", gold_seal) and not matches("sealed", gold)
+    assert matches("enhanced", gold) and not matches("enhanced", gold_seal) and not matches("enhanced", plain_q)
+    assert matches("edition", lucky_q) and not matches("edition", plain_q)
     # Stone Cards have no rank, so a "stone queen" can't exist.
-    assert test("stone", card(12, "Hearts", "m_stone")) and not test("stone queen", card(12, "Hearts", "m_stone"))
+    assert matches("stone", card(12, "Hearts", "m_stone")) and not matches("stone queen", card(12, "Hearts", "m_stone"))
     # Debuffed cards are still drawn as what they are.
-    assert test("mult", card(5, "Spades", "m_mult", debuff=True))
+    assert matches("mult", card(5, "Spades", "m_mult", debuff=True))
 
 
 def brute(query, pool, draws) -> Fraction:
-    hits = sum(query.accepts(sum(map(query.filter.test, d))) for d in combinations(pool, draws))
+    hits = sum(query.accepts(sum(query.filter.test(c, Rules()) for c in d)) for d in combinations(pool, draws))
     return Fraction(hits, comb(len(pool), draws))
 
 

@@ -11,7 +11,8 @@ from calculatro.__main__ import odds, summarize
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.source import FileStateSource
-from calculatro.state import GameState
+from calculatro.rules import Rules
+from calculatro.state import GameState, Joker
 
 lupa = pytest.importorskip("lupa")
 
@@ -47,7 +48,10 @@ G = {
     card('5', 5, 'Hearts', {center = 'm_stone'}), card('10', 10, 'Diamonds', {debuff = true}),
   }},
   discard = {cards = {card('3', 3, 'Clubs')}},
-  jokers = {cards = {{config = {center_key = 'j_four_fingers'}}}},
+  jokers = {cards = {
+    {config = {center_key = 'j_four_fingers'}},
+    {config = {center_key = 'j_smeared'}, debuff = true},
+  }},
 }
 """
 
@@ -75,9 +79,21 @@ def test_snapshot_parses(lua):
     assert [c.short() for c in state.hand] == ["Q♥", "Q♠", "9♣", "9♦", "??"]
     assert state.hand[2].seal == "Red" and state.hand[3].edition == "foil"
     assert len(state.deck) == 4 and len(state.discard) == 1
-    assert state.jokers == ["j_four_fingers"]
+    assert state.jokers == [Joker("j_four_fingers"), Joker("j_smeared", debuff=True)]
+    assert state.rules == Rules(four_fingers=True)  # a debuffed joker has no effect
+    assert "Jokers: j_four_fingers, j_smeared (debuffed)" in summarize(state)
     assert state.selected == [2, 3]
     assert [c.short() for c in state.hidden_pool] == ["2♥"]
+
+
+def test_rules_from_jokers():
+    assert Rules.from_jokers([]) == Rules()
+    # Copies change nothing; Splash and other jokers don't change the odds.
+    jokers = [Joker("j_shortcut"), Joker("j_shortcut"), Joker("j_splash"), Joker("j_joker")]
+    assert Rules.from_jokers(jokers) == Rules(shortcut=True)
+    # One debuffed copy doesn't cancel another that isn't.
+    jokers = [Joker("j_pareidolia", debuff=True), Joker("j_pareidolia"), Joker("j_smeared", debuff=True)]
+    assert Rules.from_jokers(jokers) == Rules(pareidolia=True)
 
 
 def test_odds_for_selection(lua):
