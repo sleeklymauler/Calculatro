@@ -19,7 +19,7 @@ No runtime dependencies; `pytest` and `lupa` are dev-only. There is no linter co
 Two halves connected by a JSON file:
 
 1. **Lovely mod** (`mod/Calculatro/`): `lovely.toml` registers `calculatro.lua` as a module and patches `Game:update` to call it every frame. The module throttles itself to ~5 snapshots/sec, serializes Balatro's global `G` with its own JSON encoder, and writes `%AppData%\Balatro\calculatro_state.json` only when the output changes (write to `.tmp`, remove, rename — the Python reader tolerates the file briefly missing).
-2. **Python app** (`calculatro/`): `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card` dataclasses → `engine.py` computes exact odds → `__main__.py` formats output.
+2. **Python app** (`calculatro/`): `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card` dataclasses → `engine.py` computes exact odds → `__main__.py` formats output. `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread): each new state cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`), and odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready. Keep new slow code paths cancellable.
 
 ### Contract between the halves
 
