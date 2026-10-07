@@ -139,7 +139,12 @@ def random_card(rng: random.Random) -> Card:
     return card(r, s)
 
 
-RULESETS = {"no jokers": Rules(), "four fingers": Rules(four_fingers=True)}
+RULESETS = {
+    "no jokers": Rules(),
+    "four fingers": Rules(four_fingers=True),
+    "shortcut": Rules(shortcut=True),
+    "four fingers + shortcut": Rules(four_fingers=True, shortcut=True),
+}
 
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
@@ -193,11 +198,14 @@ def dense_card(rng: random.Random, low_rank: int) -> Card:
     return card(r, s)
 
 
+FOUR_FINGERS_RULESETS = {k: v for k, v in RULESETS.items() if v.four_fingers}
+
+
+@pytest.mark.parametrize("rules", FOUR_FINGERS_RULESETS.values(), ids=FOUR_FINGERS_RULESETS.keys())
 @pytest.mark.parametrize("name, low_rank", [
     ("Straight Flush", 8), ("Royal Flush", 9), ("Flush House", 11), ("Flush Five", 12),
 ])
-def test_four_fingers_flush_hands_match_brute_force(name, low_rank):
-    rules = Rules(four_fingers=True)
+def test_four_fingers_flush_hands_match_brute_force(name, low_rank, rules):
     rng = random.Random(name)
     for _ in range(8):
         kept = [dense_card(rng, low_rank) for _ in range(rng.randint(2, 4))]
@@ -287,6 +295,55 @@ def test_four_fingers_examples(hand, hands):
     for name in TARGETS:
         expected = Fraction(name in hands)
         assert probability(get_target(name), cards, [], 0, Rules(four_fingers=True)) == expected, name
+
+
+SHORTCUT = Rules(shortcut=True)
+BOTH = Rules(four_fingers=True, shortcut=True)
+
+
+@pytest.mark.parametrize("hand, rules, straight", [
+    # One missing rank between cards is skipped, every time (docs/jokers.md).
+    ("TS 8H 6D 4C 2S", SHORTCUT, True),
+    ("AS 3H 5D 7C 9S", SHORTCUT, True),  # Ace low
+    ("9S JH KD AC 7S", SHORTCUT, True),  # Ace high
+    ("2S 3H 4D 5C 8S", SHORTCUT, False),  # two missing ranks in a row break the run
+    ("JS KH AD 2C 4S", SHORTCUT, False),  # no wrap-around
+    ("2S 3H 4D 5C 8S", Rules(), False),
+    # Both jokers: 4 ranks, each at most one rank apart.
+    ("2S 4H 6D 8C", BOTH, True),
+    ("QS AH 3D 5C", BOTH, False),
+    ("TS QH AD", BOTH, False),  # too few cards
+])
+def test_shortcut_examples(hand, rules, straight):
+    cards = hand_of(hand)
+    assert contains(cards, {"Straight"}, rules) == straight
+    assert probability(get_target("Straight"), cards, [], 0, rules) == straight
+
+
+@pytest.mark.parametrize("hand, hands", [
+    # The Four Fingers flush and the Shortcut straight may be different cards.
+    ("2H 4H 6H KH 8S", {"Straight Flush", "Straight", "Flush"}),
+    # Royal: any 4 of 10-J-Q-K-A make a straight, and nothing below 10 scores.
+    ("TH JH KH AH 2S", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+    ("TH QH KH AH", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+])
+def test_four_fingers_shortcut_examples(hand, hands):
+    cards = hand_of(hand)
+    assert {n for n in TARGETS if contains(cards, {n}, BOTH)} == hands
+    for name in TARGETS:
+        assert probability(get_target(name), cards, [], 0, BOTH) == Fraction(name in hands), name
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("name", ["Straight", "Straight Flush"])
+def test_low_straights_match_brute_force(name, rules):
+    """Ranks 2-8 and Aces, so Ace-low runs and Shortcut skips near the bottom come up."""
+    rng = random.Random(name)
+    ranks = [14, 2, 3, 4, 5, 6, 7, 8]
+    for _ in range(6):
+        cards = [card(rng.choice(ranks), rng.choice(["Hearts", "Spades"])) for _ in range(14)]
+        kept, pool = cards[:3], cards[3:]
+        assert probability(get_target(name), kept, pool, 3, rules) == brute({name}, kept, pool, 3, rules)
 
 
 def test_qq99_example():

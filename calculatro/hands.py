@@ -73,13 +73,20 @@ def suit_keys(s: str) -> frozenset[ClassKey]:
     return frozenset(k for r in RANKS for k in _suited_rank(r, s))
 
 
+@cache
 def _straight_windows(rules: Rules) -> list[tuple[int, ...]]:
-    """Runs of ranks that make a Straight: 5 long, or 4 with Four Fingers.
+    """Sets of ranks that make a Straight: 5 of them, or 4 with Four Fingers.
 
-    Ace plays low (A-2-3-4-5) or high (10-J-Q-K-A); Balatro straights don't wrap around.
+    Each rank follows the previous one, or with Shortcut may skip one rank
+    (`10 8 6 4 2`). Ace plays low (A-2-3-4-5) or high (10-J-Q-K-A); Balatro
+    straights don't wrap around.
     """
     n = 4 if rules.four_fingers else 5
-    return [tuple(14 if r == 1 else r for r in range(lo, lo + n)) for lo in range(1, 16 - n)]
+    steps = (1, 2) if rules.shortcut else (1,)
+    runs = [(lo,) for lo in range(1, 15)]  # 1 is the low Ace
+    for _ in range(n - 1):
+        runs = [(*run, run[-1] + d) for run in runs for d in steps if run[-1] + d <= 14]
+    return [tuple(14 if r == 1 else r for r in run) for run in runs]
 
 
 def _n_of_a_kind(n: int) -> tuple[Pattern, ...]:
