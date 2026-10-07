@@ -45,6 +45,26 @@ def card(rank_id: int, suit: str, enhancement: str = "c_base", debuff: bool = Fa
     ("purple", None),
     ("aces", "Ace: at least 1"),
     ("♥", "Heart: at least 1"),
+    ("lucky", "Lucky card: at least 1"),
+    ("2+ mult cards", "Mult card: at least 2"),
+    ("no glass cards", "Glass card: none"),
+    ("a gold card", "Gold card: at least 1"),
+    ("gold seal", "Gold Seal card: at least 1"),
+    ("2 red seals", "Red Seal card: at least 2"),
+    ("any seal", "Sealed card: at least 1"),
+    ("sealed cards", "Sealed card: at least 1"),
+    ("polychrome", "Polychrome card: at least 1"),
+    ("holo", "Holographic card: at least 1"),
+    ("exactly 1 foil", "Foil card: exactly 1"),
+    ("edition", "Edition card: at least 1"),
+    ("enhanced", "Enhanced card: at least 1"),
+    ("foil hearts", "Foil Heart: at least 1"),
+    ("lucky red seal queen", "Lucky Red Seal Queen: at least 1"),
+    ("2+ steel kings", "Steel King: at least 2"),
+    ("bonus 2 of clubs", "Bonus 2♣: at least 1"),
+    ("wild", "Wild card: at least 1"),
+    ("red", None),
+    ("lucky purple", None),
 ])
 def test_parse(text, label):
     if label is None:
@@ -67,19 +87,46 @@ def test_match_rules():
     assert parse_query("5 of spades").filter.test(wild)
 
 
+def test_modifier_rules():
+    lucky_q = card(12, "Hearts", "m_lucky", seal="Red", edition="foil")
+    plain_q = card(12, "Hearts")
+    gold = card(3, "Clubs", "m_gold")
+    gold_seal = card(3, "Clubs", seal="Gold")
+
+    def test(text, c):
+        return parse_query(text).filter.test(c)
+
+    assert test("lucky", lucky_q) and not test("lucky", plain_q)
+    assert test("lucky red seal queen", lucky_q) and not test("lucky red seal king", lucky_q)
+    assert test("foil heart", lucky_q) and not test("polychrome", lucky_q)
+    assert test("gold", gold) and not test("gold", gold_seal)
+    assert test("gold seal", gold_seal) and not test("gold seal", gold)
+    assert test("sealed", gold_seal) and not test("sealed", gold)
+    assert test("enhanced", gold) and not test("enhanced", gold_seal) and not test("enhanced", plain_q)
+    assert test("edition", lucky_q) and not test("edition", plain_q)
+    # Stone Cards have no rank, so a "stone queen" can't exist.
+    assert test("stone", card(12, "Hearts", "m_stone")) and not test("stone queen", card(12, "Hearts", "m_stone"))
+    # Debuffed cards are still drawn as what they are.
+    assert test("mult", card(5, "Spades", "m_mult", debuff=True))
+
+
 def brute(query, pool, draws) -> Fraction:
     hits = sum(query.accepts(sum(map(query.filter.test, d))) for d in combinations(pool, draws))
     return Fraction(hits, comb(len(pool), draws))
 
 
 @pytest.mark.parametrize("text", ["queen", "2+ hearts", "no face cards", "exactly 1 spade",
-                                  "at most 1 club", "2 of clubs", "3+ face"])
+                                  "at most 1 club", "2 of clubs", "3+ face", "2+ lucky",
+                                  "no red seals", "foil hearts", "exactly 1 enhanced", "polychrome"])
 def test_matches_brute_force(text):
     rng = random.Random(text)
     query = parse_query(text)
     for _ in range(5):
         pool = [card(rng.randint(2, 14), rng.choice(SUITS),
-                     rng.choice(["c_base"] * 6 + ["m_wild", "m_stone"])) for _ in range(rng.randint(8, 14))]
+                     rng.choice(["c_base"] * 6 + ["m_wild", "m_stone", "m_lucky", "m_mult"]),
+                     seal=rng.choice([None] * 3 + ["Red", "Gold"]),
+                     edition=rng.choice([None] * 3 + ["foil", "polychrome"]))
+                for _ in range(rng.randint(8, 14))]
         draws = rng.randint(1, 5)
         assert count_probability(query, pool, draws) == brute(query, pool, draws)
 

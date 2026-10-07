@@ -1,7 +1,11 @@
 """Card-count queries over the cards drawn after a discard.
 
 Examples: "queen", "2+ queens", "at least 2 queens", "no face cards",
-"exactly 1 spade", "<=1 heart", "2 of clubs", "2c", "QS".
+"exactly 1 spade", "<=1 heart", "2 of clubs", "2c", "QS", "lucky", "2+ mult cards",
+"red seal", "foil hearts", "lucky red seal queen".
+
+Modifiers (enhancement, edition, seal) go before an optional rank/suit/card
+filter and are ANDed with it: "foil queen" is a Queen with the Foil edition.
 
 A bare count means "at least" ("2 queens" = at least 2); "no"/"zero"/"0"
 means none. Suits follow Balatro's flush rules: Wild Cards (unless
@@ -82,9 +86,57 @@ def _singular(word: str) -> str:
     return word[:-1] if word.endswith("s") and word[:-1] in _PLURALS else word
 
 
+_ENHANCEMENTS = {
+    "bonus": "m_bonus", "mult": "m_mult", "wild": "m_wild", "glass": "m_glass",
+    "steel": "m_steel", "stone": "m_stone", "gold": "m_gold", "lucky": "m_lucky",
+}
+_EDITIONS = {
+    "foil": ("foil", "Foil"), "holographic": ("holo", "Holographic"), "holo": ("holo", "Holographic"),
+    "polychrome": ("polychrome", "Polychrome"), "poly": ("polychrome", "Polychrome"),
+    "negative": ("negative", "Negative"),
+}
+_SEALS = ["Red", "Blue", "Gold", "Purple"]
+
+
+def _modifiers() -> list[tuple[str, CardFilter]]:
+    """(phrase, filter) pairs, longest phrase first so "gold seal" beats "gold"."""
+    mods = [(f"{s.lower()} seal", CardFilter(f"{s} Seal", lambda c, s=s: c.seal == s)) for s in _SEALS]
+    mods += [(w, CardFilter("Sealed", lambda c: c.seal is not None)) for w in ("any seal", "sealed", "seal")]
+    mods += [(w, CardFilter(name, lambda c, e=e: c.edition == e)) for w, (e, name) in _EDITIONS.items()]
+    mods += [(w, CardFilter("Edition", lambda c: c.edition is not None)) for w in ("editioned", "edition")]
+    mods += [(w, CardFilter(w.capitalize(), lambda c, k=k: c.enhancement == k))
+             for w, k in _ENHANCEMENTS.items()]
+    mods.append(("enhanced", CardFilter("Enhanced", lambda c: c.enhancement not in (None, "c_base"))))
+    return sorted(mods, key=lambda m: len(m[0]), reverse=True)
+
+
+_MODIFIERS = _modifiers()
+
+
+def _match_modifier(t: str) -> tuple[CardFilter, str] | None:
+    for phrase, f in _MODIFIERS:
+        m = re.match(rf"{phrase}s?(?:\s+|$)", t)
+        if m:
+            return f, t[m.end():]
+    return None
+
+
 def parse_filter(text: str) -> CardFilter:
     t = text.strip().lower()
     t = re.sub(r"\s+cards?$", "", t)  # "face cards", "queen card"
+    mods: list[CardFilter] = []
+    while (m := _match_modifier(t)):
+        mods.append(m[0])
+        t = m[1]
+    if not mods:
+        return _parse_base(t, text)
+    base = _parse_base(t, text) if t else None
+    filters = mods + ([base] if base else [])
+    name = " ".join(f.name for f in mods) + " " + (base.name if base else "card")
+    return CardFilter(name, lambda c: all(f.test(c) for f in filters))
+
+
+def _parse_base(t: str, text: str) -> CardFilter:
     t = _singular(t)
     if t == "face":
         return CardFilter("Face card", lambda c: not c.is_stone and c.rank_id in (11, 12, 13))
@@ -106,7 +158,8 @@ def parse_filter(text: str) -> CardFilter:
             return CardFilter(name, lambda c, r=r, s=s: _has_rank(c, r) and _has_suit(c, s))
     raise ValueError(
         f"unknown card filter {text!r}; use a rank (queen, Q, 10), suit (spade), "
-        "specific card (2 of clubs, 2C) or 'face'"
+        "specific card (2 of clubs, 2C), 'face', or a modifier (lucky, mult, foil, "
+        "polychrome, red seal, enhanced, ...) optionally followed by one of those"
     )
 
 
