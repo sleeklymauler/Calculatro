@@ -22,6 +22,7 @@ def summarize(state: GameState) -> str:
     rank_line = "  ".join(f"{RANK_SHORT.get(r, r)}:{ranks[r]}" for r in RANK_ORDER)
     suit_line = "  ".join(f"{SUIT_SHORT[s]}:{suits[s]}" for s in SUITS)
     special = len(state.deck) - sum(ranks.values())
+    jokers = ", ".join(j.key + (" (debuffed)" if j.debuff else "") for j in state.jokers)
     lines = [
         f"State: {state.state}   Blind: {state.blind or '-'}",
         f"Hand size: {state.hand_size}   Hands left: {state.hands_left}   Discards left: {state.discards_left}",
@@ -29,7 +30,7 @@ def summarize(state: GameState) -> str:
         f"Deck ({len(state.deck)} cards remaining)",
         f"  Ranks: {rank_line}",
         f"  Suits: {suit_line}" + (f"   (+{special} stone)" if special else ""),
-        f"Discard pile: {len(state.discard)}   Jokers: {', '.join(state.jokers) or '-'}",
+        f"Discard pile: {len(state.discard)}   Jokers: {jokers or '-'}",
     ]
     return "\n".join(lines)
 

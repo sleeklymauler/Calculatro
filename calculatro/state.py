@@ -6,6 +6,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from .rules import Rules
+
 SCHEMA = 2
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
@@ -59,6 +61,12 @@ class Card:
         return f"{rank}{suit}"
 
 
+@dataclass(frozen=True)
+class Joker:
+    key: str
+    debuff: bool = False  # a debuffed joker has no effect
+
+
 def _cards(raw: Any) -> list[Card]:
     # An empty Lua table may arrive as {} instead of [].
     if not raw:
@@ -79,7 +87,7 @@ class GameState:
     deck: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
     hidden_pool: list[Card] = field(default_factory=list)  # identities of face-down hand cards
-    jokers: list[str] = field(default_factory=list)
+    jokers: list[Joker] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -100,8 +108,14 @@ class GameState:
             deck=_cards(d.get("deck")),
             discard=_cards(d.get("discard")),
             hidden_pool=_cards(d.get("hidden_pool")),
-            jokers=[j.get("key") for j in (d.get("jokers") or []) if j.get("key")],
+            jokers=[Joker(j["key"], bool(j.get("debuff", False)))
+                    for j in (d.get("jokers") or []) if j.get("key")],
         )
+
+    @property
+    def rules(self) -> Rules:
+        """Hand and card rules from the active (non-debuffed) jokers."""
+        return Rules.from_jokers(self.jokers)
 
     @property
     def selected(self) -> list[int]:

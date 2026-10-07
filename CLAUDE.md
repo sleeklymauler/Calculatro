@@ -33,7 +33,9 @@ Two halves connected by a JSON file:
 - `hands.py` expresses each poker-hand target as OR-of-patterns, each pattern an AND of disjoint `Requirement`s ("at least `need` cards whose class key is in `keys`"). Class keys are `(rank_id, suit)` with suit `"Wild"` for wild cards. Containment follows Balatro's rules (Straight Flush contains Straight; Four of a Kind does *not* contain Two Pair). Stone/hidden cards have no key; a debuffed Wild loses wildness. `combine()` builds an "any of these targets" Target, pruning implied patterns.
 - `engine.probability()` is exact (`Fraction`), not Monte Carlo: pool cards are merged into classes by which requirements they count toward, then enumerated class-by-class hypergeometrically with early-accept (satisfied ⇒ binomial of remaining), pruning of unreachable patterns, and memoization on remaining deficits. See the module docstring before modifying.
 - `cards.py` parses `-c` queries (`"2+ queens"`, `"at most 1 spade"`, `"QS"`) into `CardQuery`; these count only over the newly drawn cards (`engine.evaluate_cards`), whereas targets cover the whole final hand (`engine.evaluate_discard`).
+- Joker rules (Four Fingers, Shortcut, Smeared, Pareidolia) live in `rules.Rules`, built by `GameState.rules` from non-debuffed jokers. A `Target` only names hand types; `Target.patterns(rules)` builds (and caches) the patterns for a ruleset, and `card_key`, `probability`, `count_probability` and `CardFilter.test` all take the `Rules`.
 - The "discard" scenario uses the cards currently highlighted in game (`GameState.selected`).
+- `docs/jokers.md` is the joker reference (all 150, with internal keys and the exact game rules for Four Fingers / Shortcut / Smeared / Pareidolia). Use it instead of the wiki PDF.
 
 ### Tests
 

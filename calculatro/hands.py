@@ -6,6 +6,8 @@ This mirrors Balatro's own containment: a Full House contains Two Pair, a
 Straight Flush contains both Straight and Flush, but Four of a Kind does not
 contain Two Pair.
 
+A Target names the hand types; its patterns depend on the joker Rules in
+play (Four Fingers, Shortcut, Smeared) and are built per Rules on demand.
 Each target is a list of patterns (OR). A pattern is a tuple of disjoint
 requirements (AND): "at least `need` cards whose class is in `keys`".
 Card classes are (rank_id, suit) where suit is one of SUITS or "Wild".
@@ -17,6 +19,7 @@ from dataclasses import dataclass
 from functools import cache
 from itertools import combinations, permutations
 
+from .rules import Rules
 from .state import SUITS, Card
 
 WILD = "Wild"
@@ -36,11 +39,15 @@ Pattern = tuple[Requirement, ...]
 
 @dataclass(frozen=True)
 class Target:
+    """One or more hand types; satisfied if the final hand contains any of them."""
     name: str
-    patterns: tuple[Pattern, ...]
+    hands: tuple[str, ...]
+
+    def patterns(self, rules: Rules = Rules()) -> tuple[Pattern, ...]:
+        return _patterns(self.hands, rules)
 
 
-def card_key(card: Card) -> ClassKey | None:
+def card_key(card: Card, rules: Rules = Rules()) -> ClassKey | None:
     """Class of a known card for hand evaluation; None if it can't contribute."""
     if card.hidden or card.is_stone or card.rank_id is None or card.suit is None:
         return None
@@ -69,8 +76,9 @@ def _n_of_a_kind(n: int) -> tuple[Pattern, ...]:
     return tuple((Requirement(_rank(r), n),) for r in RANKS)
 
 
-def _build() -> dict[str, Target]:
-    t: dict[str, tuple[Pattern, ...]] = {
+@cache
+def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
+    return {
         "Pair": _n_of_a_kind(2),
         "Two Pair": tuple(
             (Requirement(_rank(a), 2), Requirement(_rank(b), 2)) for a, b in combinations(RANKS, 2)
@@ -101,10 +109,9 @@ def _build() -> dict[str, Target]:
             (Requirement(_suited_rank(r, s), 5),) for s in SUITS for r in RANKS
         ),
     }
-    return {name: Target(name, patterns) for name, patterns in t.items()}
 
 
-TARGETS: dict[str, Target] = _build()
+TARGETS: dict[str, Target] = {name: Target(name, (name,)) for name in _hand_patterns(Rules())}
 
 _ALIASES = {"trips": "Three of a Kind", "quads": "Four of a Kind", "royal": "Royal Flush"}
 
@@ -152,10 +159,14 @@ def combine(targets: list[Target]) -> Target:
     """A target satisfied when any of `targets` is (e.g. Three of a Kind OR Full House)."""
     if len(targets) == 1:
         return targets[0]
-    return _combine(tuple(dict.fromkeys(targets)))
+    targets = list(dict.fromkeys(targets))
+    hands = tuple(dict.fromkeys(h for t in targets for h in t.hands))
+    return Target(" / ".join(t.name for t in targets), hands)
 
 
 @cache
-def _combine(targets: tuple[Target, ...]) -> Target:
-    name = " / ".join(t.name for t in targets)
-    return Target(name, _minimal(tuple(p for t in targets for p in t.patterns)))
+def _patterns(hands: tuple[str, ...], rules: Rules) -> tuple[Pattern, ...]:
+    by_hand = _hand_patterns(rules)
+    if len(hands) == 1:
+        return by_hand[hands[0]]
+    return _minimal(tuple(p for h in hands for p in by_hand[h]))
