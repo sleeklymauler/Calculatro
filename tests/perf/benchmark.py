@@ -1,0 +1,185 @@
+"""Time the engine on the scenarios in scenarios.py.
+
+    .venv\\Scripts\\python tests\\perf\\benchmark.py                 # all scenarios
+    .venv\\Scripts\\python tests\\perf\\benchmark.py -k "Four Fingers" -k House
+    .venv\\Scripts\\python tests\\perf\\benchmark.py --save tests\\perf\\baseline.json
+    .venv\\Scripts\\python tests\\perf\\benchmark.py --compare tests\\perf\\baseline.json --markdown
+
+Each scenario runs up to --repeat times, stopping early once its runs add up to
+--budget seconds, so slow scenarios get fewer runs. A run longer than --timeout
+seconds is cancelled and reported as "> timeout". One-off costs (building a
+target's patterns, filling caches) are kept out of the timings; see measure().
+
+To time an older version, check it out somewhere and put it first on
+PYTHONPATH; the "Engine:" line shows which one was imported.
+
+--save writes means and exact results as JSON (test_perf.py checks against
+tests/perf/baseline.json); --compare adds a column from such a file.
+See docs/performance/README.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import platform
+import statistics
+import sys
+import time
+from datetime import date
+from pathlib import Path
+from threading import Event, Timer
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from scenarios import JOKERS, SCENARIOS, Scenario  # noqa: E402
+
+import calculatro.engine  # noqa: E402
+from calculatro.engine import Cancelled  # noqa: E402
+
+WARMUP = 1.0  # seconds; see measure()
+NOISY = 0.25  # a standard deviation above this fraction of the mean, see --rerun-noisy
+
+
+def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> dict:
+    """Timings of up to `repeat` runs; `timed_out` if a run hit `timeout`.
+
+    The first run fills one-off caches. It's left out unless it took over
+    WARMUP seconds, since then those costs are lost in the noise and
+    repeating it would be expensive.
+    """
+    scenario.prepare()
+    times: list[float] = []
+    result = None
+    warmup = True
+    while len(times) < repeat and sum(times) < budget:
+        cancel = Event()
+        timer = Timer(timeout, cancel.set)
+        timer.start()
+        start = time.perf_counter()
+        try:
+            result = scenario.run(cancel)
+        except Cancelled:
+            return {"timed_out": timeout, "runs": len(times)}
+        finally:
+            timer.cancel()
+        elapsed = time.perf_counter() - start
+        if warmup:
+            warmup = False
+            if elapsed < WARMUP:
+                continue
+        times.append(elapsed)
+    return {
+        "runs": len(times),
+        "mean": statistics.fmean(times),
+        "stdev": statistics.stdev(times) if len(times) > 1 else 0.0,
+        "median": statistics.median(times),
+        "min": min(times),
+        "max": max(times),
+        "times": [round(t, 6) for t in times],
+        "probability": str(result),
+    }
+
+
+def noisy(r: dict) -> bool:
+    """Whether runs varied a lot, usually because something else was using the machine."""
+    return "mean" in r and r["runs"] > 1 and r["stdev"] > NOISY * r["mean"]
+
+
+def fmt(seconds: float) -> str:
+    if seconds < 0.01:
+        return f"{seconds * 1000:.1f} ms"
+    if seconds < 1:
+        return f"{seconds * 1000:.0f} ms"
+    return f"{seconds:.2f} s"
+
+
+def cell(r: dict | None, spread: bool = True) -> str:
+    if r is None:
+        return "-"
+    if "timed_out" in r:
+        return f"> {r['timed_out']:g} s"
+    if spread and r["runs"] > 1:
+        return f"{fmt(r['mean'])} ± {fmt(r['stdev'])}"
+    return fmt(r["mean"])
+
+
+def markdown(results: dict[str, dict], before: dict[str, dict] | None) -> str:
+    """One row per deck, situation and target; a column per joker set."""
+    rows: dict[tuple[str, str, str], dict[str, str]] = {}
+    for s in SCENARIOS:
+        if s.id not in results:
+            continue
+        r = results[s.id]
+        text = cell(r)
+        if before is not None:
+            text = f"{cell(before.get(s.id), spread=False)} → {text}"
+        rows.setdefault((s.deck, s.situation.label, s.target_label), {})[s.jokers] = text
+    head = ["Deck", "Situation", "Target", *JOKERS]
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for (deck, situation, target), by_jokers in rows.items():
+        lines.append("| " + " | ".join([deck, situation, target, *(by_jokers.get(j, "-") for j in JOKERS)]) + " |")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-k", action="append", default=[],
+                        help="only scenarios whose id contains this text (repeat to require several)")
+    parser.add_argument("--repeat", type=int, default=5, help="most runs per scenario (default 5)")
+    parser.add_argument("--budget", type=float, default=20.0,
+                        help="stop repeating a scenario once its runs add up to this many seconds (default 20)")
+    parser.add_argument("--timeout", type=float, default=120.0, help="cancel a run after this many seconds (default 120)")
+    parser.add_argument("--save", type=Path, help="write the results to this JSON file")
+    parser.add_argument("--rerun-noisy", action="store_true",
+                        help=f"only re-measure the scenarios in the --save file whose standard deviation is over "
+                             f"{NOISY * 100:.0f}%% of the mean, and update them there")
+    parser.add_argument("--from", dest="source", type=Path,
+                        help="don't measure: show the results in this JSON file (with --compare/--markdown)")
+    parser.add_argument("--compare", type=Path, help="show results from this JSON file alongside")
+    parser.add_argument("--markdown", action="store_true", help="print a Markdown table at the end")
+    args = parser.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):  # "±" and "→" on a cp1252 console
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    before = json.loads(args.compare.read_text())["results"] if args.compare else None
+    results: dict[str, dict] = {}
+    scenarios = [s for s in SCENARIOS if all(k in s.id for k in args.k)]
+    if args.source:
+        results = json.loads(args.source.read_text())["results"]
+        scenarios = []
+    elif args.rerun_noisy:
+        if not (args.save and args.save.exists()):
+            parser.error("--rerun-noisy needs an existing --save file")
+        results = json.loads(args.save.read_text())["results"]
+        scenarios = [s for s in scenarios if noisy(results.get(s.id, {}))]
+    if scenarios:
+        print(f"Engine: {calculatro.engine.__file__}", flush=True)
+    width = max((len(s.id) for s in scenarios), default=0)
+    for s in scenarios:
+        r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
+        line = f"{s.id:<{width}}  {cell(r):>22}  runs={r['runs']}"
+        if before is not None:
+            line += f"  before={cell(before.get(s.id), spread=False)}"
+            b = before.get(s.id)
+            if b and "mean" in b and "mean" in r and r.get("probability") != b.get("probability"):
+                line += "  RESULT DIFFERS"
+        print(line, flush=True)
+
+    if args.save and not args.source:
+        args.save.write_text(json.dumps({
+            "date": date.today().isoformat(),
+            "python": platform.python_version(),
+            "machine": platform.processor() or platform.machine(),
+            "engine": calculatro.engine.__file__,
+            "repeat": args.repeat, "budget": args.budget, "timeout": args.timeout,
+            "results": results,
+        }, indent=1) + "\n")
+    if args.markdown:
+        print()
+        print(markdown(results, before))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

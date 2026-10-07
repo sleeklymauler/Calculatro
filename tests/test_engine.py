@@ -10,7 +10,7 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import evaluate_discard, probability
+from calculatro.engine import _split_by_suit, evaluate_discard, probability
 from calculatro.hands import TARGETS, combine, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
@@ -205,6 +205,54 @@ def test_four_fingers_flush_hands_match_brute_force(name, low_rank):
         draws = rng.randint(1, min(4, 8 - len(kept)))
         assert (probability(get_target(name), kept, pool, draws, rules)
                 == brute({name}, kept, pool, draws, rules))
+
+
+def two_suit_card(rng: random.Random, low_rank: int, wild: bool) -> Card:
+    """Like dense_card, with Wild Cards only if `wild`."""
+    r, s = rng.randint(low_rank, 14), rng.choice(["Hearts", "Spades"])
+    roll = rng.random()
+    if wild and roll < 0.15:
+        return card(r, s, "m_wild", debuff=rng.random() < 0.3)
+    if roll < 0.2:
+        return card(r, s, "m_stone")
+    return card(r, s)
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("names, low_rank", [
+    (("Straight Flush",), 8), (("Royal Flush",), 9), (("Flush House",), 11), (("Flush Five",), 12),
+    (("Flush",), 8), (("Full House", "Straight Flush"), 9), (("Two Pair", "Flush"), 10),
+    (("Straight", "Flush"), 8),
+])
+def test_split_by_suit_matches_brute_force(names, low_rank, rules):
+    """Targets with patterns of several suits are split by suit when no unseen card is Wild.
+
+    Enough cards of two suits that terms with both of them come up; kept Wild
+    Cards count towards both.
+    """
+    target = combine([get_target(n) for n in names])
+    assert len(_split_by_suit(target.patterns(rules))[1]) > 1
+    rng = random.Random(" ".join(names))
+    for _ in range(8):
+        kept = [two_suit_card(rng, low_rank, wild=True) for _ in range(rng.randint(2, 4))]
+        pool = [two_suit_card(rng, low_rank, wild=False) for _ in range(rng.randint(8, 11))]
+        draws = rng.randint(2, min(5, 8 - len(kept)))
+        assert probability(target, kept, pool, draws, rules) == brute(set(names), kept, pool, draws, rules)
+
+
+def test_four_fingers_straight_flush_with_many_unknown_cards():
+    # Like The House: no known cards, 7 unknown. One search over every suit at
+    # once took over 10 s here; the value is from that search.
+    deck = full_deck()
+    p = probability(get_target("Straight Flush"), deck[:1], deck[1:], 7, Rules(four_fingers=True))
+    assert p == Fraction(904457, 16539300)
+
+
+def test_flush_absorbs_four_fingers_flush_hands():
+    """4 suited cards make a Four Fingers Flush, so it implies the other flush hands' patterns away."""
+    rules = Rules(four_fingers=True)
+    target = combine([get_target(n) for n in ("Flush", "Straight Flush", "Flush House", "Royal Flush")])
+    assert target.patterns(rules) == get_target("Flush").patterns(rules)
 
 
 def hand_of(text: str) -> list[Card]:

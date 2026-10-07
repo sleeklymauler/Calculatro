@@ -15,6 +15,10 @@ The deck is exported as a sorted multiset, so draw order is never leaked, and fa
 
 `.venv\Scripts\python -m pytest` runs the mod's Lua (via `lupa`) against a mocked game state and parses the result.
 
+Performance tests are separate: `.venv\Scripts\python tests\perf\benchmark.py` times the probability engine on a set of
+game situations, and `.venv\Scripts\python -m pytest -m perf` checks them against a saved baseline.
+See [docs/performance](docs/performance/README.md).
+
 ## Usage
 
 ```
