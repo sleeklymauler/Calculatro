@@ -91,7 +91,7 @@ def test_odds_for_selection(lua):
         "  Any target       100.00%  ->  100.00%",
         "  Three of a Kind   80.00%  ->  100.00%",
         "  Pair             100.00%  ->  100.00%",
-        "  In the 4 drawn cards:",
+        "  Drawn cards:",
         "  Face card: none                20.00%",  # only if the face-down card is Q♣: 1 in 5
     ]
 
@@ -113,7 +113,6 @@ def test_odds_cards_only(lua):
     out = odds(GameState.from_json(snapshot_json(lua)), [], [parse_query("queen")])
     assert out.splitlines() == [
         "Odds: discard 9♣ 9♦ and draw 4",
-        "  In the 4 drawn cards:",
         "  Queen: at least 1   80.00%",
     ]
 

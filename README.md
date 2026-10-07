@@ -31,3 +31,7 @@ Target odds are shown for keeping your hand vs. discarding the selection; card o
 - `-c/--cards`: counts over the newly drawn cards only — `queen`, `2+ queens`, `at most 1 spade`,
   `exactly 2 hearts`, `no face cards`, `2 of clubs` / `2c`. A bare number means "at least";
   `QS`/`10s` are poker notation for a specific card (use `tens` for the rank).
+  Special cards: enhancements (`bonus`, `mult`, `wild`, `glass`, `steel`, `stone`, `gold`, `lucky`, or any
+  `enhanced`), editions (`foil`, `holo`, `polychrome`, `negative`, or any `edition`) and seals (`red seal`,
+  `blue seal`, `gold seal`, `purple seal`, or `any seal`). These can prefix a rank, suit or card to narrow it:
+  `2+ lucky`, `no glass cards`, `foil hearts`, `lucky red seal queen`. `gold` is the Gold Card and `gold seal` the seal.

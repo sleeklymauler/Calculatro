@@ -77,9 +77,11 @@ def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ())
     lines = [f"Odds: {keep_desc}  ->  {discard_desc}" if keep else f"Odds: {discard_desc}"]
     lines += [f"  {name:<{width}}  {_pct(k.probability)}  ->  {_pct(a.probability)}"
               for (name, k), a in zip(keep, after)]
-    if card_rows:
-        lines.append(f"  In the {first.draws} drawn cards:")
-        lines += [f"  {name:<{width}}  {blank}{_pct(o.probability)}" for name, o in card_rows]
+    # Card odds cover only the drawn cards; label them apart from the whole-hand
+    # target rows. With no targets the header already says what's drawn.
+    if card_rows and keep:
+        lines.append("  Drawn cards:")
+    lines += [f"  {name:<{width}}  {blank}{_pct(o.probability)}" for name, o in card_rows]
     if state.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
