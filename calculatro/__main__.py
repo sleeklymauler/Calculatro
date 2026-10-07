@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
+from threading import Event
 
 from .cards import CardQuery, parse_query
 from .engine import DiscardOutcome, evaluate_cards, evaluate_discard
 from .hands import TARGETS, Target, combine, get_target
-from .source import FileStateSource
+from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
+from .worker import Job
 
 
 def summarize(state: GameState) -> str:
@@ -39,7 +43,8 @@ def _pct(p: Fraction) -> str:
     return f"{float(p) * 100:6.2f}%"
 
 
-def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ()) -> str:
+def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
+         cancel: Event | None = None) -> str:
     """Target odds for keeping the hand vs. discarding the in-game selection,
     plus card-query odds for the cards drawn after that discard.
 
@@ -53,7 +58,7 @@ def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ())
     named = [(t.name, t) for t in targets]
     if len(targets) > 1:
         named.insert(0, ("Any target", combine(targets)))
-    keep = [(name, evaluate_discard(state, t, [])) for name, t in named]
+    keep = [(name, evaluate_discard(state, t, [], cancel)) for name, t in named]
 
     selected = state.selected
     if not selected:
@@ -65,7 +70,7 @@ def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ())
         lines += [f"  {name:<{width}}  {_pct(o.probability)}" for name, o in keep]
         return "\n".join([*lines, hint])
 
-    after = [evaluate_discard(state, t, selected) for _, t in named]
+    after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
     card_rows = [(q.label, evaluate_cards(state, q, selected)) for q in queries]
     first = (after or [o for _, o in card_rows])[0]
     discarded = " ".join(c.short() for c in first.discarded)
@@ -86,6 +91,52 @@ def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = ())
     if state.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
+
+
+CALCULATING = "Calculating odds..."
+
+
+def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuery],
+              write: Callable[[str], None], *, patience: float = 0.25, poll_interval: float = 0.05,
+              stop: Callable[[], bool] = lambda: False) -> None:
+    """Print each new state and its odds, calculating the odds in the background.
+
+    A new state cancels the running calculation, so the view keeps up with the
+    game however slow the odds are. Odds ready within `patience` seconds print
+    together with the state summary; slower ones print the summary first with
+    a placeholder line, then follow directly below it.
+    """
+    job: Job[str] | None = None
+    pending = ""  # summary of the job's state, until it's printed
+    deadline = 0.0
+    while not stop():
+        state = source.poll()
+        if state is not None:
+            if job is not None:
+                job.cancel()
+            job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
+            if targets or queries:
+                job = Job(lambda cancel, state=state: odds(state, targets, queries, cancel))
+                deadline = time.monotonic() + patience
+            else:
+                write(pending)
+                pending = ""
+        if job is None:
+            time.sleep(poll_interval)
+            continue
+        timeout = poll_interval
+        if pending:
+            timeout = max(0.0, min(timeout, deadline - time.monotonic()))
+        if job.wait(timeout):
+            out = job.result()
+            if pending:
+                write(pending + ("\n" + out if out else ""))
+            elif out:
+                write(out)
+            job, pending = None, ""
+        elif pending and time.monotonic() >= deadline:
+            write(pending + "\n" + CALCULATING)
+            pending = ""
 
 
 def _target(name: str) -> Target:
@@ -122,11 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         source = FileStateSource(args.file)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
-            for state in source.watch():
-                out = summarize(state)
-                if args.target or args.cards:
-                    out += "\n" + odds(state, args.target, args.cards)
-                print("\n" + "=" * 72 + "\n" + out, flush=True)
+            run_watch(source, args.target, args.cards, lambda text: print(text, flush=True))
         except KeyboardInterrupt:
             pass
     return 0

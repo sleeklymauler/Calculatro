@@ -31,6 +31,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from fractions import Fraction
 from math import comb
+from threading import Event
 
 from .cards import CardQuery
 from .hands import Pattern, Target, card_key
@@ -38,9 +39,16 @@ from .rules import Rules
 from .state import Card, GameState
 
 
+class Cancelled(Exception):
+    """Raised when a calculation's `cancel` event is set before it finishes."""
+
+
 def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
-                rules: Rules = Rules()) -> Fraction:
-    """P(kept + `draws` random cards from `pool` contains `target` under `rules`)."""
+                rules: Rules = Rules(), cancel: Event | None = None) -> Fraction:
+    """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
+
+    Raises Cancelled soon after `cancel` is set.
+    """
     draws = max(0, min(draws, len(pool)))
     patterns = target.patterns(rules)
 
@@ -119,6 +127,8 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
         memo_key = (i, rem, frozenset(part for _, part in live.values()))
         if memo_key in memo:
             return memo[memo_key]
+        if cancel is not None and cancel.is_set():
+            raise Cancelled
         sig, count = classes[i]
         total = 0
         for k in range(min(count, rem) + 1):
@@ -182,10 +192,11 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
                     len(kept) - len(kept_known), draws, state.deck + state.hidden_pool)
 
 
-def evaluate_discard(state: GameState, target: Target, discard: list[int]) -> DiscardOutcome:
+def evaluate_discard(state: GameState, target: Target, discard: list[int],
+                     cancel: Event | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`."""
     d = _discard(state, discard)
-    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules)
+    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules, cancel)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
