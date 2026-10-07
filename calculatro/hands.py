@@ -11,8 +11,8 @@ play (Four Fingers, Shortcut, Smeared) and are built per Rules on demand.
 Each target is a list of patterns (OR). A pattern is a tuple of requirements
 (AND): "at least `need` cards whose class is in `keys`". Requirements are
 usually disjoint, so each card fills one slot; when they overlap, a card counts
-towards every requirement it matches (e.g. Four Fingers' "at least 4 suited
-cards" alongside "a suited card of each of these ranks").
+towards every requirement it matches (e.g. "at least 4 suited cards" alongside
+"a suited card of each of these ranks").
 Card classes are (rank_id, suit) where suit is one of SUITS or "Wild".
 """
 
@@ -67,7 +67,9 @@ def _suited_rank(r: int, s: str) -> frozenset[ClassKey]:
     return frozenset({(r, s), (r, WILD)})
 
 
-def _suit(s: str) -> frozenset[ClassKey]:
+@cache
+def suit_keys(s: str) -> frozenset[ClassKey]:
+    """Classes of every card that counts as suit `s`, Wild Cards included."""
     return frozenset(k for r in RANKS for k in _suited_rank(r, s))
 
 
@@ -92,24 +94,31 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     """
     patterns: list[Pattern] = []
     for s in SUITS:
-        # Only cards of rank 10+ may score in a Royal Flush, so only they count
-        # towards its flush.
-        suited = frozenset(k for r in RANKS if r >= 10 or not royal for k in _suited_rank(r, s))
         for w in _straight_windows(rules):
             if royal and min(w) < 10:
                 continue
+            patterns.append(tuple(Requirement(_suited_rank(r, s), 1) for r in w))
             if not rules.four_fingers:
-                patterns.append(tuple(Requirement(_suited_rank(r, s), 1) for r in w))
                 continue
             # With Four Fingers the flush and the straight may be different cards, as
             # long as all of them fit in 5 played cards. That means: 3 run ranks have a
             # suited card, the 4th (`m`) has any card, and there are 4 suited cards in
-            # all. The 4th suited card can't be an `m` unless the whole run is suited,
-            # so it's either the 5th card or a run card itself. These requirements
-            # overlap: suited run cards also count towards the 4.
+            # all. The 4th suited card is `m`'s (the whole run suited, above), a second
+            # one of a run rank, or one outside the run; only cards of rank 10+ may
+            # score in a Royal Flush, so only they count there. Saying "a suited card
+            # outside the run" rather than "4 suited cards in all" matters for speed:
+            # the engine then only remembers whether a suit has shown up, not how often.
+            outside = frozenset(k for r in RANKS if r not in w and (r >= 10 or not royal)
+                                for k in _suited_rank(r, s))
             for m in w:
-                patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in w if r != m),
-                                 Requirement(_rank(m), 1), Requirement(suited, 4)))
+                others = [r for r in w if r != m]
+                any_m = Requirement(_rank(m), 1)
+                if outside:
+                    patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in others),
+                                     any_m, Requirement(outside, 1)))
+                for twice in others:
+                    patterns.append((*(Requirement(_suited_rank(r, s), 2 if r == twice else 1)
+                                       for r in others), any_m))
     return tuple(patterns)
 
 
@@ -148,7 +157,7 @@ def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
         "Straight": tuple(
             tuple(Requirement(_rank(r), 1) for r in w) for w in _straight_windows(rules)
         ),
-        "Flush": tuple((Requirement(_suit(s), flush_size),) for s in SUITS),
+        "Flush": tuple((Requirement(suit_keys(s), flush_size),) for s in SUITS),
         "Full House": tuple(
             (Requirement(_rank(a), 3), Requirement(_rank(b), 2)) for a, b in permutations(RANKS, 2)
         ),
@@ -178,31 +187,43 @@ def get_target(name: str) -> Target:
     raise KeyError(f"unknown target {name!r}; choose from: {', '.join(TARGETS)} (or trips, quads, royal)")
 
 
+def _at_least(pattern: Pattern, keys: frozenset[ClassKey]) -> int:
+    """Fewest cards with a class in `keys` in a hand that satisfies `pattern`.
+
+    Requirements with disjoint classes are met by different cards, so a greedy
+    set of them gives a lower bound; it can miss some, which only costs speed.
+    """
+    inner = [r for r in pattern if r.keys <= keys]
+    if len(inner) < 2:
+        return inner[0].need if inner else 0
+    total, used = 0, frozenset()
+    for req in sorted(inner, key=lambda r: -r.need):
+        if req.keys.isdisjoint(used):
+            total += req.need
+            used |= req.keys
+    return total
+
+
 def _implies(a: Pattern, b: Pattern) -> bool:
     """Whether satisfying pattern `a` always satisfies pattern `b`.
 
-    True if each requirement of `b` can be matched to a distinct requirement of
-    `a` that draws from a subset of its classes and needs at least as many.
-    Greedy matching can miss some implications, which only costs speed.
+    Each requirement is a count of its own, so it's enough that `a` guarantees
+    the cards each requirement of `b` needs.
     """
-    used: set[int] = set()
-    for rb in b:
-        for i, ra in enumerate(a):
-            if i not in used and ra.need >= rb.need and ra.keys <= rb.keys:
-                used.add(i)
-                break
-        else:
-            return False
-    return True
+    return all(_at_least(a, rb.keys) >= rb.need for rb in b)
 
 
 def _minimal(patterns: tuple[Pattern, ...]) -> tuple[Pattern, ...]:
-    """Drop patterns that imply another one; they never change an OR's outcome."""
+    """Drop patterns that imply another one; they never change an OR's outcome.
+
+    Of several equivalent patterns, the first is kept.
+    """
     unique = list(dict.fromkeys(patterns))
     need = [sum(r.need for r in p) for p in unique]
     return tuple(
         a for i, a in enumerate(unique)
-        if not any(j != i and need[j] <= need[i] and _implies(a, b) for j, b in enumerate(unique))
+        if not any(j != i and need[j] <= need[i] and _implies(a, b) and (j < i or not _implies(b, a))
+                   for j, b in enumerate(unique))
     )
 
 

@@ -1,0 +1,683 @@
+{
+ "date": "2026-10-06",
+ "python": "3.14.3",
+ "machine": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+ "engine": "C:\\Users\\Luke\\Documents\\Programming\\personal\\Calculatro\\calculatro\\engine.py",
+ "repeat": 5,
+ "budget": 120.0,
+ "timeout": 120.0,
+ "results": {
+  "standard | Keep 3, draw 5 | Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0006631999975070357,
+   "stdev": 0.0003483158182129312,
+   "median": 0.0005339999916031957,
+   "min": 0.0004368999943835661,
+   "max": 0.0012815000081900507,
+   "times": [
+    0.001282,
+    0.000515,
+    0.000437,
+    0.000534,
+    0.000549
+   ],
+   "probability": "136663/155144"
+  },
+  "standard | Keep 3, draw 5 | Two Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0024717199994483963,
+   "stdev": 0.0003177317637666825,
+   "min": 0.002084899999317713,
+   "max": 0.0028344000020297244,
+   "probability": "459891/1086008"
+  },
+  "standard | Keep 3, draw 5 | Three of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.0004335999983595684,
+   "stdev": 2.861205831915157e-05,
+   "median": 0.0004169000021647662,
+   "min": 0.0004124999977648258,
+   "max": 0.0004786999925272539,
+   "times": [
+    0.000446,
+    0.000414,
+    0.000479,
+    0.000417,
+    0.000412
+   ],
+   "probability": "117031/1086008"
+  },
+  "standard | Keep 3, draw 5 | Straight | No jokers": {
+   "runs": 5,
+   "mean": 0.0011501200002385303,
+   "stdev": 0.00013273856413267447,
+   "min": 0.0010082000080728903,
+   "max": 0.0012839999981224537,
+   "probability": "156235/543004"
+  },
+  "standard | Keep 3, draw 5 | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0011499800049932674,
+   "stdev": 0.00027101921891180616,
+   "min": 0.0008940000116126612,
+   "max": 0.0015851000061957166,
+   "probability": "567/7052"
+  },
+  "standard | Keep 3, draw 5 | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.004061039999942295,
+   "stdev": 0.0003068104555901991,
+   "min": 0.0037469999952008948,
+   "max": 0.004491700005019084,
+   "probability": "29223/543004"
+  },
+  "standard | Keep 3, draw 5 | Four of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.0004370399983599782,
+   "stdev": 7.767994219394907e-05,
+   "min": 0.00039400000241585076,
+   "max": 0.0005757000035373494,
+   "probability": "95/38786"
+  },
+  "standard | Keep 3, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.002465200002188794,
+   "stdev": 0.00036928351198933383,
+   "min": 0.002093200004310347,
+   "max": 0.0029310999962035567,
+   "probability": "2587/1086008"
+  },
+  "standard | Keep 3, draw 5 | Royal Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.00112465999845881,
+   "stdev": 0.0002065131807501973,
+   "min": 0.0008522999996785074,
+   "max": 0.0013229000032879412,
+   "probability": "1/1086008"
+  },
+  "standard | Keep 3, draw 5 | Five of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.00021999999880790712,
+   "stdev": 2.0174365225568488e-05,
+   "min": 0.00019579999207053334,
+   "max": 0.00024120000307448208,
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5 | Flush House | No jokers": {
+   "runs": 5,
+   "mean": 0.004810059996088967,
+   "stdev": 0.00016795882448100884,
+   "min": 0.004550400000880472,
+   "max": 0.0050020999915432185,
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5 | Flush Five | No jokers": {
+   "runs": 5,
+   "mean": 0.001322180000715889,
+   "stdev": 0.00014049319146635972,
+   "median": 0.0013083000085316598,
+   "min": 0.0012137000012444332,
+   "max": 0.0015596000012010336,
+   "times": [
+    0.001214,
+    0.001309,
+    0.001308,
+    0.00156,
+    0.00122
+   ],
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0006777000031434,
+   "stdev": 0.00013663025219255959,
+   "min": 0.0005586000042967498,
+   "max": 0.0009073000110220164,
+   "probability": "2855527/3215975"
+  },
+  "standard | 8 unknown: The House (all face-down) | Two Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0035704599955352022,
+   "stdev": 0.0002553084004803908,
+   "min": 0.003197999991243705,
+   "max": 0.0038206999888643622,
+   "probability": "281339/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Three of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.0006690200068987906,
+   "stdev": 0.0001060240892681656,
+   "min": 0.0005486000009113923,
+   "max": 0.0008327000105055049,
+   "probability": "386159/3215975"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight | No jokers": {
+   "runs": 5,
+   "mean": 0.0035837999981595202,
+   "stdev": 0.00022110068011664134,
+   "min": 0.0032929000008152798,
+   "max": 0.0038262000016402453,
+   "probability": "36935168/376269075"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.001035800002864562,
+   "stdev": 5.2024896937623324e-05,
+   "median": 0.0010331000084988773,
+   "min": 0.0009882000013021752,
+   "max": 0.0011219000007258728,
+   "times": [
+    0.001122,
+    0.001002,
+    0.001034,
+    0.001033,
+    0.000988
+   ],
+   "probability": "44792/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.006096339999930933,
+   "stdev": 0.0003652406587390012,
+   "min": 0.005548000000999309,
+   "max": 0.006462399993324652,
+   "probability": "39779/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Four of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.0005943600030150264,
+   "stdev": 5.968403122651994e-05,
+   "min": 0.0005049999890616164,
+   "max": 0.0006466000049840659,
+   "probability": "32429/9647925"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0054793199989944695,
+   "stdev": 0.0009499629811982302,
+   "min": 0.004625400004442781,
+   "max": 0.007105299999238923,
+   "probability": "886/1090635"
+  },
+  "standard | 8 unknown: The House (all face-down) | Royal Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0012036800035275519,
+   "stdev": 0.00014698536192195094,
+   "min": 0.0010871000122278929,
+   "max": 0.0014489000022877008,
+   "probability": "2/23205"
+  },
+  "standard | 8 unknown: The House (all face-down) | Five of a Kind | No jokers": {
+   "runs": 5,
+   "mean": 0.00023197999980766325,
+   "stdev": 2.905963467062859e-05,
+   "min": 0.00019799999427050352,
+   "max": 0.00025960001221392304,
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush House | No jokers": {
+   "runs": 5,
+   "mean": 0.004860219999682158,
+   "stdev": 0.0004105883398264175,
+   "min": 0.004366599998320453,
+   "max": 0.0053152000036789104,
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush Five | No jokers": {
+   "runs": 5,
+   "mean": 0.0015989000035915523,
+   "stdev": 0.0003434538636777603,
+   "min": 0.0013393999979598448,
+   "max": 0.002187000005505979,
+   "probability": "0"
+  },
+  "standard | 6 unknown: 1 face-down, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.002950759997474961,
+   "stdev": 0.00040424767834072424,
+   "min": 0.0024944999895524234,
+   "max": 0.0035970000026281923,
+   "probability": "1467/271502"
+  },
+  "standard | 7 unknown: 2 face-down, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0030326000007335095,
+   "stdev": 0.00039165382665301926,
+   "min": 0.002593099998193793,
+   "max": 0.0034638000070117414,
+   "probability": "62/121647"
+  },
+  "standard | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.09848419999470934,
+   "stdev": 0.0021864598059718903,
+   "min": 0.09552769998845179,
+   "max": 0.10102499999629799,
+   "probability": "1571519/25084605"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.0010289200028637425,
+   "stdev": 0.00016501695714368794,
+   "min": 0.0008880000095814466,
+   "max": 0.0012538000009953976,
+   "probability": "44792/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Two Pair + Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.04942446000641212,
+   "stdev": 0.002608422681033487,
+   "min": 0.04619530000491068,
+   "max": 0.053132600005483255,
+   "probability": "13577/27965"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight + Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.06289958000415936,
+   "stdev": 0.0011180827462217585,
+   "min": 0.06124739999359008,
+   "max": 0.06438150000758469,
+   "probability": "234886/1475565"
+  },
+  "wild | Keep 3, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0037220999976852907,
+   "stdev": 0.0008115664328725763,
+   "min": 0.0026360999909229577,
+   "max": 0.0048833999899216,
+   "probability": "573/98728"
+  },
+  "wild | 6 unknown: 1 face-down, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.006826639999053441,
+   "stdev": 0.0011318215687208572,
+   "min": 0.005326699989382178,
+   "max": 0.007780400002957322,
+   "probability": "102449/8145060"
+  },
+  "wild | 7 unknown: 2 face-down, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.012022140002227389,
+   "stdev": 0.0009748876480010362,
+   "min": 0.010904199996730313,
+   "max": 0.013274700002511963,
+   "probability": "28643/26762340"
+  },
+  "wild | 8 unknown: The House (all face-down) | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.034877700000652115,
+   "stdev": 0.002882279438885877,
+   "min": 0.031006100005470216,
+   "max": 0.03743959999701474,
+   "probability": "274543/150507630"
+  },
+  "wild | 8 unknown: The House (all face-down) | Flush House | No jokers": {
+   "runs": 5,
+   "mean": 0.0034653999988222494,
+   "stdev": 0.0003373272752040375,
+   "min": 0.0029100999963702634,
+   "max": 0.0037126999959582463,
+   "probability": "0"
+  },
+  "wild | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.24498603999672924,
+   "stdev": 0.010973977727964294,
+   "min": 0.2272272999980487,
+   "max": 0.25720939999155235,
+   "probability": "15679/246330"
+  },
+  "wild | 8 unknown: The House (all face-down) | Pair + Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.05658981999440584,
+   "stdev": 0.011093761745048959,
+   "min": 0.049175199994351715,
+   "max": 0.0752682000020286,
+   "probability": "1092079/1194505"
+  },
+  "standard | Keep 3, draw 5 | Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.000476179999532178,
+   "stdev": 0.00010517030095644334,
+   "min": 0.0004050999996252358,
+   "max": 0.0006576000014320016,
+   "probability": "136663/155144"
+  },
+  "standard | Keep 3, draw 5 | Two Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.002399120002519339,
+   "stdev": 0.00030975407182844215,
+   "min": 0.001937499997438863,
+   "max": 0.0027821000112453476,
+   "probability": "459891/1086008"
+  },
+  "standard | Keep 3, draw 5 | Three of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.000461219999124296,
+   "stdev": 8.739257213517232e-05,
+   "min": 0.0003988999960711226,
+   "max": 0.0006127999949967489,
+   "probability": "117031/1086008"
+  },
+  "standard | Keep 3, draw 5 | Straight | Four Fingers": {
+   "runs": 5,
+   "mean": 0.001192379998974502,
+   "stdev": 0.00016958401027581966,
+   "min": 0.0009769000025698915,
+   "max": 0.0014460999955190346,
+   "probability": "360193/543004"
+  },
+  "standard | Keep 3, draw 5 | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.001320399998803623,
+   "stdev": 0.0002597568204369114,
+   "median": 0.0012933000107295811,
+   "min": 0.0009623999940231442,
+   "max": 0.0016754999960539863,
+   "times": [
+    0.00125,
+    0.00142,
+    0.000962,
+    0.001675,
+    0.001293
+   ],
+   "probability": "42093/98728"
+  },
+  "standard | Keep 3, draw 5 | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.00421562000119593,
+   "stdev": 0.0008101798744185208,
+   "min": 0.003495400000247173,
+   "max": 0.005590200002188794,
+   "probability": "29223/543004"
+  },
+  "standard | Keep 3, draw 5 | Four of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0004130799992708489,
+   "stdev": 3.41311075577302e-05,
+   "min": 0.0003673999890452251,
+   "max": 0.00046180000936146826,
+   "probability": "95/38786"
+  },
+  "standard | Keep 3, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.07824265999661292,
+   "stdev": 0.007405226278908728,
+   "min": 0.06768689998716582,
+   "max": 0.08810680000169668,
+   "probability": "5149/26488"
+  },
+  "standard | Keep 3, draw 5 | Royal Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0037938600027700884,
+   "stdev": 0.0003604850836033823,
+   "median": 0.003968900011386722,
+   "min": 0.0033208000095328316,
+   "max": 0.004188799997791648,
+   "times": [
+    0.003517,
+    0.004189,
+    0.003321,
+    0.003969,
+    0.003974
+   ],
+   "probability": "47/543004"
+  },
+  "standard | Keep 3, draw 5 | Five of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0002588000032119453,
+   "stdev": 1.0204165616135148e-05,
+   "min": 0.00024510000366717577,
+   "max": 0.00027370000316295773,
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5 | Flush House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.020202060003066437,
+   "stdev": 0.0010547132458536457,
+   "min": 0.01864460000069812,
+   "max": 0.021304300011252053,
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5 | Flush Five | Four Fingers": {
+   "runs": 5,
+   "mean": 0.002655979999690317,
+   "stdev": 0.0007390598168009835,
+   "median": 0.0023490000021411106,
+   "min": 0.002075600001262501,
+   "max": 0.0039360999944619834,
+   "times": [
+    0.002597,
+    0.003936,
+    0.002076,
+    0.002322,
+    0.002349
+   ],
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0006217599991941824,
+   "stdev": 0.00010759286099832102,
+   "min": 0.0005142000009072945,
+   "max": 0.0007732000085525215,
+   "probability": "2855527/3215975"
+  },
+  "standard | 8 unknown: The House (all face-down) | Two Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0037445800029672683,
+   "stdev": 0.00017484341103639065,
+   "min": 0.0034355999960098416,
+   "max": 0.0038549000018974766,
+   "probability": "281339/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Three of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0006148200016468763,
+   "stdev": 6.957648143882609e-05,
+   "median": 0.0005681000038748607,
+   "min": 0.0005567000043811277,
+   "max": 0.0006932999967830256,
+   "times": [
+    0.000693,
+    0.000568,
+    0.000568,
+    0.000688,
+    0.000557
+   ],
+   "probability": "386159/3215975"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight | Four Fingers": {
+   "runs": 5,
+   "mean": 0.004048479997436516,
+   "stdev": 0.0006527912627740933,
+   "min": 0.003147399998852052,
+   "max": 0.004747400002088398,
+   "probability": "4413400/15050763"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.002459299998008646,
+   "stdev": 0.0001917900502959188,
+   "median": 0.0023904999980004504,
+   "min": 0.0022391000093193725,
+   "max": 0.002667199994903058,
+   "times": [
+    0.002346,
+    0.00239,
+    0.002667,
+    0.002239,
+    0.002654
+   ],
+   "probability": "145937/385917"
+  },
+  "standard | 8 unknown: The House (all face-down) | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.006533979999949225,
+   "stdev": 0.0007151048531847541,
+   "min": 0.0056361000024480745,
+   "max": 0.007567699998617172,
+   "probability": "39779/643195"
+  },
+  "standard | 8 unknown: The House (all face-down) | Four of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0005969599995296448,
+   "stdev": 8.495139628848665e-05,
+   "min": 0.0004992999893147498,
+   "max": 0.0006891000084578991,
+   "probability": "32429/9647925"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 2.840051099998527,
+   "stdev": 0.1226798101182136,
+   "min": 2.707893899991177,
+   "max": 2.9841089000110514,
+   "probability": "3443221/53752725"
+  },
+  "standard | 8 unknown: The House (all face-down) | Royal Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0159637200034922,
+   "stdev": 0.0020878460156398076,
+   "min": 0.013667900013388135,
+   "max": 0.01868530000501778,
+   "probability": "333836/125423025"
+  },
+  "standard | 8 unknown: The House (all face-down) | Five of a Kind | Four Fingers": {
+   "runs": 5,
+   "mean": 0.00030234000296331943,
+   "stdev": 6.0587894637501926e-05,
+   "min": 0.00024170000688172877,
+   "max": 0.0003863000019919127,
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.05062425999494735,
+   "stdev": 0.010365862885195079,
+   "min": 0.04306689999066293,
+   "max": 0.06823749998875428,
+   "probability": "0"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush Five | Four Fingers": {
+   "runs": 5,
+   "mean": 0.005303640000056476,
+   "stdev": 0.001043879032901713,
+   "min": 0.004648299989639781,
+   "max": 0.0071309000049950555,
+   "probability": "0"
+  },
+  "standard | 6 unknown: 1 face-down, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.2388333800015971,
+   "stdev": 0.008668155049586382,
+   "min": 0.22900010000739712,
+   "max": 0.2528907999949297,
+   "probability": "318019/2036265"
+  },
+  "standard | 7 unknown: 2 face-down, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.42434971999900883,
+   "stdev": 0.01376247622640387,
+   "min": 0.4030724000040209,
+   "max": 0.44121309999900404,
+   "probability": "148753/2432940"
+  },
+  "standard | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 3.7997192800045014,
+   "stdev": 0.041598735031550066,
+   "min": 3.7421561000082875,
+   "max": 3.849539700007881,
+   "probability": "1000022/8005725"
+  },
+  "standard | 8 unknown: The House (all face-down) | Flush + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0023310799995670097,
+   "stdev": 0.00044244109758752873,
+   "min": 0.0019409000087762251,
+   "max": 0.002828799988492392,
+   "probability": "145937/385917"
+  },
+  "standard | 8 unknown: The House (all face-down) | Two Pair + Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.20057237999862992,
+   "stdev": 0.02267760178859809,
+   "min": 0.18696429999545217,
+   "max": 0.24050390000047628,
+   "probability": "61283/91885"
+  },
+  "standard | 8 unknown: The House (all face-down) | Straight + Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.31024442000198177,
+   "stdev": 0.0027191070588838016,
+   "min": 0.30744760000379756,
+   "max": 0.3145118999964325,
+   "probability": "3016444/5453175"
+  },
+  "wild | Keep 3, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.3133269799989648,
+   "stdev": 0.01869846284343078,
+   "min": 0.28178039999329485,
+   "max": 0.3294670000032056,
+   "probability": "283539/1086008"
+  },
+  "wild | 6 unknown: 1 face-down, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.9867073999979766,
+   "stdev": 0.13170336915611638,
+   "min": 0.8325821999897016,
+   "max": 1.1070021000050474,
+   "probability": "91261/407253"
+  },
+  "wild | 7 unknown: 2 face-down, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 3.528225580000435,
+   "stdev": 0.41856547917489784,
+   "min": 2.842606899997918,
+   "max": 3.935034900001483,
+   "probability": "527191/4865880"
+  },
+  "wild | 8 unknown: The House (all face-down) | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 19.698125340003752,
+   "stdev": 2.6986033236821023,
+   "min": 15.80246459999762,
+   "max": 22.22800940000161,
+   "probability": "84845933/752538150"
+  },
+  "wild | 8 unknown: The House (all face-down) | Flush House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.06703120000020135,
+   "stdev": 0.0011668021869258834,
+   "median": 0.06710450000537094,
+   "min": 0.0653557999903569,
+   "max": 0.0686344999994617,
+   "times": [
+    0.068634,
+    0.065356,
+    0.067105,
+    0.066853,
+    0.067208
+   ],
+   "probability": "16597/17917575"
+  },
+  "wild | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 27.226788540006964,
+   "stdev": 3.681184521614958,
+   "min": 21.69343130000925,
+   "max": 32.046201500008465,
+   "probability": "577817/3344614"
+  },
+  "wild | 8 unknown: The House (all face-down) | Pair + Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.05000851999793667,
+   "stdev": 0.0004906552228591817,
+   "min": 0.04930850000528153,
+   "max": 0.050566299993079156,
+   "probability": "5742981/5972525"
+  }
+ }
+}
