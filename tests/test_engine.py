@@ -12,6 +12,7 @@ import pytest
 
 from calculatro.engine import evaluate_discard, probability
 from calculatro.hands import TARGETS, combine, get_target
+from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
@@ -26,13 +27,13 @@ def full_deck() -> list[Card]:
     return [card(r, s) for s in SUITS for r in range(2, 15)]
 
 
-# --- Brute-force port of functions/misc_functions.lua (no jokers) ------------
+# --- Brute-force port of functions/misc_functions.lua -------------------------
 
 def _id(c: Card) -> int | None:
     return None if c.is_stone else c.rank_id
 
 
-def _is_suit_flush(c: Card, suit: str) -> bool:
+def _is_suit_flush(c: Card, suit: str, rules: Rules) -> bool:
     if c.is_stone:
         return False
     if c.is_wild and not c.debuff:
@@ -48,35 +49,57 @@ def _x_same(num: int, hand: list[Card]) -> list[int]:
     return [r for r, n in counts.items() if n == num]
 
 
-def _flush(hand: list[Card]) -> bool:
-    return len(hand) == 5 and any(sum(_is_suit_flush(c, s) for c in hand) >= 5 for s in SUITS)
+def _flush(hand: list[Card], rules: Rules) -> list[Card]:
+    """get_flush: the suited cards of the first suit with enough of them."""
+    need = 4 if rules.four_fingers else 5
+    if not need <= len(hand) <= 5:
+        return []
+    for s in SUITS:
+        suited = [c for c in hand if _is_suit_flush(c, s, rules)]
+        if len(suited) >= need:
+            return suited
+    return []
 
 
-def _straight(hand: list[Card]) -> bool:
-    if len(hand) != 5:
-        return False
-    ids = {_id(c) for c in hand if _id(c) is not None and 1 < _id(c) < 15}
-    length = 0
+def _straight(hand: list[Card], rules: Rules) -> list[Card]:
+    """get_straight: every card of the first long enough run of ranks."""
+    need = 4 if rules.four_fingers else 5
+    if not need <= len(hand) <= 5:
+        return []
+    ids: dict[int, list[Card]] = {}
+    for c in hand:
+        if _id(c) is not None and 1 < _id(c) < 15:
+            ids.setdefault(_id(c), []).append(c)
+    t: list[Card] = []
+    length, straight, skipped = 0, False, False
     for j in range(1, 15):
         if (14 if j == 1 else j) in ids:
             length += 1
-            if length >= 5:
-                return True
+            skipped = False
+            t += ids[14 if j == 1 else j]
+        elif rules.shortcut and not skipped and j != 14:
+            skipped = True
         else:
-            length = 0
-    return False
+            length, skipped = 0, False
+            if straight:
+                break
+            t = []
+        if length >= need:
+            straight = True
+    return t if straight else []
 
 
-def evaluate(hand: list[Card]) -> set[str]:
+def evaluate(hand: list[Card], rules: Rules) -> set[str]:
     _5, _4, _3, _2 = (_x_same(n, hand) for n in (5, 4, 3, 2))
-    fl, st = _flush(hand), _straight(hand)
+    fl, st = _flush(hand, rules), _straight(hand, rules)
     out = set()
     if _5 and fl: out.add("Flush Five")
     if _3 and _2 and fl: out.add("Flush House")
     if _5: out.add("Five of a Kind")
     if fl and st:
         out.add("Straight Flush")
-        if {_id(c) for c in hand} == {10, 11, 12, 13, 14}:
+        # get_poker_hand_info: displayed as Royal if no scoring card is below 10.
+        if min(_id(c) for c in fl + st) >= 10:
             out.add("Royal Flush")
     if _4: out.add("Four of a Kind")
     if _3 and _2: out.add("Full House")
@@ -91,15 +114,16 @@ def evaluate(hand: list[Card]) -> set[str]:
     return out
 
 
-def contains(final: list[Card], names: set[str]) -> bool:
+def contains(final: list[Card], names: set[str], rules: Rules = Rules()) -> bool:
     """Can some playable selection (1-5 cards) be evaluated as one of `names`?"""
-    return any(evaluate(list(sel)) & names
+    return any(evaluate(list(sel), rules) & names
                for k in range(1, min(5, len(final)) + 1)
                for sel in combinations(final, k))
 
 
-def brute(names: set[str], kept: list[Card], pool: list[Card], draws: int) -> Fraction:
-    hits = sum(contains(kept + list(d), names) for d in combinations(pool, draws))
+def brute(names: set[str], kept: list[Card], pool: list[Card], draws: int,
+          rules: Rules = Rules()) -> Fraction:
+    hits = sum(contains(kept + list(d), names, rules) for d in combinations(pool, draws))
     return Fraction(hits, comb(len(pool), draws))
 
 
@@ -115,15 +139,20 @@ def random_card(rng: random.Random) -> Card:
     return card(r, s)
 
 
+RULESETS = {"no jokers": Rules(), "four fingers": Rules(four_fingers=True)}
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
 @pytest.mark.parametrize("name", list(TARGETS))
-def test_matches_brute_force(name):
+def test_matches_brute_force(name, rules):
     rng = random.Random(name)
     for _ in range(6):
         # Narrow rank range (9..A) and duplicates so every target is reachable.
         kept = [random_card(rng) for _ in range(rng.randint(2, 4))]
         pool = [random_card(rng) for _ in range(rng.randint(8, 12))]
         draws = rng.randint(1, min(4, 8 - len(kept)))
-        assert probability(get_target(name), kept, pool, draws) == brute({name}, kept, pool, draws)
+        assert (probability(get_target(name), kept, pool, draws, rules)
+                == brute({name}, kept, pool, draws, rules))
 
 
 def test_combined_targets_match_brute_force():
@@ -136,19 +165,80 @@ def test_combined_targets_match_brute_force():
         assert probability(target, kept, pool, 3) == expected
 
 
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
 @pytest.mark.parametrize("names", [
     ("Straight", "Straight Flush"),
     ("Two Pair", "Full House", "Four of a Kind"),
     ("Flush", "Flush House", "Flush Five", "Royal Flush"),
 ])
-def test_overlapping_targets_match_brute_force(names):
+def test_overlapping_targets_match_brute_force(names, rules):
     rng = random.Random(" ".join(names))
     target = combine([get_target(n) for n in names])
-    assert len(target.patterns()) < sum(len(get_target(n).patterns()) for n in names)  # pruned
+    patterns = target.patterns(rules)
+    assert len(patterns) < sum(len(get_target(n).patterns(rules)) for n in names)  # pruned
     for _ in range(6):
         kept = [random_card(rng) for _ in range(3)]
         pool = [random_card(rng) for _ in range(11)]
-        assert probability(target, kept, pool, 3) == brute(set(names), kept, pool, 3)
+        assert probability(target, kept, pool, 3, rules) == brute(set(names), kept, pool, 3, rules)
+
+
+def dense_card(rng: random.Random, low_rank: int) -> Card:
+    """Two suits, few ranks and many Wild Cards, so flush-based hands are common."""
+    r, s = rng.randint(low_rank, 14), rng.choice(["Hearts", "Spades"])
+    roll = rng.random()
+    if roll < 0.15:
+        return card(r, s, "m_wild", debuff=rng.random() < 0.3)
+    if roll < 0.2:
+        return card(r, s, "m_stone")
+    return card(r, s)
+
+
+@pytest.mark.parametrize("name, low_rank", [
+    ("Straight Flush", 8), ("Royal Flush", 9), ("Flush House", 11), ("Flush Five", 12),
+])
+def test_four_fingers_flush_hands_match_brute_force(name, low_rank):
+    rules = Rules(four_fingers=True)
+    rng = random.Random(name)
+    for _ in range(8):
+        kept = [dense_card(rng, low_rank) for _ in range(rng.randint(2, 4))]
+        pool = [dense_card(rng, low_rank) for _ in range(rng.randint(8, 12))]
+        draws = rng.randint(1, min(4, 8 - len(kept)))
+        assert (probability(get_target(name), kept, pool, draws, rules)
+                == brute({name}, kept, pool, draws, rules))
+
+
+def hand_of(text: str) -> list[Card]:
+    """Cards from short notation: "2H 3H TS AD"."""
+    ranks = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}
+    suits = {s[0]: s for s in SUITS}
+    return [card(ranks.get(t[:-1]) or int(t[:-1]), suits[t[-1]]) for t in text.split()]
+
+
+@pytest.mark.parametrize("hand, hands", [
+    # 4-card Flush and Straight, including Ace-low.
+    ("2H 7H 9H KH", {"Flush"}),
+    ("AS 2H 3D 4C", {"Straight"}),
+    ("JS QH KD AC", {"Straight"}),
+    # The flush and the straight may be different cards (docs/jokers.md example).
+    ("2H 3H 4H 9H 5S", {"Straight Flush", "Straight", "Flush"}),
+    # ...and the 4th suited card may be a second copy of a straight rank.
+    ("2H 3H 3H 4H 5S", {"Straight Flush", "Straight", "Flush", "Pair"}),
+    # Royal only if every flush and straight card is 10 or above: the suited
+    # 9 needed for the flush is scored, so this is a plain Straight Flush.
+    ("9H TH JH QH KS", {"Straight Flush", "Straight", "Flush"}),
+    ("TH JH QS KH AH", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+    # One card of a Flush House or Flush Five may be off-suit.
+    ("KH KH KS 7H 7H", {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
+    ("KH KH KH 7S 7H", {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
+    ("KH KH KH KH KS", {"Flush Five", "Five of a Kind", "Four of a Kind", "Three of a Kind", "Pair",
+                        "Flush"}),
+])
+def test_four_fingers_examples(hand, hands):
+    cards = hand_of(hand)
+    assert {n for n in TARGETS if contains(cards, {n}, Rules(four_fingers=True))} == hands
+    for name in TARGETS:
+        expected = Fraction(name in hands)
+        assert probability(get_target(name), cards, [], 0, Rules(four_fingers=True)) == expected, name
 
 
 def test_qq99_example():
@@ -192,5 +282,6 @@ def test_full_deck_flush_five_speed():
     # Worst-ish case: big pool, many patterns, 5 draws.
     deck = full_deck()
     kept, pool = deck[:3], deck[3:]
-    for name in ("Flush House", "Straight Flush", "Two Pair", "Full House"):
-        probability(get_target(name), kept, pool, 5)
+    for rules in RULESETS.values():
+        for name in ("Flush House", "Straight Flush", "Two Pair", "Full House"):
+            probability(get_target(name), kept, pool, 5, rules)
