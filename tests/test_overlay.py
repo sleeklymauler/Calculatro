@@ -84,7 +84,7 @@ def test_payloads(lua, tmp_path):
         "schema": overlay.SCHEMA, "id": state.id, "selected": 2,
         "targets": [
             {"name": "Any target", "keep": "100%", "discard": "100%", "trend": 0},
-            {"name": "Three of a Kind", "keep": "80.0%", "discard": "100%", "trend": 1},
+            {"name": "Trips", "keep": "80.0%", "discard": "100%", "trend": 1},
             {"name": "Pair", "keep": "100%", "discard": "100%", "trend": 0},
         ],
         "cards": [{"name": "Face card: none", "discard": "20.0%"}],
@@ -98,7 +98,7 @@ def test_payloads(lua, tmp_path):
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
     assert payload["selected"] == 0 and payload["message"] == overlay.NO_SELECTION
-    assert payload["targets"] == [{"name": "Three of a Kind", "keep": "80.0%"}]
+    assert payload["targets"] == [{"name": "Trips", "keep": "80.0%"}]
     assert overlay.odds(state, None, configured=False)["message"] == overlay.NO_TARGETS
     assert "message" not in overlay.odds(GameState(in_run=False, id="x"), None, configured=False)
 
@@ -170,7 +170,7 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "CALCULATRO@light",
         "Keep@muted", "Discard 2@muted",
         "Any target@light", "100%@light", ">@muted", "100%@light",
-        "Three of a Kind@light", "80.0%@light", ">@muted", "100%@green",
+        "Trips@light", "80.0%@light", ">@muted", "100%@green",
         "Pair@light", "100%@light", ">@muted", "100%@light",
         "Drawn cards@muted",
         "Face card: none@light", "20.0%@light",
@@ -186,6 +186,73 @@ def test_panel_shows_current_odds(lua, tmp_path):
     assert rt.eval("#BOXES") == boxes  # unchanged: not rebuilt
 
 
+COLUMNS = r"""
+return function(node)  -- names in each odds column (the column's first label), in order
+  local columns = {}
+  local function first_texts(n, out)
+    if n.n == G.UIT.R then
+      local first
+      local function find(m) if first then return end
+        if m.n == G.UIT.T then first = m.config.text end
+        for _, c in ipairs(m.nodes or {}) do find(c) end
+      end
+      find(n)
+      out[#out + 1] = first
+      return
+    end
+    for _, c in ipairs(n.nodes or {}) do first_texts(c, out) end
+  end
+  local function walk(n)
+    if n.config and n.config.id == 'calculatro_column' then
+      local out = {}
+      first_texts(n, out)
+      columns[#columns + 1] = table.concat(out, '|')
+    end
+    for _, c in ipairs(n.nodes or {}) do walk(c) end
+  end
+  walk(node)
+  return columns
+end
+"""
+
+
+def columns(rt, definition) -> list[list[str]]:
+    return [c.split("|") for c in rt.execute(COLUMNS)(definition).values()]
+
+
+def test_panel_spills_into_columns(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    everything = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+                  "straight flush", "royal", "five of a kind", "flush house", "flush five")
+    answer(lua, tmp_path, targets=everything, queries=("queen",))
+    mod.update(0.1)
+    box = rt.eval("BOXES[#BOXES]")
+    # 15 rows (13 targets, subheader, 1 query): one column is 5.3 tall, two 3.2,
+    # three 2.3 -- the first to fit in the 2.85 under the consumables.
+    assert columns(rt, box.definition) == [
+        ["Keep", "Any target", "Pair", "Two Pair", "Trips", "Straight"],
+        ["Keep", "Flush", "Full House", "Quads", "Str. Flush", "Royal Flush"],
+        ["Keep", "5 of a Kind", "Flush House", "Flush Five", "Drawn cards", "Queen: 1+"],
+    ]
+    assert box.T.h <= mod.max_panel_height()
+    assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
+    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 2  # the 1- and 2-column tries
+
+
+def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight"), queries=("queen", "no face"))
+    mod.update(0.1)
+    # 8 rows in 3 columns of 3 would end the middle one on "Drawn cards".
+    assert columns(rt, mod.definition(mod.panel_model(), 3)) == [
+        ["Keep", "Any target", "Pair", "Two Pair"],
+        ["Keep", "Trips", "Straight"],
+        ["Keep", "Drawn cards", "Queen: 1+", "Face card: none"],
+    ]
+
+
 def test_panel_without_selection(lua, tmp_path):
     rt, mod = lua
     rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
@@ -194,7 +261,7 @@ def test_panel_without_selection(lua, tmp_path):
     mod.update(0.1)
     assert panel_texts(rt) == [
         "CALCULATRO@light", "Keep@muted", "Discard@muted",
-        "Three of a Kind@light", "80.0%@light", "-@light",
+        "Trips@light", "80.0%@light", "-@light",
         f"{overlay.NO_SELECTION}@muted",
     ]
 
@@ -212,7 +279,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert "80.0%@light" in texts and "Discard 2@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert "80.0%@muted" in texts and texts[-1] == "Calculating...@muted"
+    assert "80.0%@stale" in texts and texts[-1] == "Calculating...@muted"
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
@@ -267,6 +334,6 @@ def test_panel_rebuilt_after_the_game_removes_it(lua, tmp_path):
     mod.update(0.1)
     assert panel_texts(rt)
     boxes = rt.eval("#BOXES")
-    rt.execute("G.deck = {cards = G.deck.cards, T = {w = 2.25}}")  # a new run's deck
+    rt.execute("G.deck = {cards = G.deck.cards, T = {w = 2.25, y = 8.9}}")  # a new run's deck
     mod.update(0.1)
     assert rt.eval("#BOXES") == boxes + 1 and rt.eval("BOXES[#BOXES].config.major == G.deck")

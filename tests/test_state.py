@@ -58,12 +58,28 @@ G = {
   HIGHLIGHT_H = 0.5,
   -- UI, for the odds panel
   UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
-  C = {UI = {TEXT_LIGHT = 'light', TEXT_INACTIVE = 'muted'}, GREEN = 'green', RED = 'red',
-       DYN_UI = {MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
+  C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
+       GREEN = 'green', RED = 'red', DYN_UI = {MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
+  -- Panel space: from 3.2 (under the consumables' label) to 6.05 (above the raised hand).
+  consumeables = {T = {y = 0, h = 2.6}},
 }
+G.deck.T.y = 8.9
 BOXES = {}  -- every UIBox created, newest last
+-- Mock layout: the panel is 3.25 wide per column, 0.5 + 0.3 per row of its tallest column.
+local function panel_size(node)
+  local columns, rows = 0, 0
+  local function walk(n)
+    if n.config and n.config.id == 'calculatro_column' then
+      columns, rows = columns + 1, math.max(rows, #n.nodes)
+    end
+    for _, child in ipairs(n.nodes or {}) do walk(child) end
+  end
+  walk(node)
+  return 3.25 * math.max(columns, 1), 0.5 + 0.3 * rows
+end
 function UIBox(args)
-  local box = {definition = args.definition, config = args.config, T = {w = 3.25},
+  local w, h = panel_size(args.definition)
+  local box = {definition = args.definition, config = args.config, T = {w = w, h = h},
                alignment = {offset = args.config.offset}}
   function box:remove() self.REMOVED = true end
   function box:align_to_major() end
