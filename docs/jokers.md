@@ -80,6 +80,8 @@ Edge case: Flower Pot assigns each card to the first suit that hasn't been claim
 
 `Card:is_face()` returns true for **every non-debuffed card**, Stone cards included. Debuffed cards are never face cards, whether or not Pareidolia is present. This affects every joker or query that checks for face cards (Scary Face, Smiley Face, Sock and Buskin, Business Card, Photograph, Ride the Bus, Faceless Joker, Reserved Parking, Midas Mask, Canio), as well as boss blinds such as The Plant.
 
+In Calculatro it only changes `-c` face-card queries (`cards._is_face`). No hand type checks for face cards, so targets are unaffected, and `Target.patterns` builds the same patterns with or without it.
+
 ### Splash (`j_splash`)
 
 Every played card is added to the scoring hand. It does not change which hand type is detected.

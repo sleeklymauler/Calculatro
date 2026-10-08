@@ -96,7 +96,7 @@ def _gc_paused() -> Iterator[None]:
     """Pause Python's cyclic garbage collector while any search runs.
 
     A big search creates millions of tuples and frozensets, and the collector
-    keeps traversing them, which costs 5-15% of the time (docs/performance).
+    keeps traversing them, which costs 5-8% of the time (docs/performance).
     The searches make no garbage cycles that outlive them (_favourable clears
     its memo), so nothing piles up. The collector is process-wide and a
     cancelled search can still be unwinding when the next one starts, so the

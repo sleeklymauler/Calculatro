@@ -28,6 +28,7 @@ See [docs/performance](docs/performance/README.md).
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
 Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
 
+- `--file`: read the state from another path instead of `%AppData%\Balatro\calculatro_state.json`.
 - `-t/--target`: hand types (`pair`, `two pair`, `trips`, `straight`, `flush`, `full house`, `quads`,
   `straight flush`, `royal`, `five of a kind`, `flush house`, `flush five`). A target counts if you could
   play a hand Balatro scores as containing it (a Straight Flush counts as a Straight). Several targets also
@@ -39,3 +40,7 @@ Target odds are shown for keeping your hand vs. discarding the selection; card o
   `enhanced`), editions (`foil`, `holo`, `polychrome`, `negative`, or any `edition`) and seals (`red seal`,
   `blue seal`, `gold seal`, `purple seal`, or `any seal`). These can prefix a rank, suit or card to narrow it:
   `2+ lucky`, `no glass cards`, `foil hearts`, `lucky red seal queen`. `gold` is the Gold Card and `gold seal` the seal.
+
+Jokers that change how hands or cards are read are taken into account (unless debuffed): Four Fingers,
+Shortcut and Smeared Joker for targets and suit queries, and Pareidolia for face-card queries.
+See [docs/jokers.md](docs/jokers.md#rules-that-matter-to-calculatro).

@@ -7,13 +7,17 @@ how to measure it.
   view: what each technique saves, what was tried and dropped, and what to
   do when a new joker rule is slow.
 - [benchmarks.md](benchmarks.md): measured timings for a fixed set of game
-  situations, before and after the second performance pass (and the
-  Shortcut and Four Fingers work before it).
+  situations: the current numbers, and before and after the second
+  performance pass, the Smeared Joker work after it, and the Shortcut and
+  Four Fingers work before it.
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)
   - [Shortcut](jokers/shortcut.md)
   - [Smeared Joker](jokers/smeared.md)
+
+  Pareidolia has no page and no benchmark scenarios: it only changes which
+  cards are face cards, so hand patterns are the same with or without it.
 
 Slow calculations never freeze the app: `__main__.run_watch` computes odds
 in a background `worker.Job`, a new game state cancels it, and anything

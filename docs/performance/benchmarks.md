@@ -8,16 +8,15 @@ for "Any target" when there are several targets. Anything slower than
 ## Setup
 
 - **Machine:** AMD Ryzen 7 7700X, 32 GB, Windows 11, Python 3.14.3.
-  Measured 2026-10-07, after the second performance pass.
+  Every table was measured on 2026-10-07; each section says at which point.
 - **Method:** `tests/perf/benchmark.py --repeat 5 --budget 120`. Each
   scenario ran 5 times after an untimed warm-up run, and rows with a
   standard deviation over 25% of the mean were re-measured once
-  (`--rerun-noisy`). Times are **mean ± standard deviation**; the raw times
-  are in `tests/perf/baseline.json` until the Smeared Joker work, which
-  refreshed it with `--repeat 3 --budget 20` (see [Smeared Joker](#smeared-joker)).
-- **Before** (in "The second pass" and "All scenarios"): the engine at
-  commit `62eb51c`, after the Shortcut work, measured the same day side by
-  side (`--repeat 5 --budget 60`, so the two slowest rows ran once). Both
+  (`--rerun-noisy`). Times are **mean ± standard deviation**. The raw times
+  of [Current numbers](#current-numbers) are in `tests/perf/baseline.json`.
+- **Before** (in "The second pass" and "All scenarios after the second
+  pass"): the engine at commit `62eb51c`, after the Shortcut work,
+  measured the same day side by side (`--repeat 5 --budget 60`, so the two slowest rows ran once). Both
   versions give exactly the same probabilities in every scenario.
 - The machine's speed drifted by up to about 30% during the day, which is
   why the "before" column here differs a little from the "now" columns of
@@ -38,6 +37,92 @@ Scenarios (`tests/perf/scenarios.py`):
   - *8 unknown, The House*: the whole hand is face-down, so nothing is
     known.
 - **"Any":** several targets combined, as in the "Any target" row.
+
+## Current numbers
+
+Measured at commit `80cb7d7` (after the Smeared Joker and Pareidolia work).
+These runs are `tests/perf/baseline.json`. Every probability is the same as
+in the previous baseline. Pareidolia has no scenarios: it doesn't change any
+hand's patterns.
+
+The slowest rows all have unseen Wild Cards and Four Fingers:
+
+- Four Fingers + Shortcut on the wild deck: Straight Flush takes 487 ms at 6
+  unknown cards, 2.33 s at 7 and 13.7 s at 8 (The House); 17.4 s with Full
+  House as well.
+- Four Fingers alone on the wild deck: 138 ms, 376 ms and 2.19 s; 3.30 s
+  with Full House as well.
+- Adding Smeared Joker to either makes them faster: at most 924 ms (Four
+  Fingers + Shortcut + Smeared, wild deck, The House, Full House + Straight
+  Flush).
+- Shortcut alone has two rows over 100 ms, both on the wild deck's The
+  House: Straight Flush (182 ms) and Full House + Straight Flush (572 ms).
+  Smeared alone, Shortcut + Smeared and no jokers stay under 100 ms
+  everywhere.
+
+**The standard deck's House rows are a best case** (see "Splitting by
+suit" in [engine.md](engine.md)): with a full deck and nothing known, the
+suits are interchangeable, and terms that are equal up to relabelling suits
+are computed once. Measured side by side with that check turned off
+(`engine._interchangeable` patched to return False, 3–5 runs each), as
+happens once the suits differ:
+
+| Target | Jokers | Normal | Suits not interchangeable |
+|---|---|---|---|
+| Straight Flush | Four Fingers | 72 ms | 401 ms |
+| Straight Flush | Four Fingers + Shortcut | 270 ms | 1.34 s |
+| Full House + Straight Flush (any) | Four Fingers | 150 ms | 789 ms |
+| Full House + Straight Flush (any) | Four Fingers + Shortcut | 383 ms | 2.08 s |
+
+With Smeared Joker the check makes no difference, since two colours aren't
+split by suit.
+
+Positions visited (counted through the search's `cancel.is_set()` call,
+made once per new position) and time per position, for the rows over
+100 ms: Four Fingers alone costs 6–10 µs per position, Four Fingers +
+Shortcut 11–15 µs, and Four Fingers + Shortcut + Smeared 19–23 µs. The
+largest search, the wild deck's The House with Four Fingers + Shortcut
+(Full House + Straight Flush), visits 1.17 million positions.
+
+| Deck | Situation | Target | No jokers | Four Fingers | Shortcut | Four Fingers + Shortcut | Smeared | Four Fingers + Smeared | Shortcut + Smeared | Four Fingers + Shortcut + Smeared |
+|---|---|---|---|---|---|---|---|---|---|---|
+| standard | Keep 3, draw 5 | Pair | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.1 ms |
+| standard | Keep 3, draw 5 | Two Pair | 1.7 ms ± 0.1 ms | 1.7 ms ± 0.2 ms | 1.8 ms ± 0.2 ms | 1.5 ms ± 0.2 ms | 1.8 ms ± 0.2 ms | 1.8 ms ± 0.4 ms | 1.6 ms ± 0.2 ms | 1.5 ms ± 0.2 ms |
+| standard | Keep 3, draw 5 | Three of a Kind | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.1 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.0 ms | 0.4 ms ± 0.1 ms | 0.5 ms ± 0.0 ms |
+| standard | Keep 3, draw 5 | Straight | 0.7 ms ± 0.1 ms | 0.7 ms ± 0.1 ms | 3.3 ms ± 0.4 ms | 2.0 ms ± 0.3 ms | 0.8 ms ± 0.0 ms | 0.8 ms ± 0.1 ms | 3.4 ms ± 0.5 ms | 2.2 ms ± 0.1 ms |
+| standard | Keep 3, draw 5 | Flush | 1.3 ms ± 0.1 ms | 1.2 ms ± 0.2 ms | 1.6 ms ± 0.9 ms | 1.4 ms ± 0.2 ms | 0.2 ms ± 0.0 ms | 0.2 ms ± 0.0 ms | 0.2 ms ± 0.0 ms | 0.2 ms ± 0.0 ms |
+| standard | Keep 3, draw 5 | Full House | 2.5 ms ± 0.6 ms | 2.8 ms ± 0.1 ms | 2.7 ms ± 0.3 ms | 2.6 ms ± 0.3 ms | 2.7 ms ± 0.2 ms | 3.1 ms ± 0.1 ms | 3.0 ms ± 0.3 ms | 2.7 ms ± 0.2 ms |
+| standard | Keep 3, draw 5 | Four of a Kind | 0.4 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.4 ms ± 0.0 ms | 0.4 ms ± 0.1 ms | 0.4 ms ± 0.0 ms | 0.4 ms ± 0.0 ms | 0.4 ms ± 0.0 ms | 0.4 ms ± 0.0 ms |
+| standard | Keep 3, draw 5 | Straight Flush | 2.6 ms ± 0.2 ms | 25 ms ± 1.3 ms | 12 ms ± 1.1 ms | 73 ms ± 1.9 ms | 1.3 ms ± 0.2 ms | 13 ms ± 0.2 ms | 6.4 ms ± 0.4 ms | 41 ms ± 0.8 ms |
+| standard | Keep 3, draw 5 | Royal Flush | 1.3 ms ± 0.3 ms | 4.4 ms ± 0.8 ms | 1.3 ms ± 0.2 ms | 5.9 ms ± 0.4 ms | 0.3 ms ± 0.0 ms | 1.9 ms ± 0.3 ms | 0.3 ms ± 0.0 ms | 2.8 ms ± 0.5 ms |
+| standard | Keep 3, draw 5 | Five of a Kind | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms |
+| standard | Keep 3, draw 5 | Flush House | 5.3 ms ± 0.3 ms | 19 ms ± 0.5 ms | 6.2 ms ± 0.4 ms | 21 ms ± 1.0 ms | 1.9 ms ± 0.2 ms | 8.2 ms ± 0.4 ms | 2.1 ms ± 0.2 ms | 8.4 ms ± 1.0 ms |
+| standard | Keep 3, draw 5 | Flush Five | 1.5 ms ± 0.2 ms | 2.5 ms ± 0.5 ms | 1.5 ms ± 0.2 ms | 2.8 ms ± 0.3 ms | 0.4 ms ± 0.1 ms | 0.5 ms ± 0.1 ms | 0.4 ms ± 0.1 ms | 0.5 ms ± 0.0 ms |
+| standard | 8 unknown: The House (all face-down) | Pair | 0.6 ms ± 0.0 ms | 0.5 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.5 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Two Pair | 1.7 ms ± 0.1 ms | 2.0 ms ± 0.3 ms | 1.9 ms ± 0.4 ms | 1.9 ms ± 0.2 ms | 2.1 ms ± 0.2 ms | 1.8 ms ± 0.2 ms | 2.0 ms ± 0.1 ms | 1.9 ms ± 0.2 ms |
+| standard | 8 unknown: The House (all face-down) | Three of a Kind | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.5 ms ± 0.0 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.7 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Straight | 1.6 ms ± 0.3 ms | 1.7 ms ± 0.2 ms | 7.4 ms ± 0.1 ms | 5.0 ms ± 0.3 ms | 1.4 ms ± 0.1 ms | 1.6 ms ± 0.1 ms | 7.3 ms ± 0.4 ms | 5.0 ms ± 0.4 ms |
+| standard | 8 unknown: The House (all face-down) | Flush | 1.0 ms ± 0.1 ms | 1.8 ms ± 0.2 ms | 1.2 ms ± 0.2 ms | 1.8 ms ± 0.3 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Full House | 3.2 ms ± 0.4 ms | 3.3 ms ± 0.4 ms | 3.6 ms ± 0.1 ms | 3.6 ms ± 0.5 ms | 3.5 ms ± 0.1 ms | 3.2 ms ± 0.2 ms | 3.3 ms ± 0.3 ms | 3.7 ms ± 0.2 ms |
+| standard | 8 unknown: The House (all face-down) | Four of a Kind | 0.6 ms ± 0.0 ms | 0.7 ms ± 0.1 ms | 0.5 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.6 ms ± 0.1 ms | 0.5 ms ± 0.1 ms | 0.6 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Straight Flush | 2.0 ms ± 0.3 ms | 76 ms ± 5.5 ms | 6.8 ms ± 0.4 ms | 260 ms ± 13 ms | 2.7 ms ± 0.3 ms | 97 ms ± 0.9 ms | 11 ms ± 0.2 ms | 503 ms ± 9.6 ms |
+| standard | 8 unknown: The House (all face-down) | Royal Flush | 1.1 ms ± 0.1 ms | 4.9 ms ± 0.3 ms | 1.1 ms ± 0.1 ms | 6.2 ms ± 0.2 ms | 0.4 ms ± 0.0 ms | 4.5 ms ± 0.6 ms | 0.4 ms ± 0.0 ms | 5.0 ms ± 0.4 ms |
+| standard | 8 unknown: The House (all face-down) | Five of a Kind | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms | 0.3 ms ± 0.0 ms | 0.4 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Flush House | 3.0 ms ± 0.4 ms | 14 ms ± 2.4 ms | 3.6 ms ± 0.4 ms | 15 ms ± 2.0 ms | 2.0 ms ± 0.3 ms | 13 ms ± 0.4 ms | 2.3 ms ± 0.2 ms | 14 ms ± 2.1 ms |
+| standard | 8 unknown: The House (all face-down) | Flush Five | 1.2 ms ± 0.1 ms | 2.5 ms ± 0.2 ms | 1.3 ms ± 0.1 ms | 3.1 ms ± 0.8 ms | 0.4 ms ± 0.0 ms | 0.5 ms ± 0.1 ms | 0.4 ms ± 0.0 ms | 0.5 ms ± 0.1 ms |
+| standard | 6 unknown: 1 face-down, draw 5 | Straight Flush | 2.6 ms ± 0.3 ms | 61 ms ± 2.1 ms | 12 ms ± 1.1 ms | 186 ms ± 10 ms | 1.6 ms ± 0.2 ms | 23 ms ± 0.3 ms | 7.4 ms ± 0.1 ms | 82 ms ± 1.9 ms |
+| standard | 7 unknown: 2 face-down, draw 5 | Straight Flush | 2.6 ms ± 0.2 ms | 87 ms ± 2.8 ms | 14 ms ± 3.0 ms | 305 ms ± 33 ms | 2.1 ms ± 0.1 ms | 43 ms ± 0.5 ms | 9.0 ms ± 0.4 ms | 198 ms ± 1.9 ms |
+| standard | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | 15 ms ± 1.6 ms | 164 ms ± 8.9 ms | 27 ms ± 2.5 ms | 420 ms ± 21 ms | 17 ms ± 0.2 ms | 164 ms ± 1.6 ms | 60 ms ± 0.4 ms | 670 ms ± 3.8 ms |
+| standard | 8 unknown: The House (all face-down) | Flush + Straight Flush (any) | 1.1 ms ± 0.2 ms | 1.9 ms ± 0.3 ms | 1.1 ms ± 0.1 ms | 1.8 ms ± 0.2 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms | 0.3 ms ± 0.0 ms | 0.3 ms ± 0.1 ms |
+| standard | 8 unknown: The House (all face-down) | Two Pair + Flush (any) | 8.3 ms ± 0.6 ms | 23 ms ± 3.5 ms | 8.6 ms ± 0.4 ms | 24 ms ± 3.3 ms | 8.8 ms ± 0.3 ms | 7.4 ms ± 0.4 ms | 9.2 ms ± 0.3 ms | 7.5 ms ± 0.4 ms |
+| standard | 8 unknown: The House (all face-down) | Straight + Flush (any) | 10 ms ± 0.5 ms | 33 ms ± 1.1 ms | 37 ms ± 1.2 ms | 71 ms ± 3.5 ms | 9.5 ms ± 0.2 ms | 8.1 ms ± 0.3 ms | 33 ms ± 0.5 ms | 20 ms ± 0.6 ms |
+| wild | Keep 3, draw 5 | Straight Flush | 3.5 ms ± 0.4 ms | 58 ms ± 1.9 ms | 23 ms ± 0.6 ms | 174 ms ± 4.1 ms | 2.1 ms ± 0.1 ms | 16 ms ± 0.2 ms | 13 ms ± 0.1 ms | 50 ms ± 0.9 ms |
+| wild | 6 unknown: 1 face-down, draw 5 | Straight Flush | 5.9 ms ± 0.7 ms | 138 ms ± 1.0 ms | 39 ms ± 1.1 ms | 487 ms ± 1.4 ms | 4.2 ms ± 0.2 ms | 34 ms ± 8.4 ms | 22 ms ± 3.0 ms | 105 ms ± 3.2 ms |
+| wild | 7 unknown: 2 face-down, draw 5 | Straight Flush | 7.5 ms ± 0.2 ms | 376 ms ± 3.7 ms | 63 ms ± 1.0 ms | 2.33 s ± 47 ms | 6.5 ms ± 0.3 ms | 57 ms ± 0.4 ms | 41 ms ± 2.7 ms | 274 ms ± 1.5 ms |
+| wild | 8 unknown: The House (all face-down) | Straight Flush | 21 ms ± 0.3 ms | 2.19 s ± 14 ms | 182 ms ± 10 ms | 13.57 s ± 26 ms | 9.9 ms ± 0.5 ms | 141 ms ± 0.8 ms | 68 ms ± 0.5 ms | 705 ms ± 8.7 ms |
+| wild | 8 unknown: The House (all face-down) | Flush House | 4.0 ms ± 0.1 ms | 17 ms ± 0.5 ms | 4.2 ms ± 0.4 ms | 19 ms ± 1.4 ms | 8.5 ms ± 0.4 ms | 23 ms ± 3.8 ms | 8.7 ms ± 0.2 ms | 22 ms ± 0.5 ms |
+| wild | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | 83 ms ± 0.9 ms | 3.30 s ± 8.8 ms | 572 ms ± 5.8 ms | 17.85 s ± 65 ms | 22 ms ± 1.5 ms | 237 ms ± 2.0 ms | 80 ms ± 0.5 ms | 942 ms ± 16 ms |
+| wild | 8 unknown: The House (all face-down) | Pair + Flush (any) | 42 ms ± 0.7 ms | 45 ms ± 1.5 ms | 44 ms ± 0.5 ms | 44 ms ± 0.4 ms | 5.7 ms ± 0.2 ms | 4.5 ms ± 0.6 ms | 5.4 ms ± 0.3 ms | 4.3 ms ± 0.1 ms |
 
 ## The second pass
 
@@ -89,10 +174,11 @@ so only the ratios between neighbouring rows mean much):
 | Only one-card parts (not Full House's "2 more 7s"); suit by suit when suits are independent | 1.49 s | 2.5 s |
 | Equal terms of interchangeable suits computed once | 0.30 s | (not split) |
 
-**Still slow: unseen Wild Cards with Four Fingers and Shortcut.** The
-suits can't be split, so the wild deck takes 3.2 s at 7 unknown cards and
-about 20 s for The House (25 s with Full House as well). With Four Fingers
-alone, The House takes about 3–4.5 s.
+**Still slow after the second pass: unseen Wild Cards with Four Fingers
+and Shortcut.** The suits can't be split, so the wild deck took 3.2 s at 7
+unknown cards and about 20 s for The House (25 s with Full House as well).
+With Four Fingers alone, The House took about 3–4.5 s. See
+[Current numbers](#current-numbers) for today's times.
 
 ## Earlier work
 
@@ -147,7 +233,7 @@ of that work.
 ## Smeared Joker
 
 Measured 2026-10-07 on the same machine with `--repeat 3 --budget 20`; these
-runs are the current `tests/perf/baseline.json`. "Before" is the first
+runs were the baseline until [Current numbers](#current-numbers). "Before" is the first
 Smeared implementation (one run each) for the Smeared columns, and the
 previous baseline for the others. Every probability is unchanged. Rows where
 some column took 100 ms or more; see [jokers/smeared.md](jokers/smeared.md)
@@ -169,9 +255,11 @@ Smeared alone and Shortcut + Smeared stay under 100 ms everywhere; Shortcut
 alone has two rows over 100 ms on the wild deck's The House (Straight Flush
 203 → 161 ms, any of Full House / Straight Flush 772 → 550 ms).
 
-## All scenarios
+## All scenarios after the second pass
 
-Before (commit `62eb51c`) → now (mean ± standard deviation); see "Setup".
+Before (commit `62eb51c`) → after the second pass (mean ± standard
+deviation); see "Setup". For today's times see
+[Current numbers](#current-numbers).
 
 | Deck | Situation | Target | No jokers | Four Fingers | Shortcut | Four Fingers + Shortcut |
 |---|---|---|---|---|---|---|

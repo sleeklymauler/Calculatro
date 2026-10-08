@@ -109,10 +109,11 @@ See [../benchmarks.md](../benchmarks.md) for current numbers.
 
 - **Unseen Wild Cards.** As with Four Fingers alone, these use one search
   over all suits, and with Shortcut each suit has far more partial runs to
-  remember. After the second performance pass, the wild deck's Straight
-  Flush takes about 0.7 s at 6 unknown cards, 3.2 s at 7 and 19 s at 8 (The
-  House); 25 s with Full House as well.
+  remember. After the Smeared Joker work, the wild deck's Straight
+  Flush takes about 0.5 s at 6 unknown cards, 2.3 s at 7 and 14 s at 8 (The
+  House); 17 s with Full House as well.
 - **The House on the standard deck** took about 7 s before the second pass,
-  mostly in the six two-suit terms of the split by suit. It's now 0.3 s with
+  mostly in the six two-suit terms of the split by suit. It's now 0.26 s with
   a full deck, where the suits are interchangeable and equal terms are
-  computed once, and about 1.8 s once the suits differ.
+  computed once, and about 1.3 s once the suits differ (measured with that
+  check turned off; see [../benchmarks.md](../benchmarks.md#current-numbers)).
