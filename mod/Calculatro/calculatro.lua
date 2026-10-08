@@ -436,6 +436,15 @@ function Calculatro.definition(model)
     } }
 end
 
+-- How far above the deck's top the panel sits. The panel is wider than the
+-- gap between the hand and the screen edge, so it has to clear the hand's
+-- cards: while selecting, CardArea:move slides the hand 1.9 above its resting
+-- place (level with the deck), and align_cards draws cards up to 0.2 above
+-- their slot, highlighted ones another HIGHLIGHT_H higher.
+function Calculatro.panel_lift()
+    return 1.9 + 0.2 + (G.HIGHLIGHT_H or 0) + 0.25
+end
+
 -- Rebuilds the panel when what it shows changes; removes it outside blinds.
 function Calculatro.refresh_panel()
     local model = Calculatro.visible and Calculatro.in_blind() and Calculatro.panel_model() or nil
@@ -449,7 +458,7 @@ function Calculatro.refresh_panel()
 
     panel = UIBox{
         definition = Calculatro.definition(model),
-        config = { align = 'tm', offset = { x = 0, y = -0.2 }, major = G.deck, bond = 'Strong', can_collide = false },
+        config = { align = 'tm', offset = { x = 0, y = -Calculatro.panel_lift() }, major = G.deck, bond = 'Strong', can_collide = false },
     }
     -- 'tm' centres it above the deck; shift it to line up with the deck's right edge.
     panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2

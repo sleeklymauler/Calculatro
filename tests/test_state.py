@@ -55,6 +55,7 @@ G = {
     {config = {center_key = 'j_smeared'}, debuff = true},
   }},
   CONTROLLER = {},
+  HIGHLIGHT_H = 0.5,
   -- UI, for the odds panel
   UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
   C = {UI = {TEXT_LIGHT = 'light', TEXT_INACTIVE = 'muted'}, GREEN = 'green', RED = 'red',
