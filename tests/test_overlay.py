@@ -145,7 +145,7 @@ def test_snapshot_ids_change_with_the_state(lua, tmp_path):
 
 def test_in_blind(lua):
     rt, mod = lua
-    for state, shown in [("SELECTING_HAND", True), ("HAND_PLAYED", True), ("DRAW_TO_HAND", True),
+    for state, shown in [("SELECTING_HAND", True), ("DRAW_TO_HAND", True), ("HAND_PLAYED", False),
                          ("SHOP", False), ("BLIND_SELECT", False), ("ROUND_EVAL", False), ("TAROT_PACK", False)]:
         rt.execute(f"G.STATE = G.STATES.{state}")
         assert mod.in_blind() is shown, state

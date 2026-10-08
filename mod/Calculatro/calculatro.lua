@@ -325,7 +325,8 @@ end
 ---------------------------------------------------------------------------
 
 -- Only while playing a blind: not in the shop, blind select, booster packs,
--- round results, or with a menu (run info, deck view, options) open.
+-- round results, or with a menu (run info, deck view, options) open. Also
+-- not while a played hand is scored: the played cards reach the panel.
 function Calculatro.in_blind()
     if not (G and G.STAGES and G.STATES and G.STAGE == G.STAGES.RUN and G.deck and G.hand) then
         return false
@@ -333,7 +334,7 @@ function Calculatro.in_blind()
     if G.OVERLAY_MENU then return false end
     local S, state = G.STATES, G.STATE
     if state == S.PLAY_TAROT then state = G.TAROT_INTERRUPT end  -- using a consumable
-    return state == S.SELECTING_HAND or state == S.HAND_PLAYED or state == S.DRAW_TO_HAND
+    return state == S.SELECTING_HAND or state == S.DRAW_TO_HAND
 end
 
 -- What the panel shows, or nil to hide it. Odds for an older state stay up
