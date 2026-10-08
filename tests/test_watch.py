@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import threading
 import time
 
@@ -21,6 +22,34 @@ def test_probability_cancelled():
     cancel.set()
     with pytest.raises(Cancelled):
         probability(get_target("Straight Flush"), [], deck, 5, Rules(four_fingers=True), cancel)
+    assert gc.isenabled()  # paused during the search only
+
+
+def test_overlapping_searches_restore_gc():
+    """A cancelled search finishing while another runs must not turn the collector back on early, or leave it off."""
+    deck = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base") for s in SUITS for r in range(2, 15)]
+    started, release = threading.Event(), threading.Event()
+    seen = []
+
+    class Slow(threading.Event):
+        def is_set(self):
+            started.set()
+            release.wait(5)
+            seen.append(gc.isenabled())
+            return False
+
+    t = threading.Thread(target=probability, args=(get_target("Pair"), [], deck, 2, Rules(), Slow()))
+    t.start()
+    assert started.wait(5)
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(Cancelled):  # starts and ends while the other search runs
+        probability(get_target("Straight Flush"), [], deck, 5, Rules(), cancel)
+    assert not gc.isenabled()
+    release.set()
+    t.join(5)
+    assert seen and not any(seen)
+    assert gc.isenabled()
 
 
 def test_job_result_error_and_cancel():

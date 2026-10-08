@@ -35,6 +35,8 @@ WILDS = ["4C", "9D", "JS", "AH"]
 JOKERS = {
     "No jokers": (),
     "Four Fingers": ("j_four_fingers",),
+    "Shortcut": ("j_shortcut",),
+    "Four Fingers + Shortcut": ("j_four_fingers", "j_shortcut"),
 }
 
 

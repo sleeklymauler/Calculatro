@@ -7,7 +7,7 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-This page describes the design as of the Four Fingers work. Joker-specific
+This page describes the design as of the Shortcut work. Joker-specific
 notes are in [jokers/](jokers/) and measured timings in
 [benchmarks.md](benchmarks.md).
 
@@ -104,17 +104,33 @@ the next. Two consequences have shaped the code:
 
 ### Patterns join the search late
 
-A pattern joins the search state at the first class that counts towards it.
-Before that, its status depends only on the kept cards and the draws left, so
-it stays out of the state and the memo key. A precomputed table says which
-groups those waiting patterns could still cover for a given number of draws
-left. Without this, every future straight window would sit in every memo key
-from the first card on.
+A pattern joins the search state at the first class that counts towards one
+of its **single-rank** requirements (or towards it at all, if it has none).
+Before that, it stays out of the state and the memo key. A precomputed table
+says which groups those waiting patterns could still cover for a given
+number of draws left. Without this, every future straight window would sit
+in every memo key from the first card on.
+
+A waiting pattern can still have requirements spanning many ranks that
+earlier classes count towards, such as Four Fingers' "a suited card of
+another rank". Its state then also depends on how many cards were drawn from
+those classes. Those counts are deferred: the search keeps a running total
+per set of classes, the memo key holds each one (capped at the most any
+waiting pattern needs), and a pattern's counts are filled in from them when
+it joins. Waiting patterns usually share these sets: for every run above the
+current rank, it's "the suit's cards so far". So this costs one bit per suit,
+where joining at the first class put every run of the suit into the state
+with its own copy of the requirement. While a pattern waits, the coverage
+table uses a lower bound on the cards it needs (its deferred requirements
+counted as met), so it never prunes wrongly. See
+[jokers/shortcut.md](jokers/shortcut.md).
 
 ### Cheap per-position work
 
 - Only patterns that the current class counts towards are re-assessed when
-  moving past it.
+  moving past it, and of those only the live ones and the ones joining
+  there. The same goes for updating the per-pattern counts: a class can
+  count towards thousands of patterns that were dropped long ago.
 - A pattern being satisfied is noticed when it's assessed, so positions
   never rescan the whole state.
 - Each pattern's supply and future-class tables are indexed by how many of
@@ -126,6 +142,19 @@ from the first card on.
   counts), since the same local situation recurs across many positions.
 - The search checks the `cancel` event at every new position, so the
   background worker can abandon it as soon as the game state changes.
+
+### Garbage collection
+
+A big search creates millions of tuples and frozensets, and Python's cyclic
+garbage collector keeps traversing them. `probability()` pauses the
+collector while it runs (`_gc_paused`), which saves 5–15% on the largest
+searches (most on the wild deck) for a little more peak memory. The collector is process-wide, and a cancelled search can still be
+unwinding in the background worker when the next one starts. So running
+searches are counted under a lock, and the last one to finish restores the
+collector's previous state. `ways` refers to itself through its closure, so
+each search's frame is a reference cycle; `_favourable` clears its memo and
+`assess` cache on the way out so that the cycle holds little until the
+collector runs again.
 
 ## Splitting by suit
 
@@ -186,18 +215,24 @@ Recorded so they aren't retried blindly:
   search, so the budget only added complexity.
 - **Ordering classes by any requirement:** a requirement spanning many ranks
   pulled whole suits to the front. That turned the rank sweep into a suit
-  sweep that has to remember every rank seen.
+  sweep that has to remember every rank seen. The same thing happens if
+  patterns that cross suits are listed suit by suit; see
+  [jokers/shortcut.md](jokers/shortcut.md).
+- **Dropping dominated live patterns** (those whose unmet requirements are a
+  superset of another live pattern's): about 30% fewer live patterns, but
+  barely fewer positions, and the subset checks made it slower.
+- **Conditioning on drawn Wild Cards**, so that unseen Wild Cards don't stop
+  the split by suit: for each way of drawing them, move them into the kept
+  cards and split the rest by suit. With Wild Cards kept, terms with 3 and 4
+  suits become possible. Only The House with Four Fingers and Shortcut got
+  faster (by about 5%), while small cases were 2–4× slower and some 20×.
 
 ## Ideas not yet tried
 
-- **Pausing the garbage collector during a search.** Big searches create
-  millions of tuples and frozensets, and Python's cyclic collector keeps
-  traversing them. Disabling it took Four Fingers' 8-unknown Straight Flush
-  from 2.55 s to 2.17 s (about 15%). The memo holds no reference cycles, but
-  `gc.disable()` affects the whole process, so it needs care with the
-  background worker.
-- **Conditioning on drawn Wild Cards**, so that unseen Wild Cards don't stop
-  the split by suit. See [jokers/four-fingers.md](jokers/four-fingers.md).
+- **Cheaper multi-suit terms.** With Four Fingers and Shortcut, most of The
+  House's time is the two-suit terms of the split by suit, which are mostly
+  not dead ends. A tighter bound than "4 cards of each suit", or a way to
+  count them without carrying both suits' partial runs at once, would help.
 
 ## When adding a joker rule
 
