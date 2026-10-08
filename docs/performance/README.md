@@ -13,6 +13,7 @@ how to measure it.
   work.
   - [Four Fingers](jokers/four-fingers.md)
   - [Shortcut](jokers/shortcut.md)
+  - [Smeared Joker](jokers/smeared.md)
 
 Slow calculations never freeze the app: `__main__.run_watch` computes odds
 in a background `worker.Job`, a new game state cancels it, and anything

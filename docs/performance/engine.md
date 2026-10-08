@@ -176,7 +176,13 @@ gained the most after the class order (about 2×).
 - A part being satisfied is noticed when it's moved, so positions never
   rescan the whole state.
 - Patterns join with a part built from the kept cards and the deferred
-  counts (`join`, cached). Each pattern's supply and future-class tables
+  counts (`join`, cached). The list of parts joining at a class is cached
+  too, by the class, the groups to cover and the deferred counts as the
+  memo key caps them; with Four Fingers + Shortcut a couple of dozen
+  patterns join per position, and this saved 20–30%.
+- With one group (no split by suit), a part is live just when it needs no
+  more cards than are left, so live, moving and still parts are built with
+  comprehensions, and one-card parts are found by set intersection. Each pattern's supply and future-class tables
   are indexed by how many of *its own* classes are behind, which matters
   for targets with thousands of patterns (Four Fingers' Flush House has
   1,872).
@@ -227,6 +233,11 @@ computed once. With a full deck and nothing known, as in The House's first
 hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush (7.5 s
 → 0.3 s with Shortcut as well). It does nothing once the suits differ, which
 is most of the time.
+
+**It's skipped with only two suits.** That only happens with Smeared Joker,
+whose two colours are the suits. The term with both of them carries what one
+search over everything does, but can only stop once both colours have a
+pattern, so one search is faster. See [jokers/smeared.md](jokers/smeared.md).
 
 **It's skipped when an unseen card is Wild.** An undrawn Wild Card counts as
 every suit, so the constraint barely prunes. The all-suit term is then as
@@ -295,7 +306,10 @@ Recorded so they aren't retried blindly:
   count the cards that satisfy some part. Waiting patterns almost always
   rule it out, and it saved about 3%.
 - **Caching the parts joining at each class** by what the memo key holds:
-  no measurable gain.
+  no measurable gain at first, but it paid off later (20–30% on the slow
+  scenarios) and is now in place; see [jokers/smeared.md](jokers/smeared.md).
+- **Dropping every live part that implies another** (checked per
+  requirement, at each memo miss): 7% fewer positions, 4× slower.
 
 ## Ideas not yet tried
 
