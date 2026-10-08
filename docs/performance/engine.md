@@ -7,8 +7,8 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-This page describes the design as of the Smeared Joker work (after the
-second performance pass). Joker-specific notes are in [jokers/](jokers/)
+This page includes the partial-state reductions added after the Smeared
+Joker work. Joker-specific notes are in [jokers/](jokers/)
 and measured timings in [benchmarks.md](benchmarks.md), which also has a
 step-by-step table for the second pass.
 
@@ -96,6 +96,14 @@ positions instead of 55k with every pair and 86k with none). The check only
 runs when the memo lookup misses, and the count is stored under both the
 full key and the reduced one.
 
+For a plain OR (one coverage group), all one-card parts are first merged
+into one: "a card from A or a card from B" is exactly "a card from A ∪ B".
+Equivalent sets of outs then share a memo entry even when they arose from
+different patterns. The union also absorbs a part whose requirement lies
+within A ∪ B but not within A or B alone. This is one bitmask union followed
+by the existing implication check, not an all-pairs comparison. Parts from
+different coverage groups are kept separate.
+
 ## Keeping the search small
 
 ### Class order: rank by rank, or suit by suit
@@ -161,12 +169,27 @@ table uses a lower bound on the cards it needs (its deferred requirements
 counted as met), so it never prunes wrongly. See
 [jokers/shortcut.md](jokers/shortcut.md).
 
+Deferred counts are now tracked by **class and draws remaining**. Each
+waiting pattern has a lower bound on what it will need when it joins,
+optimistically treating all its deferred requirements as satisfied. If
+even that bound exceeds the draws left, its history cannot affect any
+continuation, so it contributes no deferred count or cap to the memo key.
+Patterns sharing the same earlier classes still share one count, capped at
+the maximum needed by the patterns that remain reachable.
+
+The joining-parts cache also includes draws remaining. It excludes those
+unreachable patterns before reading their omitted counts, then checks the
+actual joined part's bound before moving it. This both preserves the cache
+key's meaning and avoids transitions for parts that would die at the next
+position anyway.
+
 ### Cheap per-position work
 
-A position costs 6–25 µs of Python on the benchmark machine, more when
+Before the partial-state reductions, a position cost 6–25 µs of Python on
+the benchmark machine, more when
 more patterns join and move at each class (Four Fingers alone 6–10 µs, with
 Shortcut 11–15 µs, with Shortcut and Smeared 19–23 µs), and the largest
-search in the benchmarks visits about 1.2 million positions. So this is
+search in the benchmarks visited about 1.2 million positions. So this is
 where the second pass gained the most after the class order (about 2×).
 
 - Only live parts that the current class counts towards (one bit test) are
@@ -179,7 +202,7 @@ where the second pass gained the most after the class order (about 2×).
   rescan the whole state.
 - Patterns join with a part built from the kept cards and the deferred
   counts (`join`, cached). The list of parts joining at a class is cached
-  too, by the class, the groups to cover and the deferred counts as the
+  too, by the class, draws left, the groups to cover and the deferred counts as the
   memo key caps them; with Four Fingers + Shortcut a couple of dozen
   patterns join per position, and this saved 20–30%.
 - With one group (no split by suit), a part is live just when it needs no
@@ -318,11 +341,13 @@ Recorded so they aren't retried blindly:
 
 - **Unseen Wild Cards.** They stop the split by suit, so Four Fingers with
   Shortcut still takes seconds from 7 unknown cards on the wild deck, and
-  14–17 s for The House. Conditioning on the Wild Cards drawn has been
+  10.5–14 s for The House. Conditioning on the Wild Cards drawn has been
   tried twice; something that keeps the suits apart without making 3- and
   4-suit terms possible would be needed.
-- **Fewer positions rather than cheaper ones.** At 6–25 µs per position
-  there's little left to gain per position in pure Python.
+- **Further canonicalization of partial states.** Merging one-card outs
+  and forgetting unreachable patterns' deferred counts made the largest
+  searches 20–25% faster. More reductions must remain cheaper than the
+  searches they avoid; general all-pairs implication checks still cost too much.
 
 ## When adding a joker rule
 

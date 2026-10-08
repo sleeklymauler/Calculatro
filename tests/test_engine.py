@@ -12,8 +12,8 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import _split_by_suit, evaluate_discard, probability
-from calculatro.hands import TARGETS, combine, get_target
+from calculatro.engine import _favourable, _split_by_suit, evaluate_discard, probability
+from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
 
@@ -135,6 +135,47 @@ def brute(names: set[str], kept: list[Card], pool: list[Card], draws: int,
 
 
 # --- Tests --------------------------------------------------------------------
+
+@pytest.mark.parametrize("masks", [(1, 1, 1, 1, 1, 1), (1, 2, 3, 1, 2, 1)])
+@pytest.mark.parametrize("kept_ranks", [(), (2,), (6,)])
+@pytest.mark.parametrize("include_outs", [False, True])
+def test_partial_patterns_match_exhaustive_draws(masks, kept_ranks, include_outs):
+    """Overlapping outs and deferred counts with different caps and draw bounds.
+
+    The single-card alternatives can merge only in the plain OR. Deferred
+    patterns share earlier cards, but need different numbers of future
+    cards, so their deferred counts stop mattering at different draw budgets.
+    Duplicate pool cards remain distinct choices and the Stone card is dead.
+    """
+    def req(ranks, need=1):
+        return Requirement(frozenset((r, "Hearts") for r in ranks), need)
+
+    patterns = [
+        (req([2, 6]),),
+        (req([4, 8]),),
+        (req([2, 4, 6, 8]), req([9])),
+        (req([2, 4, 8], 2), req([6])),
+        (req([2, 4, 8]), req([7]), req([9])),
+        (req([2, 4, 6, 8]), req([2, 4, 6, 8])),  # identical requirements count once
+    ]
+    if not include_outs:
+        patterns, masks = patterns[2:5], masks[2:5]
+    kept = [card(r, "Hearts") for r in kept_ranks]
+    pool = [card(r, "Hearts") for r in [2, 2, 4, 6, 7, 8, 9]] + [card(3, "Clubs", "m_stone")]
+    every = 0
+    for mask in masks:
+        every |= mask
+    for draws in range(len(pool) + 1):
+        expected = 0
+        for draw in combinations(pool, draws):
+            covered = 0
+            for pattern, mask in zip(patterns, masks):
+                if all(sum((c.rank_id, c.suit) in r.keys for c in (*kept, *draw)) >= r.need
+                       for r in pattern):
+                    covered |= mask
+            expected += covered == every
+        assert _favourable(patterns, list(masks), kept, pool, draws, Rules(), None) == expected
+
 
 def random_card(rng: random.Random) -> Card:
     r, s = rng.randint(9, 14), rng.choice(SUITS)

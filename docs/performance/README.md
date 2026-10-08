@@ -7,9 +7,10 @@ how to measure it.
   view: what each technique saves, what was tried and dropped, and what to
   do when a new joker rule is slow.
 - [benchmarks.md](benchmarks.md): measured timings for a fixed set of game
-  situations: the current numbers, and before and after the second
-  performance pass, the Smeared Joker work after it, and the Shortcut and
-  Four Fingers work before it.
+  situations: the current numbers (before and after the partial-state
+  reductions), and before and after the second performance pass, the
+  Smeared Joker work after it, and the Shortcut and Four Fingers work
+  before it.
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)
