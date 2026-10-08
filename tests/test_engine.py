@@ -151,6 +151,8 @@ RULESETS = {
     for sm in (False, True) for ff in (False, True) for sc in (False, True)
 }
 SMEARED_RULESETS = {k: v for k, v in RULESETS.items() if v.smeared}
+# Smeared leaves two suits, which aren't split (see probability()).
+SPLIT_RULESETS = {k: v for k, v in RULESETS.items() if not v.smeared}
 
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
@@ -235,7 +237,7 @@ def two_suit_card(rng: random.Random, low_rank: int, wild: bool,
     return card(r, s)
 
 
-@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("rules", SPLIT_RULESETS.values(), ids=SPLIT_RULESETS.keys())
 @pytest.mark.parametrize("names, low_rank", [
     (("Straight Flush",), 8), (("Royal Flush",), 9), (("Flush House",), 11), (("Flush Five",), 12),
     (("Flush",), 8), (("Full House", "Straight Flush"), 9), (("Two Pair", "Flush"), 10),
@@ -248,7 +250,7 @@ def test_split_by_suit_matches_brute_force(names, low_rank, rules):
     Cards count towards both.
     """
     target = combine([get_target(n) for n in names])
-    assert len(_split_by_suit(target.patterns(rules))[1]) > 1
+    assert len(_split_by_suit(target.patterns(rules))[1]) > 2
     rng = random.Random(" ".join(names))
     for _ in range(8):
         kept = [two_suit_card(rng, low_rank, wild=True) for _ in range(rng.randint(2, 4))]
@@ -290,8 +292,7 @@ def test_interchangeable_suits_match_brute_force(names, low_rank, rules):
 def test_smeared_flush_hands_match_brute_force(names, low_rank, wild, rules):
     """Four suits making two colours, so both suits of a colour make flushes together.
 
-    Without unseen Wild Cards the target is split by colour (as in
-    test_split_by_suit_matches_brute_force); kept ones count towards both.
+    Kept Wild Cards count towards both colours; unseen ones only with `wild`.
     """
     target = combine([get_target(n) for n in names])
     rng = random.Random(" ".join(names))

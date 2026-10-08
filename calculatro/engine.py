@@ -76,7 +76,10 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     _, by_suit = _split_by_suit(patterns)
     with _gc_paused():
         # An unseen Wild Card counts as every suit, which ties the suits back together.
-        if len(by_suit) > 1 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
+        # With two suits (Smeared Joker's colours), one search only has to carry
+        # what the term with both of them does, and it can stop at either colour's
+        # pattern, so splitting doesn't pay.
+        if len(by_suit) > 2 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
             favourable = _union_by_suit(patterns, kept, pool, draws, rules, cancel)
         else:
             favourable = _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel)
@@ -332,6 +335,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     part_need: list[int] = []  # lower bound on the cards it needs; 0 once satisfied
     part_bits: list[int] = []  # classes that count towards an unmet requirement
     part_single: list[tuple[int, int] | None] = []  # its requirement, if it's one card of some classes
+    single_parts: set[int] = set()  # parts with a part_single
     supply_of: dict[int, int] = {}
 
     def intern(mask: int, unmet: list[tuple[int, int]]) -> int:
@@ -347,6 +351,8 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                 bits |= f
             part_bits.append(bits)
             part_single.append(unmet[0] if len(unmet) == 1 and unmet[0][1] == 1 else None)
+            if part_single[pid] is not None:
+                single_parts.add(pid)
         return pid
 
     def supply(bits: int) -> int:
@@ -490,6 +496,8 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         return pid
 
     memo: dict[tuple, int] = {}
+    # Parts of the patterns joining at a class, by (class, todo, free, deferred counts).
+    joining: dict[tuple, list[int]] = {}
 
     def ways(i: int, rem: int, todo: int, state: list[int], cp: int | None) -> int:
         """Ways to draw `rem` more cards from classes i.. (plus dead cards) after
@@ -512,28 +520,30 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         else:
             free = c_initial <= rem
         # Drop parts that are out of reach or only cover groups that are already covered.
-        live = set()
-        covered = pending[free][i][rem]
-        singles = False
-        for pid in state:
-            if part_need[pid] <= rem and (mask := part_mask[pid] & todo) and (free or part_mask[pid] == every):
-                live.add(pid)
-                covered |= mask
-                if part_single[pid] is not None:
-                    singles = True
-        if covered & todo != todo:
-            return 0
+        if every == 1:  # one group, so no constraint either
+            live = {pid for pid in state if part_need[pid] <= rem}
+            if not live and not pending[1][i][rem]:
+                return 0
+        else:
+            live = set()
+            covered = pending[free][i][rem]
+            for pid in state:
+                if part_need[pid] <= rem and (mask := part_mask[pid] & todo) and (free or part_mask[pid] == every):
+                    live.add(pid)
+                    covered |= mask
+            if covered & todo != todo:
+                return 0
         deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i]])
         memo_key = (i, rem, todo, frozenset(live), deferred_key)
         total = memo.get(memo_key)
         if total is not None:
             return total
         keys = [memo_key]
-        if singles and len(live) > 1:
+        if len(live) > 1 and (singles := live & single_parts):
             # A part that needs a card of some classes makes redundant any part
             # that needs one of a subset of them (and covers no other groups).
             size = len(live)
-            for s in [pid for pid in live if part_single[pid] is not None]:
+            for s in singles:
                 if s not in live:
                     continue
                 fs, ds = part_single[s]
@@ -556,13 +566,17 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         count = classes[i][1]
         bit = 1 << i
         # Only parts that class i counts towards change here.
-        moving = []
-        still = []
-        for pid in live:
-            (moving if part_bits[pid] & bit else still).append(pid)
-        for p in activate[i]:
-            if masks[p] & todo and (free or masks[p] == every) and (pid := join(p)) != DEAD:
-                moving.append(pid)
+        moving = [pid for pid in live if part_bits[pid] & bit]
+        still = [pid for pid in live if not part_bits[pid] & bit]
+        if activate[i]:
+            # The parts joining here follow from the deferred counts, capped as in the key.
+            join_key = (i, todo, free, deferred_key)
+            parts = joining.get(join_key)
+            if parts is None:
+                parts = joining[join_key] = [
+                    pid for p in activate[i]
+                    if masks[p] & todo and (free or masks[p] == every) and (pid := join(p)) != DEAD]
+            moving += parts
         if i == c_start:
             cp = join(c) if free else DEAD
         c_moves = cp is not None and cp != DEAD and part_bits[cp] & bit
@@ -607,6 +621,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         transitions.clear()
         part_ids.clear()
         joined.clear()
+        joining.clear()
 
 
 DEAD = -1  # a part that can no longer be satisfied

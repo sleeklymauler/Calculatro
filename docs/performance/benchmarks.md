@@ -13,7 +13,8 @@ for "Any target" when there are several targets. Anything slower than
   scenario ran 5 times after an untimed warm-up run, and rows with a
   standard deviation over 25% of the mean were re-measured once
   (`--rerun-noisy`). Times are **mean ± standard deviation**; the raw times
-  are in `tests/perf/baseline.json`.
+  are in `tests/perf/baseline.json` until the Smeared Joker work, which
+  refreshed it with `--repeat 3 --budget 20` (see [Smeared Joker](#smeared-joker)).
 - **Before** (in "The second pass" and "All scenarios"): the engine at
   commit `62eb51c`, after the Shortcut work, measured the same day side by
   side (`--repeat 5 --budget 60`, so the two slowest rows ran once). Both
@@ -142,6 +143,31 @@ of that work.
 | *Wild deck:* Straight Flush, 7 unknown | 14.1 s | 3.53 s | 1.59 s ± 0.01 s |
 | *Wild deck:* Straight Flush, 8 unknown | 107.5 s | 19.7 s | 9.61 s ± 0.09 s |
 | *Wild deck:* any of Full House / Straight Flush, 8 unknown | 43.5 s | 27.2 s | 13.3 s ± 0.5 s |
+
+## Smeared Joker
+
+Measured 2026-10-07 on the same machine with `--repeat 3 --budget 20`; these
+runs are the current `tests/perf/baseline.json`. "Before" is the first
+Smeared implementation (one run each) for the Smeared columns, and the
+previous baseline for the others. Every probability is unchanged. Rows where
+some column took 100 ms or more; see [jokers/smeared.md](jokers/smeared.md)
+for the changes.
+
+| Deck | Situation | Target | Four Fingers | Four Fingers + Shortcut | Four Fingers + Smeared | Four Fingers + Shortcut + Smeared |
+|---|---|---|---|---|---|---|
+| standard | 6 unknown | Straight Flush | 68 ms → 58 ms | 234 ms → 187 ms | 59 ms → 23 ms | 232 ms → 94 ms |
+| standard | 7 unknown | Straight Flush | 93 ms → 88 ms | 354 ms → 278 ms | 110 ms → 43 ms | 522 ms → 200 ms |
+| standard | 8 unknown (The House) | Straight Flush | 85 ms → 75 ms | 315 ms → 254 ms | 240 ms → 96 ms | 1.26 s → 500 ms |
+| standard | 8 unknown (The House) | Full House + Straight Flush (any) | 189 ms → 156 ms | 520 ms → 418 ms | 464 ms → 164 ms | 1.92 s → 680 ms |
+| wild | Keep 3, draw 5 | Straight Flush | 75 ms → 56 ms | 250 ms → 171 ms | — → 55 ms | 73 ms → 59 ms |
+| wild | 6 unknown | Straight Flush | 180 ms → 139 ms | 714 ms → 468 ms | — → 31 ms | 153 ms → 106 ms |
+| wild | 7 unknown | Straight Flush | 468 ms → 363 ms | 3.20 s → 2.20 s | 81 ms → 57 ms | 419 ms → 283 ms |
+| wild | 8 unknown (The House) | Straight Flush | 2.85 s → 2.28 s | 19.25 s → 13.80 s | 196 ms → 141 ms | 1.13 s → 694 ms |
+| wild | 8 unknown (The House) | Full House + Straight Flush (any) | 4.42 s → 3.39 s | 25.48 s → 18.00 s | 335 ms → 231 ms | 1.43 s → 929 ms |
+
+Smeared alone and Shortcut + Smeared stay under 100 ms everywhere; Shortcut
+alone has two rows over 100 ms on the wild deck's The House (Straight Flush
+203 → 161 ms, any of Full House / Straight Flush 772 → 550 ms).
 
 ## All scenarios
 
