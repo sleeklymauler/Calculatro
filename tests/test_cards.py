@@ -92,6 +92,17 @@ def test_match_rules():
     assert matches("5 of spades", wild)
 
 
+def test_smeared_suits():
+    smeared = Rules(smeared=True)
+    assert matches("diamond", card(5, "Hearts"), smeared) and matches("heart", card(5, "Diamonds"), smeared)
+    assert matches("club", card(5, "Spades"), smeared) and not matches("club", card(5, "Hearts"), smeared)
+    assert matches("5 of clubs", card(5, "Spades"), smeared) and not matches("5 of clubs", card(5, "Spades"))
+    # A debuffed Wild Card is only its own colour; a Stone Card has no suit.
+    debuffed_wild = card(5, "Hearts", "m_wild", debuff=True)
+    assert matches("diamond", debuffed_wild, smeared) and not matches("spade", debuffed_wild, smeared)
+    assert not matches("spade", card(5, "Clubs", "m_stone"), smeared)
+
+
 def test_modifier_rules():
     lucky_q = card(12, "Hearts", "m_lucky", seal="Red", edition="foil")
     plain_q = card(12, "Hearts")

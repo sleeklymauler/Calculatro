@@ -9,7 +9,8 @@ filter and are ANDed with it: "foil queen" is a Queen with the Foil edition.
 
 A bare count means "at least" ("2 queens" = at least 2); "no"/"zero"/"0"
 means none. Suits follow Balatro's flush rules: Wild Cards (unless
-debuffed) count as every suit, and Stone Cards have no rank or suit.
+debuffed) count as every suit, Stone Cards have no rank or suit, and with
+Smeared Joker a card counts as both suits of its colour.
 Face cards follow `Card:is_face`: a debuffed card is never a face card.
 """
 
@@ -44,11 +45,16 @@ def _has_rank(card: Card, rank: int, rules: Rules) -> bool:
     return not card.is_stone and card.rank_id == rank
 
 
+_COLOUR = {"Spades": "Black", "Clubs": "Black", "Hearts": "Red", "Diamonds": "Red"}
+
+
 def _has_suit(card: Card, suit: str, rules: Rules) -> bool:
     if card.is_stone:
         return False
     if card.is_wild and not card.debuff:
         return True
+    if rules.smeared:
+        return card.suit in _COLOUR and _COLOUR[card.suit] == _COLOUR.get(suit)
     return card.suit == suit
 
 
