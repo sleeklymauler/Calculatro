@@ -7,10 +7,10 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-This page describes the design as of the second performance pass (after the
-Shortcut work). Joker-specific notes are in [jokers/](jokers/) and measured
-timings in [benchmarks.md](benchmarks.md), which also has a step-by-step
-table for the second pass.
+This page describes the design as of the Smeared Joker work (after the
+second performance pass). Joker-specific notes are in [jokers/](jokers/)
+and measured timings in [benchmarks.md](benchmarks.md), which also has a
+step-by-step table for the second pass.
 
 ## The model
 
@@ -163,9 +163,11 @@ counted as met), so it never prunes wrongly. See
 
 ### Cheap per-position work
 
-A position costs about 6 µs of Python on the benchmark machine, and the
-largest searches visit a few million, so this is where the second pass
-gained the most after the class order (about 2×).
+A position costs 6–25 µs of Python on the benchmark machine, more when
+more patterns join and move at each class (Four Fingers alone 6–10 µs, with
+Shortcut 11–15 µs, with Shortcut and Smeared 19–23 µs), and the largest
+search in the benchmarks visits about 1.2 million positions. So this is
+where the second pass gained the most after the class order (about 2×).
 
 - Only live parts that the current class counts towards (one bit test) are
   moved past it; the others are passed on as they are. Patterns that were
@@ -182,10 +184,10 @@ gained the most after the class order (about 2×).
   patterns join per position, and this saved 20–30%.
 - With one group (no split by suit), a part is live just when it needs no
   more cards than are left, so live, moving and still parts are built with
-  comprehensions, and one-card parts are found by set intersection. Each pattern's supply and future-class tables
-  are indexed by how many of *its own* classes are behind, which matters
-  for targets with thousands of patterns (Four Fingers' Flush House has
-  1,872).
+  comprehensions, and one-card parts are found by set intersection.
+- Each pattern's supply and future-class tables are indexed by how many
+  of *its own* classes are behind, which matters for targets with
+  thousands of patterns (Four Fingers' Flush House has 1,872).
 - The search checks the `cancel` event at every new position, so the
   background worker can abandon it as soon as the game state changes.
 
@@ -193,10 +195,11 @@ gained the most after the class order (about 2×).
 
 A big search creates millions of tuples and frozensets, and Python's cyclic
 garbage collector keeps traversing them. `probability()` pauses the
-collector while it runs (`_gc_paused`), which saves 5–15% on the largest
-searches (most on the wild deck) for a little more peak memory. The collector is process-wide, and a cancelled search can still be
-unwinding in the background worker when the next one starts. So running
-searches are counted under a lock, and the last one to finish restores the
+collector while it runs (`_gc_paused`), which saves 5–8% on the largest
+searches (5–15% when it was added, before the Smeared Joker work) for a little more peak memory. The
+collector is process-wide, and a cancelled search can still be unwinding
+in the background worker when the next one starts. So running searches
+are counted under a lock, and the last one to finish restores the
 collector's previous state. `ways` refers to itself through its closure, so
 each search's frame is a reference cycle; `_favourable` clears its memo and
 part tables on the way out so that the cycle holds little until the
@@ -230,9 +233,10 @@ patterns onto themselves (checked once per target, `_interchangeable`), two
 terms whose suits have the same ranks kept and unseen are equal. Terms are
 keyed by the sorted ranks of their suits and of the other suits, and each is
 computed once. With a full deck and nothing known, as in The House's first
-hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush (7.5 s
-→ 0.3 s with Shortcut as well). It does nothing once the suits differ, which
-is most of the time.
+hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush
+(0.27 s instead of 1.34 s with Shortcut as well, measured with the check
+turned off; see [benchmarks.md](benchmarks.md#current-numbers)). It does
+nothing once the suits differ, which is most of the time.
 
 **It's skipped with only two suits.** That only happens with Smeared Joker,
 whose two colours are the suits. The term with both of them carries what one
@@ -286,7 +290,6 @@ Recorded so they aren't retried blindly:
   cards and split the rest by suit. With Wild Cards kept, terms with 3 and 4
   suits become possible. Only The House with Four Fingers and Shortcut got
   faster (by about 5%), while small cases were 2–4× slower and some 20×.
-
 - **Listing two-suit terms' patterns in the target's order** (rank by rank,
   instead of one suit's then the other's), with the old pattern-based class
   order: slower (66k positions instead of 48k), because cards that only
@@ -315,10 +318,10 @@ Recorded so they aren't retried blindly:
 
 - **Unseen Wild Cards.** They stop the split by suit, so Four Fingers with
   Shortcut still takes seconds from 7 unknown cards on the wild deck, and
-  15–20 s for The House. Conditioning on the Wild Cards drawn has been
+  14–17 s for The House. Conditioning on the Wild Cards drawn has been
   tried twice; something that keeps the suits apart without making 3- and
   4-suit terms possible would be needed.
-- **Fewer positions rather than cheaper ones.** At about 6 µs per position
+- **Fewer positions rather than cheaper ones.** At 6–25 µs per position
   there's little left to gain per position in pure Python.
 
 ## When adding a joker rule
