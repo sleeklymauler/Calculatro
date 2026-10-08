@@ -7,9 +7,10 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-This page describes the design as of the Shortcut work. Joker-specific
-notes are in [jokers/](jokers/) and measured timings in
-[benchmarks.md](benchmarks.md).
+This page describes the design as of the second performance pass (after the
+Shortcut work). Joker-specific notes are in [jokers/](jokers/) and measured
+timings in [benchmarks.md](benchmarks.md), which also has a step-by-step
+table for the second pass.
 
 ## The model
 
@@ -53,36 +54,71 @@ pattern is left, the subtree counts 0.
 
 "Cards still needed" is a lower bound. If a pattern's requirements overlap,
 one card can count towards several of them. The bound is therefore the
-largest total deficit over groups of requirements that no drawable card
-counts twice towards (`_disjoint_groups`). The groups are computed only over
-classes that are actually in the pool, so a kept Wild Card doesn't weaken the
-bound.
+largest total deficit over groups of requirements that no card still to come
+counts twice towards (`_bound`). The groups are worked out again as the
+search moves on, over the classes still ahead only. Four Fingers' "any card
+of the run's 4th rank" and "a suited card of another rank" overlap on the
+suited card of that rank, but once that class is behind they can't share a
+card, and the pattern needs one more card than the first grouping said. This
+matters most with unseen Wild Cards, which count towards most of a suit's
+requirements: on the wild deck it cut positions by about 30%.
 
 ### Memoization on a canonical key
 
-Many draw orders reach the same position, so subtrees are memoized. The key
-holds:
+Many draw orders reach the same position, so subtrees are memoized. The
+search doesn't follow patterns as such but **parts**: a part is what a
+pattern still needs, as its unmet requirements, each a bitmask of the
+classes still ahead that count towards it plus a deficit (and, when
+splitting by suit, the groups the pattern covers). Patterns left needing the
+same thing share a part. Parts are interned as small ints, so the memo key
+is cheap to build and hash. It holds:
 
-- the class index and the number of draws left;
-- for each live pattern, its unmet requirements. Each one is identified by
-  the *set of remaining classes* that count towards it (an id shared by every
-  requirement with the same set) plus its deficit.
+- the class index, the number of draws left and the groups still to cover;
+- the frozenset of live parts;
+- the deferred counts (see "Patterns join the search late").
 
-The key is a frozenset, so patterns left with the same remainder collapse into
-one entry. Live patterns with identical remainders are also merged in the
-search state itself, not just in the key, so the duplicates aren't carried
-around and re-examined.
+Moving a part past a class is a table lookup, `transitions[i][k][part]`,
+filled in the first time it's needed: requirements that class i counts
+towards lose it from their bitmask and drop by the k cards drawn.
+
+### Dropping implied parts
+
+Two live parts are often such that one implies the other: needing "the 9♥
+and the J♥" implies needing "the 9♥", and needing "the Wild 9" implies
+needing "the 9♥ or the Wild 9". In an OR, dropping the part that implies
+another changes nothing, and it lets more positions share a memo entry.
+Checking every pair of parts costs more than it saves, so only parts that
+need **one card** from some classes are used: any other part with a
+requirement whose classes all lie among those (and that covers no other
+group) is dropped. That finds most of what checking every pair would (on
+the wild deck with 6 unknown cards and Four Fingers + Shortcut, 60k
+positions instead of 55k with every pair and 86k with none). The check only
+runs when the memo lookup misses, and the count is stored under both the
+full key and the reduced one.
 
 ## Keeping the search small
 
-### Class order: rank by rank
+### Class order: rank by rank, or suit by suit
 
-Classes are sorted by the first pattern they count towards, considering only
-requirements on a **single rank**. Requirements spanning many ranks (a
-suit's count, "a suited card outside the run") would otherwise pull every
-card of a suit to the front. In practice the search sweeps the ranks in
-order, so a straight's window is decided within a few classes and patterns
-settle quickly instead of staying open across the whole deck.
+Classes are sorted by their cards: rank by rank (Ace high), with Wild Cards
+first in each rank. A straight's window, or a set of a kind, is then decided
+within a few classes, and patterns settle quickly instead of staying open
+across the whole deck.
+
+When no requirement spans more than one suit (Wild Cards aside), the suits
+don't interact: a plain Straight Flush, Flush or Flush House. The classes
+then go suit by suit (Wild Cards first, since they count towards every
+suit), so the search only remembers the current suit's progress. Rank by
+rank, it would carry all four suits' partial runs at once: the wild deck's
+Shortcut Straight Flush takes twice as long that way.
+
+Before the second pass, the order came from the patterns: classes were
+sorted by the first pattern they count towards through a single-rank
+requirement, so it depended on the order `hands.py` listed patterns in. In
+the two-suit terms of the split by suit, one suit's patterns came before the
+other's, and the search swept spades several ranks ahead of hearts and left
+the 2♥ and A♥ to the very end. Sorting by card halved the positions of
+those terms.
 
 ### What the search has to remember
 
@@ -127,19 +163,23 @@ counted as met), so it never prunes wrongly. See
 
 ### Cheap per-position work
 
-- Only patterns that the current class counts towards are re-assessed when
-  moving past it, and of those only the live ones and the ones joining
-  there. The same goes for updating the per-pattern counts: a class can
-  count towards thousands of patterns that were dropped long ago.
-- A pattern being satisfied is noticed when it's assessed, so positions
-  never rescan the whole state.
-- Each pattern's supply and future-class tables are indexed by how many of
-  *its own* classes are behind (found with `bisect`), not by global class
-  index. Building them is O(total memberships) rather than
-  patterns × classes, which matters for targets with thousands of patterns
-  (Four Fingers' Flush House has 1,872).
-- `assess` results are cached by (pattern, position among its classes, its
-  counts), since the same local situation recurs across many positions.
+A position costs about 6 µs of Python on the benchmark machine, and the
+largest searches visit a few million, so this is where the second pass
+gained the most after the class order (about 2×).
+
+- Only live parts that the current class counts towards (one bit test) are
+  moved past it; the others are passed on as they are. Patterns that were
+  dropped long ago cost nothing, though a class can count towards thousands
+  of them.
+- A part's bound on the cards it needs, and whether it needs just one card,
+  are worked out once, when it's interned.
+- A part being satisfied is noticed when it's moved, so positions never
+  rescan the whole state.
+- Patterns join with a part built from the kept cards and the deferred
+  counts (`join`, cached). Each pattern's supply and future-class tables
+  are indexed by how many of *its own* classes are behind, which matters
+  for targets with thousands of patterns (Four Fingers' Flush House has
+  1,872).
 - The search checks the `cancel` event at every new position, so the
   background worker can abandon it as soon as the game state changes.
 
@@ -153,7 +193,7 @@ unwinding in the background worker when the next one starts. So running
 searches are counted under a lock, and the last one to finish restores the
 collector's previous state. `ways` refers to itself through its closure, so
 each search's frame is a reference cycle; `_favourable` clears its memo and
-`assess` cache on the way out so that the cycle holds little until the
+part tables on the way out so that the cycle holds little until the
 collector runs again.
 
 ## Splitting by suit
@@ -178,6 +218,15 @@ inclusion–exclusion instead of one search over everything.
     counts share an entry.
 - `_favourable` handles "every group covered" with a bitmask per pattern
   (`rest` patterns cover all groups). A plain OR is the one-group case.
+
+**Interchangeable suits.** If swapping any two suits maps the target's
+patterns onto themselves (checked once per target, `_interchangeable`), two
+terms whose suits have the same ranks kept and unseen are equal. Terms are
+keyed by the sorted ranks of their suits and of the other suits, and each is
+computed once. With a full deck and nothing known, as in The House's first
+hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush (7.5 s
+→ 0.3 s with Shortcut as well). It does nothing once the suits differ, which
+is most of the time.
 
 **It's skipped when an unseen card is Wild.** An undrawn Wild Card counts as
 every suit, so the constraint barely prunes. The all-suit term is then as
@@ -227,12 +276,36 @@ Recorded so they aren't retried blindly:
   suits become possible. Only The House with Four Fingers and Shortcut got
   faster (by about 5%), while small cases were 2–4× slower and some 20×.
 
+- **Listing two-suit terms' patterns in the target's order** (rank by rank,
+  instead of one suit's then the other's), with the old pattern-based class
+  order: slower (66k positions instead of 48k), because cards that only
+  count towards "any card of the run's 4th rank" were placed by
+  tie-breaks. Sorting classes by card fixed both.
+- **Checking every pair of live parts for implication:** about 1.5× fewer
+  positions, but 3–6× slower overall.
+- **Dropping parts implied by parts that need several cards** (Full House's
+  "2 more 7s"): few parts dropped, and Full House + Straight Flush took
+  twice as long. A looser test for one-card parts (a requirement for d cards
+  of which fewer than d can lie outside the one-card part's classes) gained
+  nothing either.
+- **Splitting by suit with unseen Wild Cards**, re-tested after the second
+  pass: still about 3× slower than one search.
+- **Closed forms at the end of the search**: when every live part needs one
+  card, count the draws that miss them all; with one card left to draw,
+  count the cards that satisfy some part. Waiting patterns almost always
+  rule it out, and it saved about 3%.
+- **Caching the parts joining at each class** by what the memo key holds:
+  no measurable gain.
+
 ## Ideas not yet tried
 
-- **Cheaper multi-suit terms.** With Four Fingers and Shortcut, most of The
-  House's time is the two-suit terms of the split by suit, which are mostly
-  not dead ends. A tighter bound than "4 cards of each suit", or a way to
-  count them without carrying both suits' partial runs at once, would help.
+- **Unseen Wild Cards.** They stop the split by suit, so Four Fingers with
+  Shortcut still takes seconds from 7 unknown cards on the wild deck, and
+  15–20 s for The House. Conditioning on the Wild Cards drawn has been
+  tried twice; something that keeps the suits apart without making 3- and
+  4-suit terms possible would be needed.
+- **Fewer positions rather than cheaper ones.** At about 6 µs per position
+  there's little left to gain per position in pure Python.
 
 ## When adding a joker rule
 
