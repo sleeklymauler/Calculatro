@@ -178,6 +178,8 @@ def test_panel_shows_current_odds(lua, tmp_path):
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
     assert box.alignment.offset.x == pytest.approx((2.25 - 3.25) / 2)  # right edge on the deck's
+    # Above the raised hand's cards, highlighted ones included.
+    assert box.alignment.offset.y == pytest.approx(-(1.9 + 0.2 + 0.5 + 0.25))
 
     boxes = rt.eval("#BOXES")
     mod.update(0.1)
