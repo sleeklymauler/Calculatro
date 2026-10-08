@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 from fractions import Fraction
-from itertools import combinations
+from itertools import combinations, product
 from math import comb
 
 import pytest
@@ -12,9 +13,15 @@ import pytest
 from calculatro.cards import parse_query
 from calculatro.engine import count_probability, evaluate_cards
 from calculatro.rules import Rules
-from calculatro.state import SUITS, Card, GameState
+from calculatro.state import SUITS, Card, GameState, Joker
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
+# Every combination of the rule jokers.
+RULESETS = {
+    " + ".join(name for name, on in zip(("four fingers", "shortcut", "smeared", "pareidolia"), flags) if on)
+    or "no jokers": Rules(*flags)
+    for flags in product((False, True), repeat=4)
+}
 
 
 def card(rank_id: int, suit: str, enhancement: str = "c_base", debuff: bool = False, **kw) -> Card:
@@ -103,6 +110,23 @@ def test_smeared_suits():
     assert not matches("spade", card(5, "Clubs", "m_stone"), smeared)
 
 
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+def test_pareidolia_faces(rules):
+    # Pareidolia makes every card a face card, Stone Cards included, except
+    # debuffed ones; the other rule jokers don't change what a face card is.
+    cards = [card(11, "Clubs"), card(14, "Clubs"), card(2, "Hearts"), card(12, "Spades", "m_stone"),
+             card(5, "Hearts", "m_wild"), card(13, "Diamonds", "m_stone")]
+    expected = [True, rules.pareidolia, rules.pareidolia, rules.pareidolia, rules.pareidolia, rules.pareidolia]
+    assert [matches("face", c, rules) for c in cards] == expected
+    for c in cards:
+        assert not matches("face", replace(c, debuff=True), rules)
+    # Pareidolia changes no rank or suit, and modifiers still apply on top.
+    assert matches("queen", card(12, "Spades"), rules) and not matches("queen", card(2, "Spades"), rules)
+    assert matches("foil face", card(2, "Spades", edition="foil"), rules) == rules.pareidolia
+    assert not matches("foil face", card(12, "Spades"), rules)
+    assert not matches("face card", card(12, "Spades", debuff=True), rules)
+
+
 def test_modifier_rules():
     lucky_q = card(12, "Hearts", "m_lucky", seal="Red", edition="foil")
     plain_q = card(12, "Hearts")
@@ -123,8 +147,8 @@ def test_modifier_rules():
     assert matches("mult", card(5, "Spades", "m_mult", debuff=True))
 
 
-def brute(query, pool, draws) -> Fraction:
-    hits = sum(query.accepts(sum(query.filter.test(c, Rules()) for c in d)) for d in combinations(pool, draws))
+def brute(query, pool, draws, rules: Rules = Rules()) -> Fraction:
+    hits = sum(query.accepts(sum(query.filter.test(c, rules) for c in d)) for d in combinations(pool, draws))
     return Fraction(hits, comb(len(pool), draws))
 
 
@@ -142,6 +166,34 @@ def test_matches_brute_force(text):
                 for _ in range(rng.randint(8, 14))]
         draws = rng.randint(1, 5)
         assert count_probability(query, pool, draws) == brute(query, pool, draws)
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("text", ["no face cards", "3+ face", "exactly 2 face", "at most 1 face",
+                                  "lucky face", "2+ hearts", "queen", "5 of clubs"])
+def test_matches_brute_force_with_rules(text, rules):
+    rng = random.Random(text)
+    query = parse_query(text)
+    for _ in range(4):
+        pool = [card(rng.randint(2, 14), rng.choice(SUITS),
+                     rng.choice(["c_base"] * 5 + ["m_wild", "m_stone", "m_lucky"]),
+                     debuff=rng.random() < 0.2)
+                for _ in range(rng.randint(8, 12))]
+        draws = rng.randint(1, 5)
+        assert count_probability(query, pool, draws, rules) == brute(query, pool, draws, rules)
+
+
+def test_pareidolia_from_game_state():
+    # Only the drawn card counts: with Pareidolia it's a face card unless debuffed.
+    hand = [card(12, "Hearts"), card(2, "Clubs", highlighted=True)]
+    deck = [card(3, "Clubs"), card(4, "Clubs", debuff=True), card(5, "Spades", "m_stone"), card(13, "Hearts")]
+    state = GameState(in_run=True, hand_size=2, hand=hand, deck=deck)
+    face = parse_query("face")
+    assert evaluate_cards(state, face, state.selected).probability == Fraction(1, 4)
+    with_joker = replace(state, jokers=[Joker("j_pareidolia")])
+    assert evaluate_cards(with_joker, face, state.selected).probability == Fraction(3, 4)
+    debuffed = replace(state, jokers=[Joker("j_pareidolia", debuff=True)])  # a debuffed joker has no effect
+    assert evaluate_cards(debuffed, face, state.selected).probability == Fraction(1, 4)
 
 
 def test_only_drawn_cards_count():

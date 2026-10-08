@@ -11,7 +11,8 @@ A bare count means "at least" ("2 queens" = at least 2); "no"/"zero"/"0"
 means none. Suits follow Balatro's flush rules: Wild Cards (unless
 debuffed) count as every suit, Stone Cards have no rank or suit, and with
 Smeared Joker a card counts as both suits of its colour.
-Face cards follow `Card:is_face`: a debuffed card is never a face card.
+Face cards follow `Card:is_face`: a debuffed card is never a face card, and
+with Pareidolia every other card is one, Stone Cards included.
 """
 
 from __future__ import annotations
@@ -59,7 +60,9 @@ def _has_suit(card: Card, suit: str, rules: Rules) -> bool:
 
 
 def _is_face(card: Card, rules: Rules) -> bool:
-    return not card.debuff and not card.is_stone and card.rank_id in (11, 12, 13)
+    if card.debuff:
+        return False
+    return rules.pareidolia or (not card.is_stone and card.rank_id in (11, 12, 13))
 
 
 def _rank_name(r: int) -> str:

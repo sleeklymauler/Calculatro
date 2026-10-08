@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import replace
 from fractions import Fraction
 from itertools import combinations
 from math import comb
@@ -193,6 +194,22 @@ def test_overlapping_targets_match_brute_force(names, rules):
         kept = [random_card(rng) for _ in range(3)]
         pool = [random_card(rng) for _ in range(11)]
         assert probability(target, kept, pool, 3, rules) == brute(set(names), kept, pool, 3, rules)
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+def test_pareidolia_leaves_hands_unchanged(rules):
+    # Pareidolia only makes every card a face card, which no hand type looks at,
+    # alone or with any of the other rule jokers.
+    with_pareidolia = replace(rules, pareidolia=True)
+    for name in TARGETS:
+        assert get_target(name).patterns(with_pareidolia) == get_target(name).patterns(rules), name
+    rng = random.Random(f"pareidolia {rules}")
+    for name in TARGETS:
+        kept = [random_card(rng) for _ in range(rng.randint(2, 4))]
+        pool = [random_card(rng) for _ in range(rng.randint(8, 11))]
+        draws = rng.randint(1, min(4, 8 - len(kept)))
+        assert (probability(get_target(name), kept, pool, draws, with_pareidolia)
+                == brute({name}, kept, pool, draws, rules)), name
 
 
 def dense_card(rng: random.Random, low_rank: int, suits: Sequence[str] = ("Hearts", "Spades")) -> Card:
