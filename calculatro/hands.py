@@ -13,7 +13,9 @@ Each target is a list of patterns (OR). A pattern is a tuple of requirements
 usually disjoint, so each card fills one slot; when they overlap, a card counts
 towards every requirement it matches (e.g. "at least 4 suited cards" alongside
 "a suited card of each of these ranks").
-Card classes are (rank_id, suit) where suit is one of SUITS or "Wild".
+Card classes are (rank_id, suit) where suit is one of SUITS or "Wild". With
+Smeared Joker a card's suit is its colour, named by the suit that stands for
+it: Diamonds are classed as Hearts and Clubs as Spades (see flush_suits).
 """
 
 from __future__ import annotations
@@ -29,6 +31,9 @@ WILD = "Wild"
 RANKS = range(2, 15)  # 2..14, Ace = 14
 
 ClassKey = tuple[int, str]
+
+# With Smeared Joker, the suit that stands for each colour in card classes.
+SMEARED = {"Spades": "Spades", "Clubs": "Spades", "Hearts": "Hearts", "Diamonds": "Hearts"}
 
 
 @dataclass(frozen=True)
@@ -50,13 +55,20 @@ class Target:
         return _patterns(self.hands, rules)
 
 
+def flush_suits(rules: Rules) -> tuple[str, ...]:
+    """The suits a flush can be of: with Smeared Joker, Spades for black and Hearts for red."""
+    return ("Spades", "Hearts") if rules.smeared else tuple(SUITS)
+
+
 def card_key(card: Card, rules: Rules = Rules()) -> ClassKey | None:
     """Class of a known card for hand evaluation; None if it can't contribute."""
     if card.hidden or card.is_stone or card.rank_id is None or card.suit is None:
         return None
-    # A debuffed Wild Card loses its wildness for flushes (Card:is_suit, flush_calc).
-    suit = WILD if card.is_wild and not card.debuff else card.suit
-    return (card.rank_id, suit)
+    # A debuffed Wild Card loses its wildness for flushes (Card:is_suit, flush_calc),
+    # but with Smeared Joker it still counts as both suits of its colour.
+    if card.is_wild and not card.debuff:
+        return (card.rank_id, WILD)
+    return (card.rank_id, SMEARED.get(card.suit, card.suit) if rules.smeared else card.suit)
 
 
 def _rank(r: int) -> frozenset[ClassKey]:
@@ -101,7 +113,8 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     """
     windows = [w for w in _straight_windows(rules) if not royal or min(w) >= 10]
     if not rules.four_fingers:
-        return tuple(tuple(Requirement(_suited_rank(r, s), 1) for r in w) for s in SUITS for w in windows)
+        return tuple(tuple(Requirement(_suited_rank(r, s), 1) for r in w)
+                     for s in flush_suits(rules) for w in windows)
     # With Four Fingers the flush and the straight may be different cards, as long
     # as all of them fit in 5 played cards. That means: 3 run ranks have a suited
     # card, the 4th (`m`) has any card, and there are 4 suited cards in all. The
@@ -120,7 +133,7 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     patterns: list[Pattern] = []
     for three, ms in completions.items():
         any_m = Requirement(frozenset(k for m in ms for k in _rank(m)), 1)
-        for s in SUITS:
+        for s in flush_suits(rules):
             other = frozenset(k for r in RANKS if r not in three and (r >= 10 or not royal)
                               for k in _suited_rank(r, s))
             patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in three), any_m, Requirement(other, 1)))
@@ -132,7 +145,7 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
 
 def _flush_house(rules: Rules) -> tuple[Pattern, ...]:
     patterns: list[Pattern] = []
-    for s in SUITS:
+    for s in flush_suits(rules):
         for a, b in permutations(RANKS, 2):
             sa, sb = _suited_rank(a, s), _suited_rank(b, s)
             patterns.append((Requirement(sa, 3), Requirement(sb, 2)))
@@ -144,7 +157,7 @@ def _flush_house(rules: Rules) -> tuple[Pattern, ...]:
 
 def _flush_five(rules: Rules) -> tuple[Pattern, ...]:
     patterns: list[Pattern] = []
-    for s in SUITS:
+    for s in flush_suits(rules):
         for r in RANKS:
             sr = _suited_rank(r, s)
             patterns.append((Requirement(sr, 5),))
@@ -165,7 +178,7 @@ def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
         "Straight": tuple(
             tuple(Requirement(_rank(r), 1) for r in w) for w in _straight_windows(rules)
         ),
-        "Flush": tuple((Requirement(suit_keys(s), flush_size),) for s in SUITS),
+        "Flush": tuple((Requirement(suit_keys(s), flush_size),) for s in flush_suits(rules)),
         "Full House": tuple(
             (Requirement(_rank(a), 3), Requirement(_rank(b), 2)) for a, b in permutations(RANKS, 2)
         ),

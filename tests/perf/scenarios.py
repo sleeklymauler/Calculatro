@@ -37,6 +37,10 @@ JOKERS = {
     "Four Fingers": ("j_four_fingers",),
     "Shortcut": ("j_shortcut",),
     "Four Fingers + Shortcut": ("j_four_fingers", "j_shortcut"),
+    "Smeared": ("j_smeared",),
+    "Four Fingers + Smeared": ("j_four_fingers", "j_smeared"),
+    "Shortcut + Smeared": ("j_shortcut", "j_smeared"),
+    "Four Fingers + Shortcut + Smeared": ("j_four_fingers", "j_shortcut", "j_smeared"),
 }
 
 

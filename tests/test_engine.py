@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from collections.abc import Sequence
 from fractions import Fraction
 from itertools import combinations
 from math import comb
@@ -33,10 +34,15 @@ def _id(c: Card) -> int | None:
     return None if c.is_stone else c.rank_id
 
 
+RED = {"Hearts", "Diamonds"}
+
+
 def _is_suit_flush(c: Card, suit: str, rules: Rules) -> bool:
     if c.is_stone:
         return False
     if c.is_wild and not c.debuff:
+        return True
+    if rules.smeared and (c.suit in RED) == (suit in RED):
         return True
     return c.suit == suit
 
@@ -140,11 +146,11 @@ def random_card(rng: random.Random) -> Card:
 
 
 RULESETS = {
-    "no jokers": Rules(),
-    "four fingers": Rules(four_fingers=True),
-    "shortcut": Rules(shortcut=True),
-    "four fingers + shortcut": Rules(four_fingers=True, shortcut=True),
+    " + ".join(name for name, on in (("four fingers", ff), ("shortcut", sc), ("smeared", sm)) if on)
+    or "no jokers": Rules(four_fingers=ff, shortcut=sc, smeared=sm)
+    for sm in (False, True) for ff in (False, True) for sc in (False, True)
 }
+SMEARED_RULESETS = {k: v for k, v in RULESETS.items() if v.smeared}
 
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
@@ -187,9 +193,9 @@ def test_overlapping_targets_match_brute_force(names, rules):
         assert probability(target, kept, pool, 3, rules) == brute(set(names), kept, pool, 3, rules)
 
 
-def dense_card(rng: random.Random, low_rank: int) -> Card:
+def dense_card(rng: random.Random, low_rank: int, suits: Sequence[str] = ("Hearts", "Spades")) -> Card:
     """Two suits, few ranks and many Wild Cards, so flush-based hands are common."""
-    r, s = rng.randint(low_rank, 14), rng.choice(["Hearts", "Spades"])
+    r, s = rng.randint(low_rank, 14), rng.choice(suits)
     roll = rng.random()
     if roll < 0.15:
         return card(r, s, "m_wild", debuff=rng.random() < 0.3)
@@ -206,18 +212,21 @@ FOUR_FINGERS_RULESETS = {k: v for k, v in RULESETS.items() if v.four_fingers}
     ("Straight Flush", 8), ("Royal Flush", 9), ("Flush House", 11), ("Flush Five", 12),
 ])
 def test_four_fingers_flush_hands_match_brute_force(name, low_rank, rules):
+    # With Smeared, cards of all four suits, which make two colours.
+    suits = SUITS if rules.smeared else ("Hearts", "Spades")
     rng = random.Random(name)
     for _ in range(8):
-        kept = [dense_card(rng, low_rank) for _ in range(rng.randint(2, 4))]
-        pool = [dense_card(rng, low_rank) for _ in range(rng.randint(8, 12))]
+        kept = [dense_card(rng, low_rank, suits) for _ in range(rng.randint(2, 4))]
+        pool = [dense_card(rng, low_rank, suits) for _ in range(rng.randint(8, 12))]
         draws = rng.randint(1, min(4, 8 - len(kept)))
         assert (probability(get_target(name), kept, pool, draws, rules)
                 == brute({name}, kept, pool, draws, rules))
 
 
-def two_suit_card(rng: random.Random, low_rank: int, wild: bool) -> Card:
+def two_suit_card(rng: random.Random, low_rank: int, wild: bool,
+                  suits: Sequence[str] = ("Hearts", "Spades")) -> Card:
     """Like dense_card, with Wild Cards only if `wild`."""
-    r, s = rng.randint(low_rank, 14), rng.choice(["Hearts", "Spades"])
+    r, s = rng.randint(low_rank, 14), rng.choice(suits)
     roll = rng.random()
     if wild and roll < 0.15:
         return card(r, s, "m_wild", debuff=rng.random() < 0.3)
@@ -269,6 +278,67 @@ def test_interchangeable_suits_match_brute_force(names, low_rank, rules):
             pool.remove(c)
         draws = rng.randint(3, min(6, 8 - len(kept)))
         assert probability(target, kept, pool, draws, rules) == brute(set(names), kept, pool, draws, rules)
+
+
+@pytest.mark.parametrize("rules", SMEARED_RULESETS.values(), ids=SMEARED_RULESETS.keys())
+@pytest.mark.parametrize("names, low_rank", [
+    (("Flush",), 8), (("Straight Flush",), 8), (("Royal Flush",), 9), (("Flush House",), 11),
+    (("Flush Five",), 12), (("Full House", "Straight Flush"), 9), (("Straight", "Flush"), 8),
+    (("Two Pair", "Flush House", "Flush Five"), 11),
+])
+@pytest.mark.parametrize("wild", [True, False], ids=["wild", "no wild"])
+def test_smeared_flush_hands_match_brute_force(names, low_rank, wild, rules):
+    """Four suits making two colours, so both suits of a colour make flushes together.
+
+    Without unseen Wild Cards the target is split by colour (as in
+    test_split_by_suit_matches_brute_force); kept ones count towards both.
+    """
+    target = combine([get_target(n) for n in names])
+    rng = random.Random(" ".join(names))
+    for _ in range(8):
+        kept = [two_suit_card(rng, low_rank, wild=True, suits=SUITS) for _ in range(rng.randint(2, 4))]
+        pool = [two_suit_card(rng, low_rank, wild=wild, suits=SUITS) for _ in range(rng.randint(8, 11))]
+        draws = rng.randint(2, min(5, 8 - len(kept)))
+        assert probability(target, kept, pool, draws, rules) == brute(set(names), kept, pool, draws, rules)
+
+
+SMEARED = Rules(smeared=True)
+
+
+@pytest.mark.parametrize("hand, rules, hands", [
+    # Hearts and Diamonds make a flush together, Spades and Clubs too.
+    ("2H 7D 9H KD 4H", SMEARED, {"Flush"}),
+    ("2S 7C 9S KC 4C", SMEARED, {"Flush"}),
+    ("2H 7D 9H KS 4H", SMEARED, set()),
+    ("9H TD JH QD KD", SMEARED, {"Straight Flush", "Straight", "Flush"}),
+    ("TC JS QC KS AS", SMEARED, {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+    # A Flush House or Flush Five needs every card in one colour.
+    ("KH KD KH 7D 7H", SMEARED, {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
+    ("KH KD KH KD KH", SMEARED, {"Flush Five", "Five of a Kind", "Four of a Kind", "Three of a Kind", "Pair",
+                                 "Flush"}),
+    ("KH KD KS 7D 7H", SMEARED, {"Full House", "Two Pair", "Three of a Kind", "Pair"}),
+    # With Four Fingers one card may be off-colour.
+    ("KH KD KS 7D 7H", Rules(four_fingers=True, smeared=True),
+     {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
+    # Every joker: 4 red cards and a Shortcut straight 2-4-6-8.
+    ("2H 4D 6H 8S KD", Rules(four_fingers=True, shortcut=True, smeared=True),
+     {"Straight Flush", "Straight", "Flush"}),
+])
+def test_smeared_examples(hand, rules, hands):
+    cards = hand_of(hand)
+    assert {n for n in TARGETS if contains(cards, {n}, rules)} == hands
+    for name in TARGETS:
+        assert probability(get_target(name), cards, [], 0, rules) == Fraction(name in hands), name
+
+
+def test_smeared_debuffed_wild_keeps_its_colour():
+    """A debuffed Wild Card isn't every suit, but it's still both suits of its colour."""
+    debuffed_wild = card(5, "Clubs", "m_wild", debuff=True)
+    cards = hand_of("2S 7C 9S KC") + [debuffed_wild]
+    assert probability(get_target("Flush"), cards, [], 0, SMEARED) == 1
+    cards = hand_of("2H 7D 9H KD") + [debuffed_wild]
+    assert probability(get_target("Flush"), cards, [], 0, SMEARED) == 0
+    assert probability(get_target("Flush"), cards, [], 0, Rules(four_fingers=True, smeared=True)) == 1
 
 
 def test_four_fingers_straight_flush_with_many_unknown_cards():
