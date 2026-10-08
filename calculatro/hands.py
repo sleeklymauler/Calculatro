@@ -21,7 +21,7 @@ it: Diamonds are classed as Hearts and Clubs as Spades (see flush_suits).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from itertools import combinations, permutations
 
@@ -53,7 +53,8 @@ class Target:
     hands: tuple[str, ...]
 
     def patterns(self, rules: Rules = Rules()) -> tuple[Pattern, ...]:
-        return _patterns(self.hands, rules)
+        # Pareidolia doesn't change any hand, so it shares the patterns built without it.
+        return _patterns(self.hands, replace(rules, pareidolia=False))
 
 
 def flush_suits(rules: Rules) -> tuple[str, ...]:
