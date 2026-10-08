@@ -1,4 +1,5 @@
-"""CLI: `python -m calculatro watch -t trips -c "2+ queens"` prints live game state and odds."""
+"""CLI: `python -m calculatro watch -t trips -c "2+ queens"` prints live game state and odds,
+and writes them for the mod's in-game panel."""
 
 from __future__ import annotations
 
@@ -10,9 +11,10 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Event
 
+from . import overlay
 from .cards import CardQuery, parse_query
-from .engine import DiscardOutcome, evaluate_cards, evaluate_discard
-from .hands import TARGETS, Target, combine, get_target
+from .hands import TARGETS, Target, get_target
+from .report import Report, build_report
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
 from .worker import Job
@@ -43,61 +45,60 @@ def _pct(p: Fraction) -> str:
     return f"{float(p) * 100:6.2f}%"
 
 
-def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
-         cancel: Event | None = None) -> str:
-    """Target odds for keeping the hand vs. discarding the in-game selection,
-    plus card-query odds for the cards drawn after that discard.
-
-    Keeping the hand draws nothing (unless it isn't full), so card queries only
-    have a discard column.
-    """
-    if not state.in_run or not state.hand or not (targets or queries):
-        return ""
+def format_report(report: Report) -> str:
+    """The report as text. Card odds have only a discard column."""
     hint = "Select cards in game to see the odds after discarding them."
-
-    named = [(t.name, t) for t in targets]
-    if len(targets) > 1:
-        named.insert(0, ("Any target", combine(targets)))
-    keep = [(name, evaluate_discard(state, t, [], cancel)) for name, t in named]
-
-    selected = state.selected
-    if not selected:
+    keep = report.targets
+    if not report.discarded:
         if not keep:
             return hint
-        width = max(len(name) for name, _ in keep)
-        draws = keep[0][1].draws
+        width = max(len(row.name) for row in keep)
+        draws = report.keep_draws
         lines = ["Odds (current hand" + (f", drawing {draws}" if draws else "") + "):"]
-        lines += [f"  {name:<{width}}  {_pct(o.probability)}" for name, o in keep]
+        lines += [f"  {row.name:<{width}}  {_pct(row.keep)}" for row in keep]
         return "\n".join([*lines, hint])
 
-    after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
-    card_rows = [(q.label, evaluate_cards(state, q, selected)) for q in queries]
-    first = (after or [o for _, o in card_rows])[0]
-    discarded = " ".join(c.short() for c in first.discarded)
-    width = max(len(name) for name, _ in keep + card_rows)
+    card_rows = [(q.label, p) for q, p in report.cards]
+    discarded = " ".join(c.short() for c in report.discarded)
+    width = max(len(name) for name in [row.name for row in keep] + [name for name, _ in card_rows])
     # Card rows leave the keep column blank so the discard column lines up.
     blank = " " * len(f"{_pct(Fraction(0))}  ->  ") if keep else ""
 
-    keep_desc = "keep hand" + (f" (draw {keep[0][1].draws})" if keep and keep[0][1].draws else "")
-    discard_desc = f"discard {discarded} and draw {first.draws}"
+    keep_desc = "keep hand" + (f" (draw {report.keep_draws})" if keep and report.keep_draws else "")
+    discard_desc = f"discard {discarded} and draw {report.discard_draws}"
     lines = [f"Odds: {keep_desc}  ->  {discard_desc}" if keep else f"Odds: {discard_desc}"]
-    lines += [f"  {name:<{width}}  {_pct(k.probability)}  ->  {_pct(a.probability)}"
-              for (name, k), a in zip(keep, after)]
+    lines += [f"  {row.name:<{width}}  {_pct(row.keep)}  ->  {_pct(row.discard)}" for row in keep]
     # Card odds cover only the drawn cards; label them apart from the whole-hand
     # target rows. With no targets the header already says what's drawn.
     if card_rows and keep:
         lines.append("  Drawn cards:")
-    lines += [f"  {name:<{width}}  {blank}{_pct(o.probability)}" for name, o in card_rows]
-    if state.discards_left <= 0:
+    lines += [f"  {name:<{width}}  {blank}{_pct(p)}" for name, p in card_rows]
+    if report.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
+
+
+def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
+         cancel: Event | None = None) -> str:
+    """Target odds for keeping the hand vs. discarding the in-game selection,
+    plus card-query odds for the cards drawn after that discard, as text."""
+    report = build_report(state, targets, queries, cancel)
+    return format_report(report) if report else ""
+
+
+def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
+              cancel: Event | None = None) -> tuple[str, dict]:
+    """The odds as text, and as the payload for the mod's panel."""
+    report = build_report(state, targets, queries, cancel)
+    return (format_report(report) if report else ""), overlay.odds(state, report)
 
 
 CALCULATING = "Calculating odds..."
 
 
 def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuery],
-              write: Callable[[str], None], *, patience: float = 0.25, poll_interval: float = 0.05,
+              write: Callable[[str], None], panel: Callable[[dict], object] = lambda payload: None, *,
+              patience: float = 0.25, poll_interval: float = 0.05,
               stop: Callable[[], bool] = lambda: False) -> None:
     """Print each new state and its odds, calculating the odds in the background.
 
@@ -105,8 +106,11 @@ def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuer
     game however slow the odds are. Odds ready within `patience` seconds print
     together with the state summary; slower ones print the summary first with
     a placeholder line, then follow directly below it.
+
+    `panel` receives the payloads for the mod's odds panel: a `pending` one as
+    soon as a state arrives, then its odds.
     """
-    job: Job[str] | None = None
+    job: Job[tuple[str, dict]] | None = None
     pending = ""  # summary of the job's state, until it's printed
     deadline = 0.0
     while not stop():
@@ -116,10 +120,12 @@ def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuer
                 job.cancel()
             job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
             if targets or queries:
-                job = Job(lambda cancel, state=state: odds(state, targets, queries, cancel))
+                panel(overlay.pending(state))
+                job = Job(lambda cancel, state=state: calculate(state, targets, queries, cancel))
                 deadline = time.monotonic() + patience
             else:
                 write(pending)
+                panel(overlay.odds(state, None, configured=False))
                 pending = ""
         if job is None:
             time.sleep(poll_interval)
@@ -128,11 +134,12 @@ def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuer
         if pending:
             timeout = max(0.0, min(timeout, deadline - time.monotonic()))
         if job.wait(timeout):
-            out = job.result()
+            out, payload = job.result()
             if pending:
                 write(pending + ("\n" + out if out else ""))
             elif out:
                 write(out)
+            panel(payload)
             job, pending = None, ""
         elif pending and time.monotonic() >= deadline:
             write(pending + "\n" + CALCULATING)
@@ -171,9 +178,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "watch":
         source = FileStateSource(args.file)
+        odds_file = overlay.odds_path(source.path)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
-            run_watch(source, args.target, args.cards, lambda text: print(text, flush=True))
+            run_watch(source, args.target, args.cards, lambda text: print(text, flush=True),
+                      lambda payload: overlay.write(odds_file, payload))
         except KeyboardInterrupt:
             pass
     return 0

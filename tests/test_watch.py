@@ -91,7 +91,7 @@ def state(name: str) -> GameState:
 
 def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
     """Run the watch loop until `done(writes)`, returning everything it wrote."""
-    monkeypatch.setattr(cli, "odds", fake_odds)
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (fake_odds(st, t, q, cancel), {}))
     writes: list[str] = []
     end = time.monotonic() + timeout
     cli.run_watch(source, [get_target("pair")], [], writes.append, patience=0.05, poll_interval=0.005,

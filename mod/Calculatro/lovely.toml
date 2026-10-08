@@ -10,11 +10,20 @@ source = "calculatro.lua"
 before = "main.lua"
 name = "calculatro"
 
-# Poll game state once per frame (the module throttles itself).
+# Export game state and update the odds panel once per frame (the module throttles itself).
 [[patches]]
 [patches.pattern]
 target = "game.lua"
 pattern = "function Game:update(dt)"
 position = "after"
 payload = "require('calculatro').update(dt)"
+match_indent = true
+
+# Hotkey to show/hide the odds panel.
+[[patches]]
+[patches.pattern]
+target = "engine/controller.lua"
+pattern = "function Controller:key_press_update(key, dt)"
+position = "after"
+payload = "require('calculatro').key_press(key)"
 match_indent = true

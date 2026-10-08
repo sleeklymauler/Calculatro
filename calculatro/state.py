@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 2
+SCHEMA = 3
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -77,6 +77,7 @@ def _cards(raw: Any) -> list[Card]:
 @dataclass(frozen=True)
 class GameState:
     in_run: bool
+    id: str | None = None  # snapshot id; the odds file echoes it so the mod knows they're current
     state: str | None = None
     hand_size: int = 0
     hands_left: int = 0
@@ -95,9 +96,10 @@ class GameState:
         if schema != SCHEMA:
             raise ValueError(f"unsupported state schema {schema!r} (expected {SCHEMA})")
         if not d.get("in_run"):
-            return cls(in_run=False)
+            return cls(in_run=False, id=d.get("id"))
         return cls(
             in_run=True,
+            id=d.get("id"),
             state=d.get("state"),
             hand_size=d.get("hand_size") or 0,
             hands_left=d.get("hands_left") or 0,
