@@ -30,7 +30,8 @@ Select the cards you're considering discarding in game; Calculatro shows the odd
 Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
 
 The odds appear both in the console and in a panel above the deck in game. The panel is only shown while
-playing a blind (not in the shop, blind select, booster packs or menus); press `C` to hide or show it.
+playing a blind (not in the shop, blind select, booster packs or menus, nor while a played hand is
+scored); press `C` to hide or show it.
 A discard's odds are green when they beat keeping the hand and red when they're worse. Odds still being
 calculated for your latest selection are greyed out.
 
