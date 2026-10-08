@@ -202,7 +202,7 @@ def test_pareidolia_leaves_hands_unchanged(rules):
     # alone or with any of the other rule jokers.
     with_pareidolia = replace(rules, pareidolia=True)
     for name in TARGETS:
-        assert get_target(name).patterns(with_pareidolia) == get_target(name).patterns(rules), name
+        assert get_target(name).patterns(with_pareidolia) is get_target(name).patterns(rules), name
     rng = random.Random(f"pareidolia {rules}")
     for name in TARGETS:
         kept = [random_card(rng) for _ in range(rng.randint(2, 4))]
