@@ -117,8 +117,6 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     for w in windows:
         for m in w:
             completions.setdefault(tuple(r for r in w if r != m), set()).add(m)
-    # Listed by ranks first: the engine orders classes by the patterns they count
-    # towards, and this keeps its sweep going rank by rank across the suits.
     patterns: list[Pattern] = []
     for three, ms in completions.items():
         any_m = Requirement(frozenset(k for m in ms for k in _rank(m)), 1)

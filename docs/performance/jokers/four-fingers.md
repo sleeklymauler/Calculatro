@@ -87,11 +87,10 @@ had to learn that several single-rank requirements add up. Otherwise
 Splitting by suit is skipped when an undrawn or face-down card is a Wild
 Card. It counts as every suit, so two-suit terms barely prune and the
 four-suit term is as hard as the original problem. These cases use one
-search over all suits. With the restated pattern and the faster search that
-is still 3–5× faster than before. But in the benchmark deck (4 unseen Wild
-Cards), a Straight Flush still takes about 1 s at 6 unknown cards, 3.5 s at 7
-and 20 s at 8 (The House). See [benchmarks.md](../benchmarks.md) for current
-numbers.
+search over all suits. After the second performance pass, in the benchmark
+deck (4 unseen Wild Cards), a Straight Flush takes about 0.2 s at 6 unknown
+cards, 0.5 s at 7 and 3 s at 8 (The House); 4.5 s with Full House as well.
+See [benchmarks.md](../benchmarks.md) for current numbers.
 
 An idea not yet tried: condition on which Wild Cards are drawn. For each
 combination, move them into the kept cards and split the rest by suit. The

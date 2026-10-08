@@ -248,6 +248,29 @@ def test_split_by_suit_matches_brute_force(names, low_rank, rules):
         assert probability(target, kept, pool, draws, rules) == brute(set(names), kept, pool, draws, rules)
 
 
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("names, low_rank", [
+    (("Straight Flush",), 8), (("Flush House",), 11), (("Full House", "Straight Flush"), 9),
+    (("Straight", "Flush"), 8),
+])
+def test_interchangeable_suits_match_brute_force(names, low_rank, rules):
+    """Suits with the same ranks kept and unseen give equal terms, which are computed once.
+
+    A Club comes first in the search, so drawing it can leave a two-suit term
+    out of reach before any of its suits' cards come up.
+    """
+    target = combine([get_target(n) for n in names])
+    rng = random.Random(" ".join(names))
+    for _ in range(6):
+        ranks = [rng.randint(low_rank, 14) for _ in range(rng.randint(4, 6))]
+        pool = [card(r, s) for r in ranks for s in ("Hearts", "Spades")] + [card(low_rank - 1, "Clubs")]
+        kept = [card(r, s) for r in rng.sample(ranks, rng.randint(0, 1)) for s in ("Hearts", "Spades")]
+        for c in kept:
+            pool.remove(c)
+        draws = rng.randint(3, min(6, 8 - len(kept)))
+        assert probability(target, kept, pool, draws, rules) == brute(set(names), kept, pool, draws, rules)
+
+
 def test_four_fingers_straight_flush_with_many_unknown_cards():
     # Like The House: no known cards, 7 unknown. One search over every suit at
     # once took over 10 s here; the value is from that search.

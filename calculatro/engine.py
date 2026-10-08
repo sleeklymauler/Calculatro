@@ -14,18 +14,23 @@ class, multivariate-hypergeometric style, with two shortcuts:
     more of some class than the remaining classes can supply. Both conditions
     only get worse deeper in the tree, so dropped patterns stay dropped.
 A pattern's requirements may overlap (one card counting towards several), so
-"cards needed" is bounded by the largest deficit sum over groups of mutually
-disjoint requirements; a drawn card lowers each group's sum by at most one.
-Classes are ordered by the first pattern they count towards through a
-requirement on a single rank, so each pattern's classes are processed close
-together and patterns resolve early. A pattern only joins the search at its
-first class with a single-rank requirement on it. Before that its state
-follows from the kept cards plus how many cards were drawn from the classes
-its other requirements cover; those counts are shared and go in the memo key.
+"cards needed" is bounded by the largest deficit sum over groups of
+requirements that no remaining class counts twice towards; a drawn card
+lowers each group's sum by at most one.
+Classes are swept rank by rank, or suit by suit when no requirement spans
+several suits (the suits are then independent), so each pattern's classes
+are processed close together and patterns resolve early. A pattern only
+joins the search at its first class with a single-rank requirement on it.
+Before that its state follows from the kept cards plus how many cards were
+drawn from the classes its other requirements cover; those counts are shared
+and go in the memo key.
 Subtrees are memoized on what's left to do: for each live pattern, its unmet
-requirements, each identified by which of the remaining classes it covers
-plus its deficit. Many draw orders reach the same position, and different
-patterns often leave the same remainder, so this key is canonical.
+requirements, each as the set of remaining classes that count towards it plus
+its deficit (a "part"). Many draw orders reach the same position, and
+different patterns often leave the same remainder, so this key is canonical.
+A part that some other part implies (it needs a card from a subset of the
+classes that one needs a card from) is dropped, so the key only holds parts
+that matter.
 
 The search has to remember something about every suit whose patterns are
 still live, so when patterns of several suits are linked through other
@@ -68,11 +73,11 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     """
     draws = max(0, min(draws, len(pool)))
     patterns = target.patterns(rules)
-    rest, by_suit = _split_by_suit(patterns)
+    _, by_suit = _split_by_suit(patterns)
     with _gc_paused():
         # An unseen Wild Card counts as every suit, which ties the suits back together.
         if len(by_suit) > 1 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
-            favourable = _union_by_suit(rest, by_suit, kept, pool, draws, rules, cancel)
+            favourable = _union_by_suit(patterns, kept, pool, draws, rules, cancel)
         else:
             favourable = _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel)
     return Fraction(favourable, comb(len(pool), draws))
@@ -123,23 +128,59 @@ def _split_by_suit(patterns: tuple[Pattern, ...]) -> tuple[tuple[Pattern, ...], 
     return tuple(rest), {s: tuple(ps) for s, ps in by_suit.items()}
 
 
-def _union_by_suit(rest: Sequence[Pattern], by_suit: dict[str, Sequence[Pattern]], kept: list[Card],
-                   pool: list[Card], draws: int, rules: Rules, cancel: Event | None) -> int:
-    """Favourable draws for a pattern of `rest` or of any suit, by inclusion-exclusion over suits.
+@cache
+def _interchangeable(patterns: tuple[Pattern, ...]) -> bool:
+    """Whether swapping any two suits maps `patterns` onto themselves."""
+    known = set(patterns)
+    for a, b in combinations(SUITS, 2):
+        swap = {a: b, b: a}
+        relabelled: dict[Requirement, Requirement] = {}
+        for pattern in patterns:
+            image = []
+            for req in pattern:
+                if req not in relabelled:
+                    relabelled[req] = Requirement(frozenset((r, swap.get(s, s)) for r, s in req.keys), req.need)
+                image.append(relabelled[req])
+            if tuple(image) not in known:
+                return False
+    return True
 
-    With A_s = "rest or one of suit s's patterns", the target is the union of
-    the A_s, and the intersection of A_s over a set of suits S is "rest, or a
-    pattern of every suit in S". Each term only tells apart the cards of the
-    suits in S (and those `rest` cares about). That keeps it small when the
-    patterns of different suits are linked through other suits' cards, as Four
-    Fingers' Straight Flush is: one search over all suits would have to track
-    every suit at once.
+
+def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[Card], draws: int,
+                   rules: Rules, cancel: Event | None) -> int:
+    """Favourable draws for `patterns`, by inclusion-exclusion over suits.
+
+    The patterns with requirements on one suit's cards are grouped by that
+    suit, and the others are `rest`. With A_s = "rest or one of suit s's
+    patterns", the target is the union of the A_s, and the intersection of
+    A_s over a set of suits S is "rest, or a pattern of every suit in S".
+    Each term only tells apart the cards of the suits in S (and those `rest`
+    cares about). That keeps it small when the patterns of different suits
+    are linked through other suits' cards, as Four Fingers' Straight Flush
+    is: one search over all suits would have to track every suit at once.
 
     A term with several suits needs enough cards of each of them, which is
     rarely possible. If it isn't, the term is just the `rest` term; otherwise
     the search prunes on the total.
+
+    When the suits are interchangeable (the patterns treat them alike, and
+    some of them have the same ranks kept and unseen, as with a fresh deck
+    and nothing known), terms that differ only by relabelling suits are equal
+    and computed once.
     """
+    rest, by_suit = _split_by_suit(patterns)
     suits = list(by_suit)
+    if _interchangeable(patterns):
+        ranks = {s: (tuple(sorted(k[0] for c in kept if (k := card_key(c, rules)) and k[1] == s)),
+                     tuple(sorted(k[0] for c in pool if (k := card_key(c, rules)) and k[1] == s))) for s in SUITS}
+
+        def term_key(subset: tuple[str, ...]) -> object:
+            return (tuple(sorted(ranks[s] for s in subset)),
+                    tuple(sorted(ranks[s] for s in SUITS if s not in subset)))
+    else:
+        def term_key(subset: tuple[str, ...]) -> object:
+            return subset
+    terms: dict[object, int] = {}
     present = {k for card in (*kept, *pool) if (k := card_key(card, rules)) is not None}
     # Every pattern of suit s needs at least this many cards of the suit.
     necessary = {s: Requirement(suit_keys(s), min(_cards_within(p, suit_keys(s), present) for p in pats))
@@ -159,13 +200,16 @@ def _union_by_suit(rest: Sequence[Pattern], by_suit: dict[str, Sequence[Pattern]
                     rest_ways = _favourable(rest, [1] * len(rest), kept, pool, draws, rules, cancel)
                 total += sign * rest_ways
                 continue
-            patterns = list(rest)
-            masks = [(1 << size) - 1] * len(rest)
-            for bit, s in enumerate(subset):
-                patterns += by_suit[s]
-                masks += [1 << bit] * len(by_suit[s])
-            total += sign * _favourable(patterns, masks, kept, pool, draws, rules, cancel,
+            tk = term_key(subset)
+            if tk not in terms:
+                chosen = list(rest)
+                masks = [(1 << size) - 1] * len(rest)
+                for bit, s in enumerate(subset):
+                    chosen += by_suit[s]
+                    masks += [1 << bit] * len(by_suit[s])
+                terms[tk] = _favourable(chosen, masks, kept, pool, draws, rules, cancel,
                                         together if size > 1 else None)
+            total += sign * terms[tk]
     return total
 
 
@@ -217,21 +261,27 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
 
     # Merge pool cards with identical membership into one class; cards that
     # count towards nothing go into the dead class.
+    # The search sweeps the classes rank by rank, so each straight window or
+    # set of a kind is settled within a few classes, with Wild Cards first in
+    # their rank. If no requirement spans several suits, the suits don't
+    # interact (but through Wild Cards), and sweeping suit by suit only has to
+    # remember one suit's progress at a time.
     class_counts: Counter[tuple[tuple[int, int], ...]] = Counter()
+    lowest: dict[tuple[tuple[int, int], ...], tuple] = {}
+    suit_by_suit = not any(len({suit for _, suit in req.keys} - {WILD}) > 1
+                           for pattern in patterns for req in pattern)
     for card in pool:
-        sig = tuple(members.get(card_key(card, rules), ()))
+        key = card_key(card, rules)
+        sig = tuple(members.get(key, ()))
         class_counts[sig] += 1
+        if sig:
+            rank, suit = key
+            place = (suit != WILD, suit, rank) if suit_by_suit else (rank, suit != WILD, suit)
+            lowest[sig] = min(lowest.get(sig, place), place)
     dead = class_counts.pop((), 0)
-    # Requirements spanning several ranks (e.g. a suit's count) say little about
-    # which classes belong together, so classes are ordered by the others.
+    classes = sorted(class_counts.items(), key=lambda item: (lowest[item[0]], item[0]))
+    # Requirements on a single rank, which decide when a pattern joins the search.
     local = [[len({rank for rank, _ in req.keys}) == 1 for req in pattern] for pattern in patterns]
-
-    def order(item: tuple[tuple[tuple[int, int], ...], int]) -> tuple:
-        sig = item[0]
-        ps = [p for p, q in sig if local[p][q]] or [p for p, _ in sig]
-        return min(ps), max(ps), sig
-
-    classes = sorted(class_counts.items(), key=order)
     n = len(classes)
 
     # remaining[i] = pool cards in classes i.. plus dead cards
@@ -252,42 +302,85 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     # steps[p] = the classes that count towards pattern p. Nothing about p
     # changes between them, so its tables are indexed by how many are behind:
     # supply_at[p][j][q] = cards in its classes from the j-th on that count
-    # towards requirement q; future_at[p][j][q] = an id for the set of those
-    # classes, the same for every requirement with that set.
+    # towards requirement q; future_at[p][j][q] = a bitmask of those classes.
     steps: list[list[int]] = [[] for _ in patterns]
     for i, ps in enumerate(touched):
         for p in ps:
             steps[p].append(i)
     supply_at: list[list[tuple[int, ...]]] = []
     future_at: list[list[tuple[int, ...]]] = []
-    suffix_ids: dict[tuple[int, int], int] = {}
     for p, pattern in enumerate(patterns):
         sup, fut = [0] * len(pattern), [0] * len(pattern)
         sups, futs = [tuple(sup)], [tuple(fut)]
         for i in reversed(steps[p]):
             for q in slots[i][p]:
                 sup[q] += classes[i][1]
-                fut[q] = suffix_ids.setdefault((i, fut[q]), len(suffix_ids) + 1)
+                fut[q] |= 1 << i
             sups.append(tuple(sup))
             futs.append(tuple(fut))
         supply_at.append(sups[::-1])
         future_at.append(futs[::-1])
 
-    assessed: dict[tuple[int, ...], tuple[int, frozenset] | None] = {}
+    # The search follows each pattern as a "part": its groups and its unmet
+    # requirements, each as (bitmask of the classes still to come that count
+    # towards it, deficit). Parts are interned as ints, so patterns left
+    # needing the same thing share one, states hash cheaply, and moving a
+    # part past a class is a cached table lookup.
+    part_ids: dict[tuple[int, frozenset[tuple[int, int]]], int] = {}
+    part_mask: list[int] = []  # groups it belongs to
+    part_reqs: list[tuple[tuple[int, int], ...]] = []
+    part_need: list[int] = []  # lower bound on the cards it needs; 0 once satisfied
+    part_bits: list[int] = []  # classes that count towards an unmet requirement
+    part_single: list[tuple[int, int] | None] = []  # its requirement, if it's one card of some classes
+    supply_of: dict[int, int] = {}
 
-    def assess(p: int, i: int) -> tuple[int, frozenset] | None:
-        """Cards pattern `p` still needs at class `i` and its memo-key part; None if unreachable."""
-        j = bisect_left(steps[p], i)
-        key = (p, j, *have[p])
-        if key in assessed:
-            return assessed[key]
-        deficits = [need - h if need > h else 0 for need, h in zip(needs[p], have[p])]
+    def intern(mask: int, unmet: list[tuple[int, int]]) -> int:
+        key = mask, frozenset(unmet)
+        pid = part_ids.get(key)
+        if pid is None:
+            pid = part_ids[key] = len(part_mask)
+            part_mask.append(mask)
+            part_reqs.append(tuple(unmet))
+            part_need.append(_bound(unmet))
+            bits = 0
+            for f, _ in unmet:
+                bits |= f
+            part_bits.append(bits)
+            part_single.append(unmet[0] if len(unmet) == 1 and unmet[0][1] == 1 else None)
+        return pid
+
+    def supply(bits: int) -> int:
+        """Cards in the classes of bitmask `bits`."""
+        s = supply_of.get(bits)
+        if s is None:
+            s = supply_of[bits] = sum(classes[i][1] for i in range(bits.bit_length()) if bits >> i & 1)
+        return s
+
+    def status(p: int, have: Sequence[int], j: int) -> int:
+        """Part of pattern `p` with `have` cards towards each requirement and
+        its j-th class next; DEAD if unreachable."""
+        deficits = [need - h if need > h else 0 for need, h in zip(needs[p], have)]
         if any(map(gt, deficits, supply_at[p][j])):
-            v = None
-        else:
-            v = cards_needed(p, deficits), frozenset((f, d) for f, d in zip(future_at[p][j], deficits) if d)
-        assessed[key] = v
-        return v
+            return DEAD
+        return intern(masks[p], [(f, d) for f, d in zip(future_at[p][j], deficits) if d])
+
+    def step(pid: int, i: int, k: int) -> int:
+        """Part `pid` after drawing `k` cards of class `i`; DEAD if unreachable."""
+        bit = 1 << i
+        unmet = []
+        for f, d in part_reqs[pid]:
+            if f & bit:
+                f ^= bit
+                if d <= k:
+                    continue
+                d -= k
+                if d > supply(f):
+                    return DEAD
+            unmet.append((f, d))
+        return intern(part_mask[pid], unmet)
+
+    # transitions[i][k][pid] = step(pid, i, k)
+    transitions: list[list[dict[int, int]]] = [[{} for _ in range(count + 1)] for _, count in classes]
 
     def cards_needed(p: int, deficits: list[int]) -> int:
         """Lower bound on the cards pattern `p` needs, given its requirements' deficits."""
@@ -325,15 +418,16 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         for i in cls:
             in_deferred[i].append(d)
     drawn_from = [0] * len(deferred_sets)
-    initial = {p: v for p in range(len(patterns)) if (v := assess(p, 0)) is not None and v[0] <= draws}
+    initial = {p: part_need[v] for p in range(len(patterns))
+               if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}
     if c is not None:
         if c not in initial:  # only patterns of every group can be satisfied
             masks = [m if m == every else 0 for m in masks]
-        if c not in initial or initial[c][0] == 0:  # nothing left to check
+        if c not in initial or initial[c] == 0:  # nothing left to check
             initial.pop(c, None)
             c = None
     todo = every
-    for p, (missing, _) in initial.items():
+    for p, missing in initial.items():
         if missing == 0:
             todo &= ~masks[p]
     if not todo:
@@ -346,9 +440,10 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     # The most cards worth counting from each set of classes a waiting pattern
     # defers, by the pattern's join class.
     defer_caps: dict[tuple[int, int], int] = {}
-    for p, (need, _) in initial.items():
+    for p, need in initial.items():
         if need and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
-            activate[start[p]].append(p)
+            if p != c:
+                activate[start[p]].append(p)
             if deferred[p]:  # cards drawn before it joins may count towards it
                 deficits = [k - h if k > h else 0 for k, h in zip(needs[p], kept_have[p])]
                 for q, d in deferred[p]:
@@ -379,15 +474,29 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                 if i < n:
                     table[i][r] |= table[i + 1][r]
     c_start = start[c] if c is not None else n
-    c_initial = initial[c][0] if c is not None else 0
+    c_initial = initial[c] if c is not None else 0
+    # The part a pattern joins the search with, by its deferred counts.
+    join_at = [bisect_left(ps, s) for ps, s in zip(steps, start)]
+    joined: dict[tuple[int, ...], int] = {}
+
+    def join(p: int) -> int:
+        key = (p, *(drawn_from[d] for _, d in deferred[p]))
+        pid = joined.get(key)
+        if pid is None:
+            have = list(kept_have[p])
+            for q, d in deferred[p]:
+                have[q] += drawn_from[d]
+            pid = joined[key] = status(p, have, join_at[p])
+        return pid
 
     memo: dict[tuple, int] = {}
 
-    def ways(i: int, rem: int, todo: int, state: dict[int, tuple[int, frozenset]]) -> int:
+    def ways(i: int, rem: int, todo: int, state: list[int], cp: int | None) -> int:
         """Ways to draw `rem` more cards from classes i.. (plus dead cards) after
-        which the groups in `todo` are covered; `state` holds assess() of each
-        pattern that has joined and may still be possible, and `todo` already
-        leaves out the groups of its satisfied patterns."""
+        which the groups in `todo` are covered. `state` holds the parts of the
+        patterns that have joined and may still be possible, and `todo`
+        already leaves out the groups of satisfied ones. `cp` is the
+        constraint's part once it has joined (DEAD once out of reach)."""
         if not todo:
             return comb(remaining[i], rem)
         if i == n:
@@ -395,83 +504,130 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         # Whether the constraint can still be met. The patterns imply it, so it
         # only prunes: it doesn't change the result and stays out of the memo key.
         if c is None:
-            free, c_state = True, None
+            free = True
         elif i > c_start:
-            c_state = state.get(c)
-            free = c_state is not None and c_state[0] <= rem
+            free = cp != DEAD and part_need[cp] <= rem
+            if not free:
+                cp = DEAD
         else:
-            free, c_state = c_initial <= rem, None
-        # Drop patterns that are out of reach, only cover groups that are
-        # already covered, or are left with the same requirements as another.
-        live: dict[int, tuple[int, frozenset]] = {c: c_state} if free and c_state is not None else {}
-        parts: set[tuple[int, frozenset]] = set()
+            free = c_initial <= rem
+        # Drop parts that are out of reach or only cover groups that are already covered.
+        live = set()
         covered = pending[free][i][rem]
-        for p, (missing, part) in state.items():
-            if (missing <= rem and (mask := masks[p] & todo) and (free or masks[p] == every)
-                    and (mask, part) not in parts):
-                parts.add((mask, part))
-                live[p] = missing, part
+        singles = False
+        for pid in state:
+            if part_need[pid] <= rem and (mask := part_mask[pid] & todo) and (free or part_mask[pid] == every):
+                live.add(pid)
                 covered |= mask
+                if part_single[pid] is not None:
+                    singles = True
         if covered & todo != todo:
             return 0
-        memo_key = (i, rem, todo, frozenset(parts),
-                    *(min(drawn_from[d], cap) for d, cap in tracked[i]))
-        if memo_key in memo:
-            return memo[memo_key]
+        deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i]])
+        memo_key = (i, rem, todo, frozenset(live), deferred_key)
+        total = memo.get(memo_key)
+        if total is not None:
+            return total
+        keys = [memo_key]
+        if singles and len(live) > 1:
+            # A part that needs a card of some classes makes redundant any part
+            # that needs one of a subset of them (and covers no other groups).
+            size = len(live)
+            for s in [pid for pid in live if part_single[pid] is not None]:
+                if s not in live:
+                    continue
+                fs, ds = part_single[s]
+                ms = part_mask[s] & todo
+                for pid in [pid for pid in live if part_bits[pid] & fs]:
+                    if pid != s and part_mask[pid] & todo & ~ms == 0:
+                        for f, d in part_reqs[pid]:
+                            if f & ~fs == 0 and d >= ds:
+                                live.discard(pid)
+                                break
+            if len(live) < size:
+                memo_key = (i, rem, todo, frozenset(live), deferred_key)
+                total = memo.get(memo_key)
+                if total is not None:
+                    memo[keys[0]] = total
+                    return total
+                keys.append(memo_key)
         if cancel is not None and cancel.is_set():
             raise Cancelled
         count = classes[i][1]
-        slot = slots[i]
-        # Only live patterns and those joining here can be assessed again in
-        # this subtree, so only their counts need to follow the draw. A class
-        # can count towards thousands of patterns that are long gone.
-        moving = [p for p in live if p in slot]
-        joining = [p for p in activate[i]
-                   if masks[p] & todo and (free or masks[p] == every) or p == c and free]
-        changed = [(p, q) for p in (*moving, *joining) for q in slot[p]]
-        for p in joining:
-            have[p][:] = kept_have[p]
-            for q, d in deferred[p]:
-                have[p][q] += drawn_from[d]
+        bit = 1 << i
+        # Only parts that class i counts towards change here.
+        moving = []
+        still = []
+        for pid in live:
+            (moving if part_bits[pid] & bit else still).append(pid)
+        for p in activate[i]:
+            if masks[p] & todo and (free or masks[p] == every) and (pid := join(p)) != DEAD:
+                moving.append(pid)
+        if i == c_start:
+            cp = join(c) if free else DEAD
+        c_moves = cp is not None and cp != DEAD and part_bits[cp] & bit
         sets = in_deferred[i]
         drawn = min(count, rem)
         total = 0
+        moves = transitions[i]
         for k in range(drawn + 1):
             if k:
-                for p, q in changed:
-                    have[p][q] += 1
                 for d in sets:
                     drawn_from[d] += 1
-            child = dict(live)
+            table = moves[k]
+            child = still[:]
             left = todo
-            for p in moving:
-                v = assess(p, i + 1)
-                if v is None:
-                    del child[p]
-                else:
-                    child[p] = v
-                    if not v[0]:
-                        left &= ~masks[p]
-            for p in joining:
-                if (v := assess(p, i + 1)) is not None:
-                    child[p] = v
-                    if not v[0]:
-                        left &= ~masks[p]
-            total += comb(count, k) * ways(i + 1, rem - k, left, child)
-        for p, q in changed:
-            have[p][q] -= drawn
+            for pid in moving:
+                t = table.get(pid)
+                if t is None:
+                    t = table[pid] = step(pid, i, k)
+                if t != DEAD:
+                    if part_need[t]:
+                        child.append(t)
+                    else:
+                        left &= ~part_mask[t]
+            child_cp = cp
+            if c_moves:
+                child_cp = table.get(cp)
+                if child_cp is None:
+                    child_cp = table[cp] = step(cp, i, k)
+            total += comb(count, k) * ways(i + 1, rem - k, left, child, child_cp)
         for d in sets:
             drawn_from[d] -= drawn
-        memo[memo_key] = total
+        for key in keys:
+            memo[key] = total
         return total
 
     try:
-        return ways(0, draws, todo, {})
+        return ways(0, draws, todo, [], None)
     finally:
         # `ways` refers to itself, so this frame's tables are only freed by the
         # garbage collector, which is paused (see _gc_paused); free the big ones.
         memo.clear()
-        assessed.clear()
+        transitions.clear()
+        part_ids.clear()
+        joined.clear()
+
+
+DEAD = -1  # a part that can no longer be satisfied
+
+
+def _bound(unmet: list[tuple[int, int]]) -> int:
+    """Lower bound on the cards needed for requirements (classes bitmask, deficit) that may overlap.
+
+    The largest deficit sum over a greedy group of requirements with disjoint
+    classes. The classes are those still to come, so requirements that only
+    overlapped on classes already behind count separately.
+    """
+    groups: list[tuple[int, int]] = []  # (classes, deficit sum)
+    for f, d in sorted(unmet, key=lambda u: -u[1]):
+        for g, (classes, total) in enumerate(groups):
+            if not classes & f:
+                groups[g] = classes | f, total + d
+                break
+        else:
+            groups.append((f, d))
+    return max((total for _, total in groups), default=0)
 
 
 def _disjoint_groups(pattern: Pattern, present: set[ClassKey]) -> list[tuple[int, ...]]:

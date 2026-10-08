@@ -109,10 +109,10 @@ See [../benchmarks.md](../benchmarks.md) for current numbers.
 
 - **Unseen Wild Cards.** As with Four Fingers alone, these use one search
   over all suits, and with Shortcut each suit has far more partial runs to
-  remember. The wild deck's Straight Flush takes about 13.5 s at 7 unknown
-  cards and well over a minute at 8 (The House).
-- **The House on the standard deck**, about 7 s. Most of it is the six
-  two-suit terms of the split by suit: each needs 4 cards of both suits,
-  which uses every one of the 8 unknown cards, and those positions are
-  mostly not dead ends (about 80% count some draws), so there's little to
-  prune.
+  remember. After the second performance pass, the wild deck's Straight
+  Flush takes about 0.7 s at 6 unknown cards, 3.2 s at 7 and 19 s at 8 (The
+  House); 25 s with Full House as well.
+- **The House on the standard deck** took about 7 s before the second pass,
+  mostly in the six two-suit terms of the split by suit. It's now 0.3 s with
+  a full deck, where the suits are interchangeable and equal terms are
+  computed once, and about 1.8 s once the suits differ.
