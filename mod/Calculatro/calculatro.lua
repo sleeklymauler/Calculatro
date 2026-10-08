@@ -1,11 +1,28 @@
 -- Calculatro: exports live Balatro game state to calculatro_state.json in the
--- save directory (%AppData%\Balatro) for the Python companion app.
+-- save directory (%AppData%\Balatro) for the Python companion app, and shows
+-- the odds it writes back to calculatro_odds.json in a panel above the deck.
 
 local Calculatro = {
-    interval = 0.2,  -- seconds between snapshots
+    interval = 0.2,       -- seconds between snapshots
+    odds_interval = 0.05, -- seconds between reads of the odds file
+    patience = 0.3,       -- seconds before odds for an older state are greyed out
+    timeout = 2,          -- seconds without a reply before assuming the app isn't running
+    toggle_key = 'c',     -- shows/hides the panel
     elapsed = 0,
+    odds_elapsed = 0,
+    clock = 0,
     last_json = nil,
-    schema = 2,
+    schema = 3,
+    odds_schema = 1,
+    -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
+    session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
+    seq = 0,
+    state_id = nil,  -- id of the last snapshot written
+    changed_at = 0,  -- clock when it was written
+    ack_id = nil,    -- id the odds file last answered (pending or done)
+    odds = nil,      -- last finished odds from this session
+    odds_raw = nil,
+    visible = true,
 }
 
 ---------------------------------------------------------------------------
@@ -19,6 +36,8 @@ local escapes = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f'
 
 local function encode_string(s)
     return '"' .. s:gsub('[%c"\\]', function(c)
+        -- Some locales count bytes of UTF-8 sequences as control characters.
+        if c:byte() >= 128 then return c end
         return escapes[c] or string.format('\\u%04x', c:byte())
     end) .. '"'
 end
@@ -56,6 +75,100 @@ local function encode(v)
     return 'null'
 end
 Calculatro.encode = encode
+
+---------------------------------------------------------------------------
+-- Minimal JSON decoder for the odds file. Arrays come back tagged ARRAY;
+-- null is not supported (the app never writes it).
+---------------------------------------------------------------------------
+local unescapes = { ['"'] = '"', ['\\'] = '\\', ['/'] = '/', b = '\b', f = '\f',
+                    n = '\n', r = '\r', t = '\t' }
+
+local function utf8_char(cp)
+    if cp < 0x80 then return string.char(cp) end
+    if cp < 0x800 then return string.char(0xC0 + math.floor(cp / 64), 0x80 + cp % 64) end
+    return string.char(0xE0 + math.floor(cp / 4096), 0x80 + math.floor(cp / 64) % 64, 0x80 + cp % 64)
+end
+
+local function decode(s)
+    local pos = 1
+    local function fail(what) error('JSON: ' .. what .. ' at ' .. pos, 0) end
+    local function skip() pos = s:find('[^ \t\r\n]', pos) or #s + 1 end
+    local value
+
+    local function string_value()
+        local out = {}
+        pos = pos + 1
+        while true do
+            local i = s:find('["\\]', pos)
+            if not i then fail('unterminated string') end
+            out[#out + 1] = s:sub(pos, i - 1)
+            if s:sub(i, i) == '"' then
+                pos = i + 1
+                return table.concat(out)
+            end
+            local c = s:sub(i + 1, i + 1)
+            if c == 'u' then
+                local cp = tonumber(s:sub(i + 2, i + 5), 16) or fail('bad escape')
+                out[#out + 1] = utf8_char(cp)
+                pos = i + 6
+            else
+                out[#out + 1] = unescapes[c] or fail('bad escape')
+                pos = i + 2
+            end
+        end
+    end
+
+    local function list(open, close, item)
+        pos = pos + 1
+        skip()
+        if s:sub(pos, pos) == close then pos = pos + 1; return end
+        while true do
+            item()
+            skip()
+            local c = s:sub(pos, pos)
+            pos = pos + 1
+            if c == close then return end
+            if c ~= ',' then fail('expected , or ' .. close) end
+        end
+    end
+
+    function value()
+        skip()
+        local c = s:sub(pos, pos)
+        if c == '{' then
+            local t = {}
+            list('{', '}', function()
+                skip()
+                if s:sub(pos, pos) ~= '"' then fail('expected key') end
+                local k = string_value()
+                skip()
+                if s:sub(pos, pos) ~= ':' then fail('expected :') end
+                pos = pos + 1
+                t[k] = value()
+            end)
+            return t
+        elseif c == '[' then
+            local t = array()
+            list('[', ']', function() t[#t + 1] = value() end)
+            return t
+        elseif c == '"' then
+            return string_value()
+        end
+        for word, v in pairs({ ['true'] = true, ['false'] = false }) do
+            if s:sub(pos, pos + #word - 1) == word then pos = pos + #word; return v end
+        end
+        local num = s:match('^-?%d+%.?%d*[eE]?[-+]?%d*', pos)
+        if not num or num == '' then fail('unexpected ' .. (c == '' and 'end' or c)) end
+        pos = pos + #num
+        return tonumber(num) or fail('bad number')
+    end
+
+    local v = value()
+    skip()
+    if pos <= #s then fail('trailing data') end
+    return v
+end
+Calculatro.decode = decode
 
 ---------------------------------------------------------------------------
 -- Snapshot
@@ -152,11 +265,14 @@ function Calculatro.snapshot()
 end
 
 ---------------------------------------------------------------------------
--- Output
+-- Files
 ---------------------------------------------------------------------------
+local function save_path(name)
+    return love.filesystem.getSaveDirectory() .. '/' .. name
+end
+
 local function write_state(json)
-    local dir = love.filesystem.getSaveDirectory()
-    local path = dir .. '/calculatro_state.json'
+    local path = save_path('calculatro_state.json')
     local tmp = path .. '.tmp'
     local f = io.open(tmp, 'wb')
     if not f then return false end
@@ -167,21 +283,219 @@ local function write_state(json)
     return os.rename(tmp, path)
 end
 
-function Calculatro.update(dt)
-    Calculatro.elapsed = Calculatro.elapsed + (dt or 0)
-    if Calculatro.elapsed < Calculatro.interval then return end
-    Calculatro.elapsed = 0
-
-    local ok, err = pcall(function()
-        local json = encode(Calculatro.snapshot())
-        if json ~= Calculatro.last_json and write_state(json) then
-            Calculatro.last_json = json
-        end
-    end)
-    if not ok and not Calculatro.reported_error then
-        Calculatro.reported_error = true
-        print('[Calculatro] snapshot failed: ' .. tostring(err))
+-- Writes the snapshot if it changed, tagged with a new id.
+function Calculatro.write_snapshot()
+    local snapshot = Calculatro.snapshot()
+    local json = encode(snapshot)
+    if json == Calculatro.last_json then return end
+    Calculatro.seq = Calculatro.seq + 1
+    snapshot.id = Calculatro.session .. ':' .. Calculatro.seq
+    if write_state(encode(snapshot)) then
+        Calculatro.last_json = json
+        Calculatro.state_id = snapshot.id
+        Calculatro.changed_at = Calculatro.clock
     end
+end
+
+local function own_id(id)
+    local prefix = Calculatro.session .. ':'
+    return type(id) == 'string' and id:sub(1, #prefix) == prefix
+end
+
+-- The app answers each snapshot first with {id, pending = true}, then with
+-- the odds once they're calculated. Odds left over from an earlier game
+-- session are ignored.
+function Calculatro.read_odds()
+    local f = io.open(save_path('calculatro_odds.json'), 'rb')
+    if not f then return end
+    local raw = f:read('*a')
+    f:close()
+    if raw == Calculatro.odds_raw then return end
+    Calculatro.odds_raw = raw
+    local ok, odds = pcall(decode, raw)
+    if not ok or type(odds) ~= 'table' or odds.schema ~= Calculatro.odds_schema or not own_id(odds.id) then
+        return
+    end
+    Calculatro.ack_id = odds.id
+    if not odds.pending then Calculatro.odds = odds end
+end
+
+---------------------------------------------------------------------------
+-- Odds panel
+---------------------------------------------------------------------------
+
+-- Only while playing a blind: not in the shop, blind select, booster packs,
+-- round results, or with a menu (run info, deck view, options) open.
+function Calculatro.in_blind()
+    if not (G and G.STAGES and G.STATES and G.STAGE == G.STAGES.RUN and G.deck and G.hand) then
+        return false
+    end
+    if G.OVERLAY_MENU then return false end
+    local S, state = G.STATES, G.STATE
+    if state == S.PLAY_TAROT then state = G.TAROT_INTERRUPT end  -- using a consumable
+    return state == S.SELECTING_HAND or state == S.HAND_PLAYED or state == S.DRAW_TO_HAND
+end
+
+-- What the panel shows, or nil to hide it. Odds for an older state stay up
+-- until the new ones arrive, greyed out if that takes longer than `patience`.
+function Calculatro.panel_model()
+    local odds = Calculatro.odds
+    local footer, stale
+    if not (odds and odds.id == Calculatro.state_id) then
+        local waited = Calculatro.clock - Calculatro.changed_at
+        if Calculatro.ack_id ~= Calculatro.state_id and waited >= Calculatro.timeout then
+            footer = 'Waiting for the Calculatro app...'
+        elseif waited >= Calculatro.patience then
+            footer = 'Calculating...'
+        end
+        stale = footer ~= nil or nil
+    end
+    local model = { targets = array(), cards = array(), footer = footer, stale = stale, discard = 'Discard' }
+    if odds then
+        model.targets, model.cards = odds.targets or array(), odds.cards or array()
+        if (odds.selected or 0) > 0 then model.discard = 'Discard ' .. odds.selected end
+        model.footer = footer or odds.message
+    end
+    if #model.targets == 0 and #model.cards == 0 and not model.footer then return nil end
+    return model
+end
+
+local NAME_W, VALUE_W, GAP_W = 1.4, 0.75, 0.25
+local SCALE = 0.32
+
+local function label(text, colour, scale)
+    return { n = G.UIT.T, config = { text = text, scale = scale or SCALE, colour = colour or G.C.UI.TEXT_LIGHT, shadow = true } }
+end
+
+local function cell(w, align, node)
+    return { n = G.UIT.C, config = { align = align, minw = w, maxw = w }, nodes = { node } }
+end
+
+local function blank(w)
+    return { n = G.UIT.C, config = { minw = w }, nodes = {} }
+end
+
+local function row(nodes, config)
+    config = config or {}
+    config.align, config.padding = config.align or 'cl', 0.03
+    return { n = G.UIT.R, config = config, nodes = nodes }
+end
+
+-- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, BOSS_MAIN inset.
+function Calculatro.definition(model)
+    local C = G.C
+    local muted = C.UI.TEXT_INACTIVE
+    local has_keep = #model.targets > 0
+    local function value(text, colour) return label(text or '-', model.stale and muted or colour) end
+
+    local rows = {}
+    if #model.targets > 0 or #model.cards > 0 then
+        local header = { blank(NAME_W) }
+        if has_keep then
+            header[#header + 1] = cell(VALUE_W, 'cr', label('Keep', muted))
+            header[#header + 1] = blank(GAP_W)
+        end
+        header[#header + 1] = cell(VALUE_W, 'cr', label(model.discard, muted))
+        rows[#rows + 1] = row(header)
+    end
+    for _, t in ipairs(model.targets) do
+        local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
+        rows[#rows + 1] = row({
+            cell(NAME_W, 'cl', label(t.name)),
+            cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
+            t.discard and cell(GAP_W, 'cm', label('>', muted)) or blank(GAP_W),
+            cell(VALUE_W, 'cr', value(t.discard, colour)),
+        })
+    end
+    if #model.cards > 0 and has_keep then
+        rows[#rows + 1] = row({ label('Drawn cards', muted, SCALE * 0.85) })
+    end
+    for _, c in ipairs(model.cards) do
+        local r = { cell(NAME_W, 'cl', label(c.name)) }
+        if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
+        r[#r + 1] = cell(VALUE_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
+        rows[#rows + 1] = row(r)
+    end
+
+    local width = NAME_W + VALUE_W + (has_keep and VALUE_W + GAP_W or 0)
+    local body = {
+        row({ label('CALCULATRO', C.UI.TEXT_LIGHT, 0.36) }),
+    }
+    if #rows > 0 then
+        body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = C.DYN_UI.BOSS_MAIN, emboss = 0.05 }, nodes = {
+            { n = G.UIT.C, config = { align = 'cl' }, nodes = rows },
+        } }
+    end
+    if model.footer then
+        body[#body + 1] = row({ label(model.footer, muted, SCALE * 0.85) }, { align = 'cm', maxw = width })
+    end
+    return { n = G.UIT.ROOT, config = { align = 'cm', padding = 0.05, r = 0.1, colour = C.DYN_UI.MAIN }, nodes = {
+        { n = G.UIT.R, config = { align = 'cm', padding = 0.08, r = 0.1, colour = C.DYN_UI.BOSS_DARK }, nodes = {
+            { n = G.UIT.C, config = { align = 'cm' }, nodes = body },
+        } },
+    } }
+end
+
+-- Rebuilds the panel when what it shows changes; removes it outside blinds.
+function Calculatro.refresh_panel()
+    local model = Calculatro.visible and Calculatro.in_blind() and Calculatro.panel_model() or nil
+    local key = model and encode(model)
+    local panel = Calculatro.panel
+    if panel and panel.REMOVED then panel = nil end  -- the game removes it with the run
+    if panel and key == Calculatro.panel_key and Calculatro.panel_major == G.deck then return end
+    if panel then panel:remove() end
+    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = nil, nil, nil
+    if not model then return end
+
+    panel = UIBox{
+        definition = Calculatro.definition(model),
+        config = { align = 'tm', offset = { x = 0, y = -0.2 }, major = G.deck, bond = 'Strong', can_collide = false },
+    }
+    -- 'tm' centres it above the deck; shift it to line up with the deck's right edge.
+    panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2
+    panel:align_to_major()
+    panel:hard_set_VT()
+    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = panel, key, G.deck
+end
+
+function Calculatro.key_pressed(key)
+    if key ~= Calculatro.toggle_key or not Calculatro.in_blind() then return end
+    if G.CONTROLLER and G.CONTROLLER.text_input_hook then return end
+    Calculatro.visible = not Calculatro.visible
+end
+
+---------------------------------------------------------------------------
+-- Hooks (see lovely.toml)
+---------------------------------------------------------------------------
+Calculatro.reported = {}
+
+-- Runs fn, printing its first error only: a broken step must not crash the game.
+local function guard(what, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok and not Calculatro.reported[what] then
+        Calculatro.reported[what] = true
+        print('[Calculatro] ' .. what .. ' failed: ' .. tostring(err))
+    end
+end
+
+function Calculatro.update(dt)
+    dt = dt or 0
+    Calculatro.clock = Calculatro.clock + dt
+    Calculatro.elapsed = Calculatro.elapsed + dt
+    Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
+    if Calculatro.elapsed >= Calculatro.interval then
+        Calculatro.elapsed = 0
+        guard('snapshot', Calculatro.write_snapshot)
+    end
+    if Calculatro.odds_elapsed >= Calculatro.odds_interval then
+        Calculatro.odds_elapsed = 0
+        guard('reading odds', Calculatro.read_odds)
+    end
+    guard('panel', Calculatro.refresh_panel)
+end
+
+function Calculatro.key_press(key)
+    guard('hotkey', Calculatro.key_pressed, key)
 end
 
 return Calculatro

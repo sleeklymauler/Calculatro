@@ -10,6 +10,7 @@ Interactive probability calculator for Balatro
 
 The mod writes the live game state to `%AppData%\Balatro\calculatro_state.json` (at most ~5×/sec, only when something changes).
 The deck is exported as a sorted multiset, so draw order is never leaked, and face-down cards in hand are hidden.
+The app writes the odds back to `calculatro_odds.json` next to it, and the mod shows them in a panel above the deck.
 
 ## Tests
 
@@ -27,6 +28,11 @@ See [docs/performance](docs/performance/README.md).
 
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
 Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
+
+The odds appear both in the console and in a panel above the deck in game. The panel is only shown while
+playing a blind (not in the shop, blind select, booster packs or menus); press `C` to hide or show it.
+A discard's odds are green when they beat keeping the hand and red when they're worse. Odds still being
+calculated for your latest selection are greyed out.
 
 - `--file`: read the state from another path instead of `%AppData%\Balatro\calculatro_state.json`.
 - `-t/--target`: hand types (`pair`, `two pair`, `trips`, `straight`, `flush`, `full house`, `quads`,

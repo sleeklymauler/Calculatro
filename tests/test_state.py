@@ -34,7 +34,9 @@ local function card(value, id, suit, opts)
 end
 G = {
   STAGES = {MAIN_MENU = 1, RUN = 2}, STAGE = 2,
-  STATES = {SELECTING_HAND = 1, SHOP = 5}, STATE = 1,
+  STATES = {SELECTING_HAND = 1, HAND_PLAYED = 2, DRAW_TO_HAND = 3, SHOP = 5, PLAY_TAROT = 6,
+            BLIND_SELECT = 7, ROUND_EVAL = 8, TAROT_PACK = 9},
+  STATE = 1,
   GAME = {current_round = {hands_left = 4, discards_left = 3}, blind = {name = 'Big Blind'}},
   hand = {config = {card_limit = 8}, cards = {
     card('Queen', 12, 'Hearts'), card('Queen', 12, 'Spades'),
@@ -43,7 +45,7 @@ G = {
     card('2', 2, 'Hearts', {facing = 'back'}),
   }},
   play = {cards = {}},
-  deck = {cards = {
+  deck = {T = {w = 2.25}, cards = {
     card('Queen', 12, 'Clubs'), card('Ace', 14, 'Spades', {center = 'm_wild'}),
     card('5', 5, 'Hearts', {center = 'm_stone'}), card('10', 10, 'Diamonds', {debuff = true}),
   }},
@@ -52,7 +54,22 @@ G = {
     {config = {center_key = 'j_four_fingers'}},
     {config = {center_key = 'j_smeared'}, debuff = true},
   }},
+  CONTROLLER = {},
+  -- UI, for the odds panel
+  UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
+  C = {UI = {TEXT_LIGHT = 'light', TEXT_INACTIVE = 'muted'}, GREEN = 'green', RED = 'red',
+       DYN_UI = {MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
 }
+BOXES = {}  -- every UIBox created, newest last
+function UIBox(args)
+  local box = {definition = args.definition, config = args.config, T = {w = 3.25},
+               alignment = {offset = args.config.offset}}
+  function box:remove() self.REMOVED = true end
+  function box:align_to_major() end
+  function box:hard_set_VT() end
+  BOXES[#BOXES + 1] = box
+  return box
+end
 """
 
 

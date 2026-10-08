@@ -17,14 +17,15 @@ No runtime dependencies; `pytest` and `lupa` are dev-only. There is no linter co
 
 ## Architecture
 
-Two halves connected by a JSON file:
+Two halves connected by two JSON files:
 
-1. **Lovely mod** (`mod/Calculatro/`): `lovely.toml` registers `calculatro.lua` as a module and patches `Game:update` to call it every frame. The module throttles itself to ~5 snapshots/sec, serializes Balatro's global `G` with its own JSON encoder, and writes `%AppData%\Balatro\calculatro_state.json` only when the output changes (write to `.tmp`, remove, rename — the Python reader tolerates the file briefly missing).
-2. **Python app** (`calculatro/`): `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card` dataclasses → `engine.py` computes exact odds → `__main__.py` formats output. `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread): each new state cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`), and odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready. Keep new slow code paths cancellable.
+1. **Lovely mod** (`mod/Calculatro/`): `lovely.toml` registers `calculatro.lua` as a module, patches `Game:update` to call it every frame, and `Controller:key_press_update` for the panel's hotkey (`C`). The module throttles itself to ~5 snapshots/sec, serializes Balatro's global `G` with its own JSON encoder, and writes `%AppData%\Balatro\calculatro_state.json` only when the output changes (write to `.tmp`, remove, rename — the Python reader tolerates the file briefly missing). Each written snapshot gets an `id` (`<session>:<seq>`).
+2. **Python app** (`calculatro/`): `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card` dataclasses → `engine.py` computes exact odds → `report.py` collects them into a `Report` → `__main__.py` formats it for the console and `overlay.py` for the mod. `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread): each new state cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`), and odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready. Keep new slow code paths cancellable.
+3. **Odds panel**: the app answers each snapshot in `calculatro_odds.json` (same directory, atomic `os.replace`) — first `{id, pending: true}`, then the odds, echoing the snapshot's `id`. The mod reads it ~20×/sec with a small JSON decoder and draws a Balatro `UIBox` right-aligned above `G.deck`, rebuilt only when its model changes. Odds whose `id` isn't the latest snapshot's are still shown, greyed with "Calculating..." after 0.3 s; with no reply at all for 2 s it says it's waiting for the app; odds from another game session are ignored. The panel only exists in a blind (`Calculatro.in_blind`: `SELECTING_HAND`/`HAND_PLAYED`/`DRAW_TO_HAND`, or `PLAY_TAROT` interrupting one, and no `G.OVERLAY_MENU`). Python sends display-ready strings (`overlay.percent`, `card_label`, messages) so the Lua stays dumb. Balatro's font (m6x11) has no suit symbols, arrows or ≤/≥, so panel text must be ASCII.
 
 ### Contract between the halves
 
-- `SCHEMA` in `state.py` must match `schema` in `calculatro.lua`; bump both when changing the JSON shape.
+- `SCHEMA` in `state.py` must match `schema` in `calculatro.lua`, and `overlay.SCHEMA` must match `odds_schema`; bump both sides when changing either JSON shape. The odds file never contains `null` (the Lua decoder doesn't support it).
 - Information hiding is deliberate: the deck is exported as a **sorted multiset** so draw order never leaks, and face-down hand cards are exported as `{hidden: true}` with their identities only in a separate sorted `hidden_pool`. The engine treats `hidden_pool` cards as part of the unseen pool (same as undrawn deck). Don't add anything to the export that reveals information a player couldn't see.
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY` metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key (`m_stone`, `m_wild`, `c_base`, ...).
@@ -41,4 +42,4 @@ Two halves connected by a JSON file:
 
 ### Tests
 
-`tests/test_state.py` runs the real `calculatro.lua` inside `lupa` against a mocked `G` and `love.filesystem`, then parses the written file — so mod changes are testable without the game. Extend `MOCK_G` there when exporting new game fields.
+`tests/test_state.py` runs the real `calculatro.lua` inside `lupa` against a mocked `G` and `love.filesystem`, then parses the written file — so mod changes are testable without the game. Extend `MOCK_G` there when exporting new game fields. `MOCK_G` also mocks `UIBox` (recording every box in `BOXES`); `tests/test_overlay.py` checks the panel's text and colours end to end. The game runs LuaJIT (Lua 5.1) while `lupa.LuaRuntime` is newer Lua, so avoid 5.2+ features; to check, run the Lua tests with `lupa.LuaRuntime`/`lupa.LuaError` swapped for `lupa.luajit21`'s.
