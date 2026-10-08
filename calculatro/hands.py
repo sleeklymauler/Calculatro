@@ -8,6 +8,7 @@ contain Two Pair.
 
 A Target names the hand types; its patterns depend on the joker Rules in
 play (Four Fingers, Shortcut, Smeared) and are built per Rules on demand.
+Pareidolia only changes which cards are face cards, which no hand type checks.
 Each target is a list of patterns (OR). A pattern is a tuple of requirements
 (AND): "at least `need` cards whose class is in `keys`". Requirements are
 usually disjoint, so each card fills one slot; when they overlap, a card counts
