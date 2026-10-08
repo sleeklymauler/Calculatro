@@ -71,6 +71,12 @@ search remembers one bit per suit instead of a count, and the bound on
 cards needed got tighter (5 cards, not 4, when `m` is off-suit). Royal Flush
 works the same way, with only ranks 10+ counting as "outside".
 
+Since the Shortcut work, runs that share their 3 suited ranks are one
+pattern, with "a card of any rank that completes the run" and "a suited card
+of another rank". (1) is then the case where that suited card has the
+completing rank, so it's no longer a pattern of its own. See
+[shortcut.md](shortcut.md).
+
 A side effect: the implication check that `combine()` uses to prune patterns
 had to learn that several single-rank requirements add up. Otherwise
 "Flush + Straight Flush" stopped collapsing to Flush and got slow. See

@@ -99,33 +99,36 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     The game scores the flush cards plus the straight cards, and only names the
     hand a Royal Flush if none of them is below 10.
     """
+    windows = [w for w in _straight_windows(rules) if not royal or min(w) >= 10]
+    if not rules.four_fingers:
+        return tuple(tuple(Requirement(_suited_rank(r, s), 1) for r in w) for s in SUITS for w in windows)
+    # With Four Fingers the flush and the straight may be different cards, as long
+    # as all of them fit in 5 played cards. That means: 3 run ranks have a suited
+    # card, the 4th (`m`) has any card, and there are 4 suited cards in all. The
+    # 4th suited card is a second one of a run rank, or one of any other rank: if
+    # that's `m`, the whole run is suited. Only cards of rank 10+ may score in a
+    # Royal Flush, so only they count there.
+    # Runs that share their 3 suited ranks differ only in `m`, so they're one
+    # pattern with "a card of any rank that completes the run" (with Shortcut,
+    # 5 7 9 is completed by a 3, 4, 6, 8, 10 or Jack). Saying "a suited card of
+    # another rank" rather than "4 suited cards in all" matters for speed too:
+    # the engine then only remembers whether a suit has shown up, not how often.
+    completions: dict[tuple[int, ...], set[int]] = {}
+    for w in windows:
+        for m in w:
+            completions.setdefault(tuple(r for r in w if r != m), set()).add(m)
+    # Listed by ranks first: the engine orders classes by the patterns they count
+    # towards, and this keeps its sweep going rank by rank across the suits.
     patterns: list[Pattern] = []
-    for s in SUITS:
-        for w in _straight_windows(rules):
-            if royal and min(w) < 10:
-                continue
-            patterns.append(tuple(Requirement(_suited_rank(r, s), 1) for r in w))
-            if not rules.four_fingers:
-                continue
-            # With Four Fingers the flush and the straight may be different cards, as
-            # long as all of them fit in 5 played cards. That means: 3 run ranks have a
-            # suited card, the 4th (`m`) has any card, and there are 4 suited cards in
-            # all. The 4th suited card is `m`'s (the whole run suited, above), a second
-            # one of a run rank, or one outside the run; only cards of rank 10+ may
-            # score in a Royal Flush, so only they count there. Saying "a suited card
-            # outside the run" rather than "4 suited cards in all" matters for speed:
-            # the engine then only remembers whether a suit has shown up, not how often.
-            outside = frozenset(k for r in RANKS if r not in w and (r >= 10 or not royal)
-                                for k in _suited_rank(r, s))
-            for m in w:
-                others = [r for r in w if r != m]
-                any_m = Requirement(_rank(m), 1)
-                if outside:
-                    patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in others),
-                                     any_m, Requirement(outside, 1)))
-                for twice in others:
-                    patterns.append((*(Requirement(_suited_rank(r, s), 2 if r == twice else 1)
-                                       for r in others), any_m))
+    for three, ms in completions.items():
+        any_m = Requirement(frozenset(k for m in ms for k in _rank(m)), 1)
+        for s in SUITS:
+            other = frozenset(k for r in RANKS if r not in three and (r >= 10 or not royal)
+                              for k in _suited_rank(r, s))
+            patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in three), any_m, Requirement(other, 1)))
+            for twice in three:
+                patterns.append((*(Requirement(_suited_rank(r, s), 2 if r == twice else 1)
+                                   for r in three), any_m))
     return tuple(patterns)
 
 

@@ -19,7 +19,9 @@ disjoint requirements; a drawn card lowers each group's sum by at most one.
 Classes are ordered by the first pattern they count towards through a
 requirement on a single rank, so each pattern's classes are processed close
 together and patterns resolve early. A pattern only joins the search at its
-first class; before that its state follows from the kept cards alone.
+first class with a single-rank requirement on it. Before that its state
+follows from the kept cards plus how many cards were drawn from the classes
+its other requirements cover; those counts are shared and go in the memo key.
 Subtrees are memoized on what's left to do: for each live pattern, its unmet
 requirements, each identified by which of the remaining classes it covers
 plus its deficit. Many draw orders reach the same position, and different
@@ -35,16 +37,18 @@ _union_by_suit.
 
 from __future__ import annotations
 
+import gc
 from bisect import bisect_left
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from fractions import Fraction
 from itertools import combinations, repeat
 from math import comb
 from operator import gt
-from threading import Event
+from threading import Event, Lock
 
 from .cards import CardQuery
 from .hands import WILD, ClassKey, Pattern, Requirement, Target, card_key, suit_keys
@@ -65,12 +69,44 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     draws = max(0, min(draws, len(pool)))
     patterns = target.patterns(rules)
     rest, by_suit = _split_by_suit(patterns)
-    # An unseen Wild Card counts as every suit, which ties the suits back together.
-    if len(by_suit) > 1 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
-        favourable = _union_by_suit(rest, by_suit, kept, pool, draws, rules, cancel)
-    else:
-        favourable = _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel)
+    with _gc_paused():
+        # An unseen Wild Card counts as every suit, which ties the suits back together.
+        if len(by_suit) > 1 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
+            favourable = _union_by_suit(rest, by_suit, kept, pool, draws, rules, cancel)
+        else:
+            favourable = _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel)
     return Fraction(favourable, comb(len(pool), draws))
+
+
+_gc_lock = Lock()
+_gc_searches = 0  # searches running with the garbage collector paused
+_gc_was_enabled = False
+
+
+@contextmanager
+def _gc_paused() -> Iterator[None]:
+    """Pause Python's cyclic garbage collector while any search runs.
+
+    A big search creates millions of tuples and frozensets, and the collector
+    keeps traversing them, which costs 5-15% of the time (docs/performance).
+    The searches make no garbage cycles that outlive them (_favourable clears
+    its memo), so nothing piles up. The collector is process-wide and a
+    cancelled search can still be unwinding when the next one starts, so the
+    searches are counted, and the last one to finish restores it.
+    """
+    global _gc_searches, _gc_was_enabled
+    with _gc_lock:
+        if not _gc_searches:
+            _gc_was_enabled = gc.isenabled()
+            gc.disable()
+        _gc_searches += 1
+    try:
+        yield
+    finally:
+        with _gc_lock:
+            _gc_searches -= 1
+            if not _gc_searches and _gc_was_enabled:
+                gc.enable()
 
 
 @cache
@@ -177,6 +213,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     for card in kept:
         for p, q in members.get(card_key(card, rules), ()):
             have[p][q] += 1
+    kept_have = [tuple(h) for h in have]
 
     # Merge pool cards with identical membership into one class; cards that
     # count towards nothing go into the dead class.
@@ -209,7 +246,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         slot: dict[int, list[int]] = defaultdict(list)
         for p, q in sig:
             slot[p].append(q)
-        slots.append(slot)
+        slots.append(dict(slot))
     # Patterns each class counts towards: only these change when moving past it.
     touched = [sorted(slot) for slot in slots]
     # steps[p] = the classes that count towards pattern p. Nothing about p
@@ -248,18 +285,46 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         if any(map(gt, deficits, supply_at[p][j])):
             v = None
         else:
-            if groups[p] is None:
-                missing = sum(deficits)
-            else:
-                missing = max(sum(deficits[q] for q in group) for group in groups[p])
-            v = missing, frozenset((f, d) for f, d in zip(future_at[p][j], deficits) if d)
+            v = cards_needed(p, deficits), frozenset((f, d) for f, d in zip(future_at[p][j], deficits) if d)
         assessed[key] = v
         return v
 
-    # A pattern joins the search at the first class that counts towards it.
-    # Until then it only depends on the kept cards, so whether it's still
-    # possible follows from `rem` and it stays out of the memo key.
-    start = [ps[0] if ps else n for ps in steps]
+    def cards_needed(p: int, deficits: list[int]) -> int:
+        """Lower bound on the cards pattern `p` needs, given its requirements' deficits."""
+        if groups[p] is None:
+            return sum(deficits)
+        return max(sum(deficits[q] for q in group) for group in groups[p])
+
+    # A pattern joins the search at the first class that counts towards one of
+    # its requirements on a single rank (or towards it at all, if it has none).
+    # Until then it doesn't need a place in the search state: it depends only
+    # on the kept cards and on how many cards were drawn from the classes before
+    # it that count towards its other requirements (`deferred`), and those
+    # counts, shared by every waiting pattern with the same classes, go in the
+    # memo key instead. Four Fingers' "a suited card of another rank" then
+    # costs one bit per suit, instead of every straight window joining at the
+    # suit's first card with its own copy of that requirement.
+    start = []
+    for p, ps in enumerate(steps):
+        start.append(next((i for i in ps if any(local[p][q] for q in slots[i][p])), ps[0] if ps else n))
+    # deferred[p] = (q, d) for each requirement q of pattern p that classes
+    # before it joins count towards; d identifies the set of those classes,
+    # deferred_sets[d], and the search keeps a running count of cards drawn
+    # from it in drawn_from[d].
+    deferred: list[list[tuple[int, int]]] = [[] for _ in patterns]
+    deferred_ids: dict[tuple[int, ...], int] = {}
+    for p, ps in enumerate(steps):
+        before: dict[int, list[int]] = defaultdict(list)
+        for i in ps[:bisect_left(ps, start[p])]:
+            for q in slots[i][p]:
+                before[q].append(i)
+        deferred[p] = [(q, deferred_ids.setdefault(tuple(cls), len(deferred_ids))) for q, cls in before.items()]
+    deferred_sets = list(deferred_ids)
+    in_deferred: list[list[int]] = [[] for _ in range(n)]
+    for d, cls in enumerate(deferred_sets):
+        for i in cls:
+            in_deferred[i].append(d)
+    drawn_from = [0] * len(deferred_sets)
     initial = {p: v for p in range(len(patterns)) if (v := assess(p, 0)) is not None and v[0] <= draws}
     if c is not None:
         if c not in initial:  # only patterns of every group can be satisfied
@@ -275,14 +340,37 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         return comb(len(pool), draws)
     activate: list[list[int]] = [[] for _ in range(n)]
     # pending[a][i][r] = groups covered by possible patterns that join at class
-    # i or later and need at most r cards; a = 0 counts only patterns of every group.
+    # i or later and may need at most r cards then; a = 0 counts only patterns
+    # of every group.
     pending = [[[0] * (draws + 1) for _ in range(n + 1)] for _ in range(2)]
-    for p, (missing, _) in initial.items():
-        if missing and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
+    # The most cards worth counting from each set of classes a waiting pattern
+    # defers, by the pattern's join class.
+    defer_caps: dict[tuple[int, int], int] = {}
+    for p, (need, _) in initial.items():
+        if need and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
             activate[start[p]].append(p)
-            pending[1][start[p]][missing] |= masks[p]
+            if deferred[p]:  # cards drawn before it joins may count towards it
+                deficits = [k - h if k > h else 0 for k, h in zip(needs[p], kept_have[p])]
+                for q, d in deferred[p]:
+                    if deficits[q]:
+                        key = (d, start[p])
+                        defer_caps[key] = max(defer_caps.get(key, 0), deficits[q])
+                        deficits[q] = 0
+                need = cards_needed(p, deficits)
+            pending[1][start[p]][need] |= masks[p]
             if masks[p] == every:
-                pending[0][start[p]][missing] |= masks[p]
+                pending[0][start[p]][need] |= masks[p]
+    # tracked[i] = (d, cap) for the counts of cards drawn from deferred sets
+    # that the memo key holds at class i; of sets with the same classes before
+    # i, only one.
+    tracked_at: list[dict[tuple[int, ...], tuple[int, int]]] = [{} for _ in range(n + 1)]
+    for (d, join), cap in defer_caps.items():
+        cls = deferred_sets[d]
+        for t in range(cls[0] + 1, join + 1):
+            behind = cls[:bisect_left(cls, t)]
+            d0, cap0 = tracked_at[t].get(behind, (d, 0))
+            tracked_at[t][behind] = d0, max(cap0, cap)
+    tracked = [tuple(t.values()) for t in tracked_at]
     for table in pending:
         for i in range(n, -1, -1):
             for r in range(draws + 1):
@@ -326,41 +414,64 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                 covered |= mask
         if covered & todo != todo:
             return 0
-        memo_key = (i, rem, todo, frozenset(parts))
+        memo_key = (i, rem, todo, frozenset(parts),
+                    *(min(drawn_from[d], cap) for d, cap in tracked[i]))
         if memo_key in memo:
             return memo[memo_key]
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        sig, count = classes[i]
+        count = classes[i][1]
+        slot = slots[i]
+        # Only live patterns and those joining here can be assessed again in
+        # this subtree, so only their counts need to follow the draw. A class
+        # can count towards thousands of patterns that are long gone.
+        moving = [p for p in live if p in slot]
+        joining = [p for p in activate[i]
+                   if masks[p] & todo and (free or masks[p] == every) or p == c and free]
+        changed = [(p, q) for p in (*moving, *joining) for q in slot[p]]
+        for p in joining:
+            have[p][:] = kept_have[p]
+            for q, d in deferred[p]:
+                have[p][q] += drawn_from[d]
+        sets = in_deferred[i]
+        drawn = min(count, rem)
         total = 0
-        for k in range(min(count, rem) + 1):
+        for k in range(drawn + 1):
             if k:
-                for p, q in sig:
+                for p, q in changed:
                     have[p][q] += 1
+                for d in sets:
+                    drawn_from[d] += 1
             child = dict(live)
             left = todo
-            for p in touched[i]:
-                if p in child:
-                    v = assess(p, i + 1)
-                    if v is None:
-                        del child[p]
-                    else:
-                        child[p] = v
-                        if not v[0]:
-                            left &= ~masks[p]
-            for p in activate[i]:
-                if ((masks[p] & todo and (free or masks[p] == every) or p == c and free)
-                        and (v := assess(p, i + 1)) is not None):
+            for p in moving:
+                v = assess(p, i + 1)
+                if v is None:
+                    del child[p]
+                else:
+                    child[p] = v
+                    if not v[0]:
+                        left &= ~masks[p]
+            for p in joining:
+                if (v := assess(p, i + 1)) is not None:
                     child[p] = v
                     if not v[0]:
                         left &= ~masks[p]
             total += comb(count, k) * ways(i + 1, rem - k, left, child)
-        for p, q in sig:
-            have[p][q] -= min(count, rem)
+        for p, q in changed:
+            have[p][q] -= drawn
+        for d in sets:
+            drawn_from[d] -= drawn
         memo[memo_key] = total
         return total
 
-    return ways(0, draws, todo, {})
+    try:
+        return ways(0, draws, todo, {})
+    finally:
+        # `ways` refers to itself, so this frame's tables are only freed by the
+        # garbage collector, which is paused (see _gc_paused); free the big ones.
+        memo.clear()
+        assessed.clear()
 
 
 def _disjoint_groups(pattern: Pattern, present: set[ClassKey]) -> list[tuple[int, ...]]:

@@ -7,10 +7,12 @@ how to measure it.
   view: what each technique saves, what was tried and dropped, and what to
   do when a new joker rule is slow.
 - [benchmarks.md](benchmarks.md): measured timings for a fixed set of game
-  situations, before and after the Four Fingers work.
+  situations, before and after the Shortcut work (and the Four Fingers
+  work before it).
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)
+  - [Shortcut](jokers/shortcut.md)
 
 Slow calculations never freeze the app: `__main__.run_watch` computes odds
 in a background `worker.Job`, a new game state cancels it, and anything
