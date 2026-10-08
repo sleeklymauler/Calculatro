@@ -350,7 +350,9 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             for f, _ in unmet:
                 bits |= f
             part_bits.append(bits)
-            part_single.append(unmet[0] if len(unmet) == 1 and unmet[0][1] == 1 else None)
+            # Interning deduplicates requirements: several identical counts
+            # still describe one condition, including a single-card out.
+            part_single.append(unmet[0] if len(key[1]) == 1 and unmet[0][1] == 1 else None)
             if part_single[pid] is not None:
                 single_parts.add(pid)
         return pid
@@ -443,35 +445,41 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     # i or later and may need at most r cards then; a = 0 counts only patterns
     # of every group.
     pending = [[[0] * (draws + 1) for _ in range(n + 1)] for _ in range(2)]
-    # The most cards worth counting from each set of classes a waiting pattern
-    # defers, by the pattern's join class.
-    defer_caps: dict[tuple[int, int], int] = {}
+    # Deferred caps by (set, join class, minimum draws needed at that class).
+    # Even if every deferred requirement is met, the others still need cards.
+    defer_caps: dict[tuple[int, int, int], int] = {}
+    join_need = [0] * len(patterns)
     for p, need in initial.items():
         if need and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
             if p != c:
                 activate[start[p]].append(p)
             if deferred[p]:  # cards drawn before it joins may count towards it
                 deficits = [k - h if k > h else 0 for k, h in zip(needs[p], kept_have[p])]
+                undeferred = deficits[:]
+                for q, _ in deferred[p]:
+                    undeferred[q] = 0
+                need = cards_needed(p, undeferred)
                 for q, d in deferred[p]:
                     if deficits[q]:
-                        key = (d, start[p])
+                        key = (d, start[p], need)
                         defer_caps[key] = max(defer_caps.get(key, 0), deficits[q])
-                        deficits[q] = 0
-                need = cards_needed(p, deficits)
+            join_need[p] = need
             pending[1][start[p]][need] |= masks[p]
             if masks[p] == every:
                 pending[0][start[p]][need] |= masks[p]
-    # tracked[i] = (d, cap) for the counts of cards drawn from deferred sets
-    # that the memo key holds at class i; of sets with the same classes before
-    # i, only one.
-    tracked_at: list[dict[tuple[int, ...], tuple[int, int]]] = [{} for _ in range(n + 1)]
-    for (d, join), cap in defer_caps.items():
+    # tracked[i][rem] holds only counts that a reachable waiting pattern needs.
+    # Once too few draws remain, its history cannot affect any continuation.
+    # Of sets with the same classes before i, keep just one representative.
+    tracked_at: list[list[dict[tuple[int, ...], tuple[int, int]]]] = [
+        [{} for _ in range(draws + 1)] for _ in range(n + 1)]
+    for (d, join, need), cap in defer_caps.items():
         cls = deferred_sets[d]
         for t in range(cls[0] + 1, join + 1):
             behind = cls[:bisect_left(cls, t)]
-            d0, cap0 = tracked_at[t].get(behind, (d, 0))
-            tracked_at[t][behind] = d0, max(cap0, cap)
-    tracked = [tuple(t.values()) for t in tracked_at]
+            for rem in range(need, draws + 1):
+                d0, cap0 = tracked_at[t][rem].get(behind, (d, 0))
+                tracked_at[t][rem][behind] = d0, max(cap0, cap)
+    tracked = [[tuple(t.values()) for t in by_rem] for by_rem in tracked_at]
     for table in pending:
         for i in range(n, -1, -1):
             for r in range(draws + 1):
@@ -496,7 +504,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         return pid
 
     memo: dict[tuple, int] = {}
-    # Parts of the patterns joining at a class, by (class, todo, free, deferred counts).
+    # Joining parts, by (class, draws left, todo, free, deferred counts).
     joining: dict[tuple, list[int]] = {}
 
     def ways(i: int, rem: int, todo: int, state: list[int], cp: int | None) -> int:
@@ -533,7 +541,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                     covered |= mask
             if covered & todo != todo:
                 return 0
-        deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i]])
+        deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i][rem]])
         memo_key = (i, rem, todo, frozenset(live), deferred_key)
         total = memo.get(memo_key)
         if total is not None:
@@ -543,6 +551,17 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             # A part that needs a card of some classes makes redundant any part
             # that needs one of a subset of them (and covers no other groups).
             size = len(live)
+            if every == 1 and len(singles) > 1:
+                # In a plain OR, "one of A or one of B" is "one of A | B".
+                # This also drops parts implied by the union but not by either
+                # original part alone. Different coverage groups must stay apart.
+                bits = 0
+                for pid in singles:
+                    bits |= part_bits[pid]
+                merged = intern(1, [(bits, 1)])
+                live.difference_update(singles)
+                live.add(merged)
+                singles = {merged}
             for s in singles:
                 if s not in live:
                     continue
@@ -569,13 +588,15 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         moving = [pid for pid in live if part_bits[pid] & bit]
         still = [pid for pid in live if not part_bits[pid] & bit]
         if activate[i]:
-            # The parts joining here follow from the deferred counts, capped as in the key.
-            join_key = (i, todo, free, deferred_key)
+            # The counts omit unreachable patterns, so exclude those before
+            # calling join(). Draws left also belongs in this cache's key.
+            join_key = (i, rem, todo, free, deferred_key)
             parts = joining.get(join_key)
             if parts is None:
                 parts = joining[join_key] = [
                     pid for p in activate[i]
-                    if masks[p] & todo and (free or masks[p] == every) and (pid := join(p)) != DEAD]
+                    if join_need[p] <= rem and masks[p] & todo and (free or masks[p] == every)
+                    and (pid := join(p)) != DEAD and part_need[pid] <= rem]
             moving += parts
         if i == c_start:
             cp = join(c) if free else DEAD
