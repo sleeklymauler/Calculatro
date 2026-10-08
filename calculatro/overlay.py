@@ -28,6 +28,14 @@ NO_TARGETS = "No targets set: run with -t or -c"
 
 _SUIT_WORDS = {symbol: f" of {suit}" for suit, symbol in SUIT_SHORT.items()}
 
+# Hand names too long for the panel's name column at full size.
+SHORT_NAMES = {
+    "Three of a Kind": "Trips",
+    "Four of a Kind": "Quads",
+    "Five of a Kind": "5 of a Kind",
+    "Straight Flush": "Str. Flush",
+}
+
 
 def odds_path(state_path: Path) -> Path:
     """The odds file sits next to the state file."""
@@ -77,7 +85,7 @@ def odds(state: GameState, report: Report | None, configured: bool = True) -> di
         return payload
     payload["selected"] = len(report.discarded)
     for row in report.targets:
-        target: dict[str, Any] = {"name": row.name, "keep": percent(row.keep)}
+        target: dict[str, Any] = {"name": SHORT_NAMES.get(row.name, row.name), "keep": percent(row.keep)}
         if row.discard is not None:
             target["discard"] = percent(row.discard)
             target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)

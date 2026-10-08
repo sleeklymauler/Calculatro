@@ -382,53 +382,94 @@ local function row(nodes, config)
     return { n = G.UIT.R, config = config, nodes = nodes }
 end
 
--- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, BOSS_MAIN inset.
-function Calculatro.definition(model)
+-- The odds rows in order, each a function building its row: targets, then
+-- the drawn-card queries (under a subheader when there are targets too).
+local function entries(model, colours)
     local C = G.C
-    local muted = C.UI.TEXT_INACTIVE
     local has_keep = #model.targets > 0
-    local function value(text, colour) return label(text or '-', model.stale and muted or colour) end
-
-    local rows = {}
-    if #model.targets > 0 or #model.cards > 0 then
-        local header = { blank(NAME_W) }
-        if has_keep then
-            header[#header + 1] = cell(VALUE_W, 'cr', label('Keep', muted))
-            header[#header + 1] = blank(GAP_W)
-        end
-        header[#header + 1] = cell(VALUE_W, 'cr', label(model.discard, muted))
-        rows[#rows + 1] = row(header)
-    end
+    local function value(text, colour) return label(text or '-', model.stale and colours.stale or colour) end
+    local out = {}
     for _, t in ipairs(model.targets) do
         local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
-        rows[#rows + 1] = row({
-            cell(NAME_W, 'cl', label(t.name)),
-            cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
-            t.discard and cell(GAP_W, 'cm', label('>', muted)) or blank(GAP_W),
-            cell(VALUE_W, 'cr', value(t.discard, colour)),
-        })
+        out[#out + 1] = function()
+            return row({
+                cell(NAME_W, 'cl', label(t.name)),
+                cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
+                t.discard and cell(GAP_W, 'cm', label('>', colours.muted)) or blank(GAP_W),
+                cell(VALUE_W, 'cr', value(t.discard, colour)),
+            })
+        end
     end
     if #model.cards > 0 and has_keep then
-        rows[#rows + 1] = row({ label('Drawn cards', muted, SCALE * 0.85) })
+        out[#out + 1] = { subheader = true }
     end
     for _, c in ipairs(model.cards) do
-        local r = { cell(NAME_W, 'cl', label(c.name)) }
-        if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
-        r[#r + 1] = cell(VALUE_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
-        rows[#rows + 1] = row(r)
+        out[#out + 1] = function()
+            local r = { cell(NAME_W, 'cl', label(c.name)) }
+            if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
+            r[#r + 1] = cell(VALUE_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
+            return row(r)
+        end
+    end
+    return out
+end
+
+-- Number of odds rows, i.e. the most columns the panel can usefully have.
+function Calculatro.row_count(model)
+    return #entries(model, {})
+end
+
+-- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, BOSS_MAIN inset.
+-- The odds rows fill `columns` columns (default 1) top to bottom, left to
+-- right, each column with its own Keep/Discard header.
+function Calculatro.definition(model, columns)
+    local C = G.C
+    -- Solid greys: the game's semi-transparent TEXT_INACTIVE vanishes on some
+    -- bosses' panel colours.
+    local colours = { muted = C.JOKER_GREY, stale = C.UI.BACKGROUND_INACTIVE }
+    local has_keep = #model.targets > 0
+    local list = entries(model, colours)
+    columns = math.max(1, math.min(columns or 1, #list))
+    local per_column = math.ceil(#list / columns)
+
+    local function header()
+        local nodes = { blank(NAME_W) }
+        if has_keep then
+            nodes[#nodes + 1] = cell(VALUE_W, 'cr', label('Keep', colours.muted))
+            nodes[#nodes + 1] = blank(GAP_W)
+        end
+        nodes[#nodes + 1] = cell(VALUE_W, 'cr', label(model.discard, colours.muted))
+        return row(nodes)
     end
 
-    local width = NAME_W + VALUE_W + (has_keep and VALUE_W + GAP_W or 0)
+    local column_nodes, i = {}, 1
+    while i <= #list do
+        local rows = { header() }
+        local last = math.min(i + per_column - 1, #list)
+        -- Never end a column on the subheader: it belongs with the rows below it.
+        if last > i and type(list[last]) == 'table' and list[last].subheader then last = last - 1 end
+        for k = i, last do
+            local entry = list[k]
+            if type(entry) == 'function' then
+                rows[#rows + 1] = entry()
+            else
+                rows[#rows + 1] = row({ label('Drawn cards', colours.muted, SCALE * 0.85) })
+            end
+        end
+        if #column_nodes > 0 then column_nodes[#column_nodes + 1] = blank(0.2) end
+        column_nodes[#column_nodes + 1] = { n = G.UIT.C, config = { align = 'tl', id = 'calculatro_column' }, nodes = rows }
+        i = last + 1
+    end
+
+    local width = (NAME_W + VALUE_W + (has_keep and VALUE_W + GAP_W or 0)) * math.max(1, #column_nodes)
     local body = {
         row({ label('CALCULATRO', C.UI.TEXT_LIGHT, 0.36) }),
     }
-    if #rows > 0 then
-        body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = C.DYN_UI.BOSS_MAIN, emboss = 0.05 }, nodes = {
-            { n = G.UIT.C, config = { align = 'cl' }, nodes = rows },
-        } }
+    if #column_nodes > 0 then
+        body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = C.DYN_UI.BOSS_MAIN, emboss = 0.05 }, nodes = column_nodes }
     end
     if model.footer then
-        body[#body + 1] = row({ label(model.footer, muted, SCALE * 0.85) }, { align = 'cm', maxw = width })
+        body[#body + 1] = row({ label(model.footer, colours.muted, SCALE * 0.85) }, { align = 'cm', maxw = width })
     end
     return { n = G.UIT.ROOT, config = { align = 'cm', padding = 0.05, r = 0.1, colour = C.DYN_UI.MAIN }, nodes = {
         { n = G.UIT.R, config = { align = 'cm', padding = 0.08, r = 0.1, colour = C.DYN_UI.BOSS_DARK }, nodes = {
@@ -446,7 +487,32 @@ function Calculatro.panel_lift()
     return 1.9 + 0.2 + (G.HIGHLIGHT_H or 0) + 0.25
 end
 
+-- The tallest the panel can be: from its bottom (see panel_lift) up to the
+-- consumables' card count label ("0/2"), which hangs ~0.4 below their area.
+-- nil if there's no consumable area to avoid.
+function Calculatro.max_panel_height()
+    local area = G.consumeables
+    if not (area and area.T) then return nil end
+    local top = area.T.y + area.T.h + 0.6
+    return G.deck.T.y - Calculatro.panel_lift() - top
+end
+
+local function build_panel(model, columns)
+    local panel = UIBox{
+        definition = Calculatro.definition(model, columns),
+        config = { align = 'tm', offset = { x = 0, y = -Calculatro.panel_lift() }, major = G.deck, bond = 'Strong', can_collide = false },
+    }
+    -- 'tm' centres it above the deck; shift it to line up with the deck's
+    -- right edge, so extra columns grow leftwards over the empty play area.
+    panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2
+    panel:align_to_major()
+    panel:hard_set_VT()
+    return panel
+end
+
 -- Rebuilds the panel when what it shows changes; removes it outside blinds.
+-- Uses the fewest columns that keep it clear of the consumables; a box's size
+-- is only known once it's built, so it tries 1, 2, ... columns.
 function Calculatro.refresh_panel()
     local model = Calculatro.visible and Calculatro.in_blind() and Calculatro.panel_model() or nil
     local key = model and encode(model)
@@ -457,14 +523,15 @@ function Calculatro.refresh_panel()
     Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = nil, nil, nil
     if not model then return end
 
-    panel = UIBox{
-        definition = Calculatro.definition(model),
-        config = { align = 'tm', offset = { x = 0, y = -Calculatro.panel_lift() }, major = G.deck, bond = 'Strong', can_collide = false },
-    }
-    -- 'tm' centres it above the deck; shift it to line up with the deck's right edge.
-    panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2
-    panel:align_to_major()
-    panel:hard_set_VT()
+    local max_h = Calculatro.max_panel_height()
+    local most = math.max(1, Calculatro.row_count(model))
+    local columns = 1
+    panel = build_panel(model, columns)
+    while max_h and panel.T.h > max_h and columns < most do
+        panel:remove()
+        columns = columns + 1
+        panel = build_panel(model, columns)
+    end
     Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = panel, key, G.deck
 end
 
