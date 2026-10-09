@@ -88,7 +88,7 @@ def test_panel_draws_suits_as_icons(lua, tmp_path):
     answer(lua, tmp_path, targets=(), queries=("QS", "at most 1 heart", "foil diamonds", "clubs", "queen"))
     mod.update(0.1)
     texts = panel_texts(rt)
-    rows = [t for t in texts[texts.index("Discard 2@muted") + 1:] if "%" not in t]  # without the odds
+    rows = [t for t in texts[texts.index("Discard@muted") + 1:] if "%" not in t]  # without the odds
     assert rows == ["Q@light", "[ui_1 3,1]", ": 1+@light",
                     "[ui_1 0,1]", ": 0-1@light",
                     "Foil @light", "[ui_1 1,1]", ": 1+@light",
@@ -120,7 +120,7 @@ def test_payloads(lua, tmp_path):
     report = build_report(state, [get_target("trips"), get_target("pair")], [parse_query("no face")])
     payload = overlay.odds(state, report)
     assert payload == {
-        "schema": overlay.SCHEMA, "id": state.id, "selected": 2,
+        "schema": overlay.SCHEMA, "id": state.id,
         "targets": [
             {"name": "Any target", "keep": "100%", "discard": "100%", "trend": 0},
             {"name": "Trips", "keep": "80.0%", "discard": "100%", "trend": 1},
@@ -136,7 +136,7 @@ def test_payloads(lua, tmp_path):
     unselected = GameState(**{**state.__dict__, "hand": [c.__class__(**{**c.__dict__, "highlighted": False})
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
-    assert payload["selected"] == 0 and "message" not in payload
+    assert "message" not in payload
     assert payload["targets"] == [{"name": "Trips", "keep": "80.0%"}]
     assert overlay.odds(state, None, configured=False)["message"] == overlay.NO_TARGETS
     assert "message" not in overlay.odds(GameState(in_run=False, id="x"), None, configured=False)
@@ -207,16 +207,16 @@ def test_panel_shows_current_odds(lua, tmp_path):
     mod.update(0.1)
     assert panel_texts(rt) == [
         "CALCULATRO@light",
-        "Keep@muted", "Discard 2@muted",
+        "Hands@muted", "Keep@muted", "Discard@muted",
         "Any target@light", "100%@light", ">@muted", "100%@light",
         "Trips@light", "80.0%@light", ">@muted", "100%@green",
         "Pair@light", "100%@light", ">@muted", "100%@light",
-        "Drawn cards@muted",
+        "Drawn cards@muted", "Discard@muted",  # a column of their own
         "Face card: none@light", "20.0%@light",
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
-    assert box.alignment.offset.x == pytest.approx((2.25 - 3.25) / 2)  # right edge on the deck's
+    assert box.alignment.offset.x == pytest.approx((2.25 - 2 * 3.25) / 2)  # right edge on the deck's
     # Above the raised hand's cards, highlighted ones included.
     assert box.alignment.offset.y == pytest.approx(-(1.9 + 0.2 + 0.5 + 0.1))
 
@@ -262,21 +262,22 @@ def columns(rt, definition) -> list[list[str]]:
 def test_panel_spills_into_columns(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
-    everything = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-                  "straight flush", "royal", "five of a kind", "flush house", "flush five")
-    answer(lua, tmp_path, targets=everything, queries=("queen",))
+    targets = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+               "straight flush", "royal", "five of a kind", "flush house")
+    answer(lua, tmp_path, targets=targets, queries=("queen",))
     mod.update(0.1)
     box = rt.eval("BOXES[#BOXES]")
-    # 15 rows (13 targets, subheader, 1 query): columns of 6 (2.6 tall) are the
-    # tallest to fit in the 2.85 under the consumables, so each is filled first.
+    # 12 hand rows (11 targets and "Any target") and a query: columns of 6
+    # (2.6 tall) are the tallest to fit in the 2.85 under the consumables, so
+    # each is filled first; the query starts a column of its own.
     assert columns(rt, box.definition) == [
-        ["Keep", "Any target", "Pair", "Two Pair", "Trips", "Straight", "Flush"],
-        ["Keep", "Full House", "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House"],
-        ["Keep", "Flush Five", "Drawn cards", "Queen: 1+"],
+        ["Hands", "Any target", "Pair", "Two Pair", "Trips", "Straight", "Flush"],
+        ["Hands", "Full House", "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House"],
+        ["Drawn cards", "Queen: 1+"],
     ]
     assert box.T.h <= mod.max_panel_height()
     assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
-    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 9  # 15 to 7 rows per column
+    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 6  # 12 to 7 rows per column
 
 
 def test_panel_fills_a_column_before_starting_another(lua, tmp_path):
@@ -298,7 +299,7 @@ def test_message_does_not_change_the_panel(lua, tmp_path, targets):
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=())
     mod.update(0.1)
-    assert panel_texts(rt)[1] == "Keep@muted"  # no message
+    assert panel_texts(rt)[1] == "Hands@muted"  # no message
     box = rt.eval("BOXES[#BOXES]")
     layout = [len(c) for c in columns(rt, box.definition)]
     assert layout == ([7] if len(targets) == 5 else [7, 7, 2])
@@ -341,11 +342,23 @@ def test_odds_inset_stays_dark_in_boss_blinds(lua, tmp_path):
     assert list(colour.values()) == pytest.approx([0.19, 0.38, 0.57, 1])
 
 
+def test_columns_needed():
+    assert overlay.columns_needed(0, 0) == 0
+    assert overlay.columns_needed(1, 0) == 1
+    assert overlay.columns_needed(5, 6) == 2  # 6 hand rows with "Any target"
+    assert overlay.columns_needed(6, 1) == 3  # 7 hand rows
+    assert overlay.columns_needed(11, 6) == 3
+    assert overlay.columns_needed(5, 12) == 3
+    assert overlay.columns_needed(0, 18) == 3
+    assert overlay.columns_needed(6, 12) == 4
+    assert overlay.columns_needed(2, 13) == 4
+
+
 def test_tracking_limit(capsys):
-    queries = ["-c", "queen"] * (overlay.MAX_TRACKED - 1)
+    queries = ["-c", "queen"] * 13
     with pytest.raises(SystemExit):
         cli.main(["watch", "-t", "pair", "-t", "flush", *queries])
-    assert f"at most {overlay.MAX_TRACKED}" in capsys.readouterr().err
+    assert "these need 4" in capsys.readouterr().err
 
 
 def test_panel_never_wider_than_three_columns(lua, tmp_path):
@@ -357,29 +370,21 @@ def test_panel_never_wider_than_three_columns(lua, tmp_path):
     assert len(columns(rt, rt.eval("BOXES[#BOXES]").definition)) == 3
 
 
-def test_subheader_never_adds_a_column(lua, tmp_path):
-    rt, mod = lua
-    rt.execute("G.consumeables.T.h = 5")  # leaves 0.6: nothing fits
-    mod.update(1.0)
-    queries = ("queen", "king", "jack", "ace", "spade", "heart", "club", "diamond", "face", "2+ queens")
-    answer(lua, tmp_path, targets=("pair", "two pair", "trips"), queries=queries)
-    mod.update(0.1)
-    # 15 rows in columns of 5 would end the first on "Drawn cards" and spill
-    # into a 4th column, so even with no room the columns stay at 6.
-    assert mod.column_count(mod.panel_model(), 5) == 4
-    assert [len(c) - 1 for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 6, 3]
-
-
-def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
+def test_hands_and_cards_in_columns_of_their_own(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
     answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight"), queries=("queen", "no face"))
     mod.update(0.1)
-    # 8 rows in columns of 3 would end the middle one on "Drawn cards".
+    # 7 rows would fit one column of 7, but the cards start their own.
+    assert columns(rt, rt.eval("BOXES[#BOXES]").definition) == [
+        ["Hands", "Any target", "Pair", "Two Pair", "Trips", "Straight"],
+        ["Drawn cards", "Queen: 1+", "Face card: none"],
+    ]
+    # Each section fills its own columns: the hands' last isn't topped up with cards.
     assert columns(rt, mod.definition(mod.panel_model(), 3)) == [
-        ["Keep", "Any target", "Pair", "Two Pair"],
-        ["Keep", "Trips", "Straight"],
-        ["Keep", "Drawn cards", "Queen: 1+", "Face card: none"],
+        ["Hands", "Any target", "Pair", "Two Pair"],
+        ["Hands", "Trips", "Straight"],
+        ["Drawn cards", "Queen: 1+", "Face card: none"],
     ]
 
 
@@ -390,9 +395,9 @@ def test_panel_without_selection(lua, tmp_path):
     answer(lua, tmp_path, targets=("trips",))
     mod.update(0.1)
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "Keep@muted", "Discard@muted",
+        "CALCULATRO@light", "Hands@muted", "Keep@muted", "Discard@muted",
         "Trips@light", "80.0%@light", "-@light",
-        "Drawn cards@muted", "Face card: none@light", "-@light",
+        "Drawn cards@muted", "Discard@muted", "Face card: none@light", "-@light",
     ]
 
 
@@ -404,7 +409,7 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     mod.update(0.1)
     # Listed without a selection too, so the panel doesn't vanish between discards.
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "Discard@muted",
+        "CALCULATRO@light", "Drawn cards@muted", "Discard@muted",
         "Face card: none@light", "-@light",
     ]
     rt.execute("G.hand.cards[1].highlighted = true")
@@ -451,14 +456,14 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
     mod.update(0.1)
     texts = panel_texts(rt)
-    assert "80.0%@light" in texts and "Discard 2@muted" in texts  # old odds, not yet greyed
+    assert "80.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
     assert "80.0%@stale" in texts and texts[1] == "Calculating...@muted"  # beside the title
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
-    assert "Discard 3@muted" in texts and "Calculating...@muted" not in texts
+    assert not any(t.endswith("@stale") for t in texts) and "Calculating...@muted" not in texts
 
 
 def test_panel_without_the_app(lua, tmp_path):
