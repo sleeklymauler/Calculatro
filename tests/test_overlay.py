@@ -414,6 +414,33 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     assert panel_texts(rt)[-2:] == ["Face card: none@light", "20.0%@light"]
 
 
+CELL_WIDTHS = r"""
+return function(node)  -- maxw of the cell around each label, keyed by its text
+  local out = {}
+  local function walk(n, w)
+    if n.n == G.UIT.T then out[n.config.text] = w end
+    for _, c in ipairs(n.nodes or {}) do walk(c, n.config and n.config.maxw or w) end
+  end
+  walk(node)
+  return out
+end
+"""
+
+
+@pytest.mark.parametrize("targets", [(), ("trips",)])
+def test_card_names_use_the_keep_columns_space(lua, tmp_path, targets):
+    # Text wider than its cell is shrunk, and modifier labels are too long for
+    # a hand name's cell; card rows have no Keep value, so they take its space.
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=targets, queries=("lucky", "sealed"))
+    mod.update(0.1)
+    widths = rt.execute(CELL_WIDTHS)(rt.eval("BOXES[#BOXES]").definition)
+    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25)
+    if targets:
+        assert widths["Trips"] == pytest.approx(1.4)
+
+
 def test_panel_greys_out_old_odds(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
