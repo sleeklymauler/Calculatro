@@ -61,7 +61,10 @@ G = {
   ASSET_ATLAS = {ui_1 = 'ui_1', ui_2 = 'ui_2'},
   SETTINGS = {colourblind_option = false},
   C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted', WHITE = 'white',
-       GREEN = 'green', RED = 'red', BLACK = {0.2, 0.4, 0.6, 1}, DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
+       GREEN = 'green', RED = 'red', BLUE = 'blue', ORANGE = 'orange', GREY = 'grey', L_BLACK = 'l_black',
+       CLEAR = 'clear', BLACK = {0.2, 0.4, 0.6, 1},
+       DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
+  FUNCS = {},
   -- Panel space: from 3.35 (under the consumables' label) to 6.2 (above the raised hand).
   consumeables = {T = {y = 0, h = 2.75}},
 }
@@ -127,6 +130,15 @@ def test_snapshot_parses(lua):
     assert "Jokers: j_four_fingers, j_smeared (debuffed)" in summarize(state)
     assert state.selected == [2, 3]
     assert [c.short() for c in state.hidden_pool] == ["2♥"]
+
+
+def test_snapshot_sends_what_is_tracked(lua):
+    rt, _ = lua
+    assert GameState.from_json(snapshot_json(lua)).tracked_hands == []  # a new run tracks nothing
+    rt.execute("""G.GAME.calculatro = {hands = {'Pair', 'Flush'},
+                                       cards = {{query = 'at least 2 queen', label = 'Queen: 2+'}}}""")
+    state = GameState.from_json(snapshot_json(lua))
+    assert state.tracked_hands == ["Pair", "Flush"] and state.tracked_cards == ["at least 2 queen"]
 
 
 def test_rules_from_jokers():

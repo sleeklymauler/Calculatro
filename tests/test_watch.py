@@ -85,8 +85,8 @@ class FakeSource:
         return self.queue.pop(0) if self.queue else None
 
 
-def state(name: str) -> GameState:
-    return GameState(in_run=True, state=name)
+def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",)) -> GameState:
+    return GameState(in_run=True, state=name, tracked_hands=list(tracked_hands))
 
 
 def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
@@ -94,7 +94,7 @@ def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
     monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (fake_odds(st, t, q, cancel), {}))
     writes: list[str] = []
     end = time.monotonic() + timeout
-    cli.run_watch(source, [get_target("pair")], [], writes.append, patience=0.05, poll_interval=0.005,
+    cli.run_watch(source, writes.append, patience=0.05, poll_interval=0.005,
                   stop=lambda: done(writes) or time.monotonic() > end)
     assert done(writes), writes
     return writes
@@ -149,6 +149,15 @@ def test_new_state_cancels_running_odds(monkeypatch):
 
 def test_summary_only_without_targets(monkeypatch):
     writes: list[str] = []
-    cli.run_watch(FakeSource(state("A")), [], [], writes.append, poll_interval=0.005,
+    cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,
                   stop=lambda: bool(writes))
-    assert len(writes) == 1 and "State: A" in writes[0]
+    assert len(writes) == 1 and "State: A" in writes[0] and writes[0].endswith(cli.NOTHING_TRACKED)
+
+
+def test_tracked_skips_unknown_repeated_and_overflowing():
+    hands = ["Pair", "Pair", "Big Hand", "Three of a Kind"]
+    cards = ["2+ queens", "2+ queens", "no such card", *[f"at least {n} spade" for n in range(1, 13)]]
+    targets, queries = cli.tracked(GameState(in_run=True, tracked_hands=hands, tracked_cards=cards))
+    assert [t.name for t in targets] == ["Pair", "Three of a Kind"]
+    # 3 hand rows (with "Any target") take a column, leaving 2 of 6 for queries.
+    assert [q.text for q in queries] == ["2+ queens", *[f"at least {n} spade" for n in range(1, 12)]]

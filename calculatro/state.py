@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 3
+SCHEMA = 4
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -74,6 +74,10 @@ def _cards(raw: Any) -> list[Card]:
     return [Card.from_json(c) for c in raw]
 
 
+def _strings(raw: Any) -> list[str]:
+    return [s for s in raw or [] if isinstance(s, str)]
+
+
 @dataclass(frozen=True)
 class GameState:
     in_run: bool
@@ -89,6 +93,10 @@ class GameState:
     discard: list[Card] = field(default_factory=list)
     hidden_pool: list[Card] = field(default_factory=list)  # identities of face-down hand cards
     jokers: list[Joker] = field(default_factory=list)
+    # What the player tracks, set in the mod's panel: hand names ("Three of a
+    # Kind") and card queries for `cards.parse_query` ("at least 2 queen").
+    tracked_hands: list[str] = field(default_factory=list)
+    tracked_cards: list[str] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -97,6 +105,7 @@ class GameState:
             raise ValueError(f"unsupported state schema {schema!r} (expected {SCHEMA})")
         if not d.get("in_run"):
             return cls(in_run=False, id=d.get("id"))
+        tracked = d.get("tracked") or {}
         return cls(
             in_run=True,
             id=d.get("id"),
@@ -112,6 +121,8 @@ class GameState:
             hidden_pool=_cards(d.get("hidden_pool")),
             jokers=[Joker(j["key"], bool(j.get("debuff", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
+            tracked_hands=_strings(tracked.get("hands")),
+            tracked_cards=_strings(tracked.get("cards")),
         )
 
     @property
