@@ -19,10 +19,13 @@ from test_watch import FakeSource
 lupa = pytest.importorskip("lupa")
 
 TEXTS = r"""
-return function(node)  -- text nodes of a UI definition, in order, as 'text@colour', and icons as '[atlas x,y]'
-  local out = {}
+return function(node)  -- text nodes of a UI definition, in order, as 'text@colour', icons as '[atlas x,y]',
+  local out = {}       -- and the arrow drawn in boxes as '->@colour'
   local function walk(n)
     if n.n == G.UIT.T then out[#out + 1] = n.config.text .. '@' .. tostring(n.config.colour) end
+    if n.n == G.UIT.R and n.nodes[1] and n.nodes[1].n == G.UIT.B then
+      out[#out + 1] = '->@' .. tostring(n.nodes[1].config.colour)
+    end
     if n.n == G.UIT.O then
       local s = n.config.object
       out[#out + 1] = string.format('[%s %d,%d]', s.atlas, s.pos.x, s.pos.y)
@@ -208,9 +211,9 @@ def test_panel_shows_current_odds(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light",
         "Hands@muted", "Keep@muted", "Discard@muted",
-        "Any target@light", "100%@light", ">@muted", "100%@light",
-        "Trips@light", "80.0%@light", ">@muted", "100%@green",
-        "Pair@light", "100%@light", ">@muted", "100%@light",
+        "Any target@light", "100%@light", "->@muted", "100%@light",
+        "Trips@light", "80.0%@light", "->@muted", "100%@green",
+        "Pair@light", "100%@light", "->@muted", "100%@light",
         "Drawn cards@muted", "Discard@muted",  # a column of their own
         "Face card: none@light", "20.0%@light",
     ]
@@ -444,6 +447,49 @@ def test_card_names_use_the_keep_columns_space(lua, tmp_path, targets):
     assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25)
     if targets:
         assert widths["Trips"] == pytest.approx(1.4)
+
+
+ARROW_SIZE = r"""
+return function(node)  -- the arrow's width, height and left margin, and the widths of its cell and the next
+  local function size(arrow)
+    local w, h = 0, 0
+    for _, b in ipairs(arrow.nodes) do w, h = w + b.config.w, math.max(h, b.config.h) end
+    return w, h
+  end
+  local found
+  local function walk(n)
+    for i, c in ipairs(n.nodes or {}) do
+      local inner = c.nodes and c.nodes[1]
+      local boxes = inner and inner.nodes and inner.nodes[2]
+      if not found and boxes and boxes.nodes and boxes.nodes[1] and boxes.nodes[1].n == G.UIT.B then
+        local w, h = size(boxes)
+        found = {w, h, inner.nodes[1].config.minw, c.config.minw, n.nodes[i + 1].config.minw}
+      end
+      walk(c)
+    end
+  end
+  walk(node)
+  return found
+end
+"""
+
+
+def test_arrow_fits_its_row(lua, tmp_path):
+    # Drawn in font pixels (0.02 units at the panel's text scale), and shorter
+    # than the digits (11 pixels), so the row doesn't grow. It takes the gap
+    # and the left of the discard cell, which keeps room for ">99.9%" (37
+    # pixels), and sits midway between the Keep value (whose '%' ends a pixel
+    # short of its cell) and a usual discard value like "88.3%" (31 pixels).
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path)
+    mod.update(0.1)
+    w, h, left, cell_w, value_w = rt.execute(ARROW_SIZE)(rt.eval("BOXES[#BOXES]").definition).values()
+    px = 0.02
+    assert w == pytest.approx(9 * px) and h == pytest.approx(8 * px) and h < 11 * px
+    assert cell_w + value_w == pytest.approx(0.25 + 0.95) and value_w >= 37 * px
+    assert left + w < cell_w
+    assert left + px == pytest.approx((cell_w - left - w) + (value_w - 31 * px))
 
 
 def test_panel_greys_out_old_odds(lua, tmp_path):

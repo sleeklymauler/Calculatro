@@ -57,7 +57,7 @@ G = {
   CONTROLLER = {},
   HIGHLIGHT_H = 0.5,
   -- UI, for the odds panel
-  UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T', O = 'O'},
+  UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T', B = 'B', O = 'O'},
   ASSET_ATLAS = {ui_1 = 'ui_1', ui_2 = 'ui_2'},
   SETTINGS = {colourblind_option = false},
   C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted', WHITE = 'white',
