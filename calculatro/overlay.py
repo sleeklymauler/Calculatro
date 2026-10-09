@@ -23,13 +23,12 @@ from .state import SUIT_SHORT, GameState
 SCHEMA = 1  # `odds_schema` in calculatro.lua
 
 # Most targets and card queries together. The panel fits 3 columns
-# (`max_columns` in calculatro.lua; a 4th reaches the HUD sidebar) of 5 rows
-# under the consumables: 15 rows, two of which may be the "Any target" row and
+# (`max_columns` in calculatro.lua; a 4th reaches the HUD sidebar) of 6 rows
+# under the consumables: 18 rows, two of which may be the "Any target" row and
 # the "Drawn cards" subheader.
-MAX_TRACKED = 13
+MAX_TRACKED = 16
 
-NO_SELECTION = "Select cards to compare a discard"
-NO_DISCARDS = "No discards left this round"
+NO_DISCARDS = "No discards left"  # short: it sits beside the panel's title
 NO_TARGETS = "No targets set: run with -t or -c"
 
 _SUIT_WORDS = {symbol: f" of {suit}" for suit, symbol in SUIT_SHORT.items()}
@@ -97,9 +96,7 @@ def odds(state: GameState, report: Report | None, configured: bool = True) -> di
             target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
         payload["targets"].append(target)
     payload["cards"] = [{"name": card_label(q), "discard": percent(p)} for q, p in report.cards]
-    if not report.discarded:
-        payload["message"] = NO_SELECTION
-    elif report.discards_left <= 0:
+    if report.discarded and report.discards_left <= 0:
         payload["message"] = NO_DISCARDS
     return payload
 

@@ -31,7 +31,7 @@ Target odds are shown for keeping your hand vs. discarding the selection; card o
 
 The odds appear both in the console and in a panel above the deck in game. The panel is only shown while
 playing a blind (not in the shop, blind select, booster packs or menus, nor while a played hand is
-scored); press `C` to hide or show it. So that the panel fits, at most 13 targets and card queries can be
+scored); press `C` to hide or show it. So that the panel fits, at most 16 targets and card queries can be
 tracked in total.
 A discard's odds are green when they beat keeping the hand and red when they're worse. Odds still being
 calculated for your latest selection are greyed out.

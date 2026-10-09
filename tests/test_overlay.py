@@ -97,7 +97,7 @@ def test_payloads(lua, tmp_path):
     unselected = GameState(**{**state.__dict__, "hand": [c.__class__(**{**c.__dict__, "highlighted": False})
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
-    assert payload["selected"] == 0 and payload["message"] == overlay.NO_SELECTION
+    assert payload["selected"] == 0 and "message" not in payload
     assert payload["targets"] == [{"name": "Trips", "keep": "80.0%"}]
     assert overlay.odds(state, None, configured=False)["message"] == overlay.NO_TARGETS
     assert "message" not in overlay.odds(GameState(in_run=False, id="x"), None, configured=False)
@@ -174,13 +174,12 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "Pair@light", "100%@light", ">@muted", "100%@light",
         "Drawn cards@muted",
         "Face card: none@light", "20.0%@light",
-        " @muted",  # blank footer row
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
     assert box.alignment.offset.x == pytest.approx((2.25 - 3.25) / 2)  # right edge on the deck's
     # Above the raised hand's cards, highlighted ones included.
-    assert box.alignment.offset.y == pytest.approx(-(1.9 + 0.2 + 0.5 + 0.25))
+    assert box.alignment.offset.y == pytest.approx(-(1.9 + 0.2 + 0.5 + 0.1))
 
     boxes = rt.eval("#BOXES")
     mod.update(0.1)
@@ -229,55 +228,60 @@ def test_panel_spills_into_columns(lua, tmp_path):
     answer(lua, tmp_path, targets=everything, queries=("queen",))
     mod.update(0.1)
     box = rt.eval("BOXES[#BOXES]")
-    # 15 rows (13 targets, subheader, 1 query): one column is 5.3 tall, two 3.2,
-    # three 2.3 -- the first to fit in the 2.85 under the consumables.
+    # 15 rows (13 targets, subheader, 1 query): columns of 6 (2.6 tall) are the
+    # tallest to fit in the 2.85 under the consumables, so each is filled first.
     assert columns(rt, box.definition) == [
-        ["Keep", "Any target", "Pair", "Two Pair", "Trips", "Straight"],
-        ["Keep", "Flush", "Full House", "Quads", "Str. Flush", "Royal Flush"],
-        ["Keep", "5 of a Kind", "Flush House", "Flush Five", "Drawn cards", "Queen: 1+"],
+        ["Keep", "Any target", "Pair", "Two Pair", "Trips", "Straight", "Flush"],
+        ["Keep", "Full House", "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House"],
+        ["Keep", "Flush Five", "Drawn cards", "Queen: 1+"],
     ]
     assert box.T.h <= mod.max_panel_height()
     assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
-    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 2  # the 1- and 2-column tries
+    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 9  # 15 to 7 rows per column
 
 
-def test_message_does_not_change_the_columns(lua, tmp_path):
+def test_panel_fills_a_column_before_starting_another(lua, tmp_path):
     rt, mod = lua
-    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
     mod.update(1.0)
-    everything = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-                  "straight flush", "royal", "five of a kind", "flush house", "flush five")
-    answer(lua, tmp_path, targets=everything, queries=())
+    answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight", "flush", "full house"), queries=())
     mod.update(0.1)
-    # 13 rows: 2 columns of 7 (2.9 tall) don't fit in 2.85 -- they would with
-    # the message in a footer pushing to 4 columns -- so 3 columns, with the
-    # message beside the title.
-    texts = panel_texts(rt)
-    assert texts[:2] == ["CALCULATRO@light", f"{overlay.NO_SELECTION}@muted"]
-    unselected = columns(rt, rt.eval("BOXES[#BOXES]").definition)
-    assert [len(c) for c in unselected] == [6, 6, 4]
+    # 7 rows: 6 in the first column, not 4 and 3.
+    assert [len(c) - 1 for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 1]
 
-    rt.execute("G.hand.cards[1].highlighted = true")
-    mod.update(0.2)
-    answer(lua, tmp_path, targets=everything, queries=())
+
+@pytest.mark.parametrize("targets", [
+    ("pair", "two pair", "trips", "straight", "flush"),  # 6 rows: one full column
+    ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+     "straight flush", "royal", "five of a kind", "flush house", "flush five"),  # 13 rows
+])
+def test_message_does_not_change_the_panel(lua, tmp_path, targets):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=targets, queries=())
     mod.update(0.1)
     assert panel_texts(rt)[1] == "Keep@muted"  # no message
-    assert [len(c) for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 6, 4]
-
-
-def test_single_column_keeps_a_footer_row(lua, tmp_path):
-    rt, mod = lua
-    mod.update(1.0)
-    answer(lua, tmp_path, targets=("pair",), queries=())
-    mod.update(0.1)
-    assert panel_texts(rt)[-1] == " @muted"  # blank, so the panel doesn't resize when a message appears
     box = rt.eval("BOXES[#BOXES]")
-    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
-    mod.update(0.2)
-    answer(lua, tmp_path, targets=("pair",), queries=())
-    mod.update(0.1)
-    assert panel_texts(rt)[-1] == f"{overlay.NO_SELECTION}@muted"
-    assert rt.eval("BOXES[#BOXES]").T.h == box.T.h
+    layout = [len(c) for c in columns(rt, box.definition)]
+    assert layout == ([7] if len(targets) == 5 else [7, 7, 2])
+
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.2)  # new snapshot
+    mod.update(0.4)  # no answer yet: "Calculating..." beside the title
+    assert panel_texts(rt)[1] == "Calculating...@muted"
+    calculating = rt.eval("BOXES[#BOXES]")
+    assert [len(c) for c in columns(rt, calculating.definition)] == layout
+    assert (calculating.T.w, calculating.T.h) == (box.T.w, box.T.h)
+
+
+def test_panel_height_measured_from_the_count_label(lua):
+    rt, mod = lua
+    lift = 1.9 + 0.2 + 0.5 + 0.1
+    # Until the consumables' label exists, it's estimated to hang 0.6 below them.
+    assert mod.max_panel_height() == pytest.approx(8.9 - lift - (2.75 + 0.6))
+    rt.execute("G.consumeables.children = {area_uibox = {T = {y = -0.15, h = 2.9}}}")
+    assert mod.max_panel_height() == pytest.approx(8.9 - lift - (2.75 - 0.03))
+    rt.execute("G.consumeables.children.area_uibox.REMOVED = true")
+    assert mod.max_panel_height() == pytest.approx(8.9 - lift - (2.75 + 0.6))
 
 
 def test_odds_inset_stays_dark_in_boss_blinds(lua, tmp_path):
@@ -307,7 +311,7 @@ def test_tracking_limit(capsys):
 
 def test_panel_never_wider_than_three_columns(lua, tmp_path):
     rt, mod = lua
-    rt.execute("G.consumeables.T.h = 5")  # leaves 0.25: nothing fits
+    rt.execute("G.consumeables.T.h = 5")  # leaves 0.6: nothing fits
     mod.update(1.0)
     answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight", "flush"), queries=("queen",))
     mod.update(0.1)
@@ -316,13 +320,15 @@ def test_panel_never_wider_than_three_columns(lua, tmp_path):
 
 def test_subheader_never_adds_a_column(lua, tmp_path):
     rt, mod = lua
+    rt.execute("G.consumeables.T.h = 5")  # leaves 0.6: nothing fits
     mod.update(1.0)
     queries = ("queen", "king", "jack", "ace", "spade", "heart", "club", "diamond", "face", "2+ queens")
     answer(lua, tmp_path, targets=("pair", "two pair", "trips"), queries=queries)
     mod.update(0.1)
-    # 15 rows: columns of 5 would end the first on "Drawn cards" and spill
-    # into a 4th column, so the columns take 6.
-    assert [len(c) - 1 for c in columns(rt, mod.definition(mod.panel_model(), 3))] == [6, 6, 3]
+    # 15 rows in columns of 5 would end the first on "Drawn cards" and spill
+    # into a 4th column, so even with no room the columns stay at 6.
+    assert mod.column_count(mod.panel_model(), 5) == 4
+    assert [len(c) - 1 for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 6, 3]
 
 
 def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
@@ -330,7 +336,7 @@ def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
     mod.update(1.0)
     answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight"), queries=("queen", "no face"))
     mod.update(0.1)
-    # 8 rows in 3 columns of 3 would end the middle one on "Drawn cards".
+    # 8 rows in columns of 3 would end the middle one on "Drawn cards".
     assert columns(rt, mod.definition(mod.panel_model(), 3)) == [
         ["Keep", "Any target", "Pair", "Two Pair"],
         ["Keep", "Trips", "Straight"],
@@ -347,7 +353,6 @@ def test_panel_without_selection(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light", "Keep@muted", "Discard@muted",
         "Trips@light", "80.0%@light", "-@light",
-        f"{overlay.NO_SELECTION}@muted",
     ]
 
 
@@ -364,7 +369,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert "80.0%@light" in texts and "Discard 2@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert "80.0%@stale" in texts and texts[-1] == "Calculating...@muted"
+    assert "80.0%@stale" in texts and texts[1] == "Calculating...@muted"  # beside the title
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
