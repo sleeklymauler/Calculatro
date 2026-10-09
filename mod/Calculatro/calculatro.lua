@@ -417,6 +417,76 @@ local function name_label(text)
     return { n = G.UIT.R, config = { align = 'cm', padding = 0 }, nodes = nodes }
 end
 
+-- The arrow between Keep and Discard, drawn in boxes the size of the font's
+-- pixels (m6x11 at SCALE: 64 of its 1024 units per em, rendered at 200 px
+-- per em): a 2-pixel shaft like its '-' and a stepped head, 9 by 8 pixels.
+-- A text "->" is 13 pixels wide, too wide for GAP_W, so it would be shrunk;
+-- this fits with room either side and is shorter than the digits beside it.
+local FONT_PX = 200 * 64 / 1024 * SCALE * 0.1 / 20
+local ARROW = { 2, 2, 2, 2, 2, 8, 6, 4, 2 }  -- column heights, in font pixels
+
+-- Discard values are right-aligned, so the arrow takes the left of the
+-- discard cell too: its rows split GAP_W + DISCARD_W into ARROW_CELL_W and
+-- a cell that just fits the widest value (">99.9%", 37 pixels). The arrow
+-- sits midway between the Keep value (whose '%' ends a pixel short of its
+-- cell) and the usual discard value ("88.3%", 31 pixels).
+local DISCARD_VALUE_W = 38 * FONT_PX
+local ARROW_CELL_W = GAP_W + DISCARD_W - DISCARD_VALUE_W
+local ARROW_LEFT = (ARROW_CELL_W - #ARROW * FONT_PX + DISCARD_VALUE_W - 31 * FONT_PX - FONT_PX) / 2
+
+local function arrow(colour)
+    local nodes = {}
+    for i, h in ipairs(ARROW) do
+        nodes[i] = { n = G.UIT.B, config = { w = FONT_PX, h = h * FONT_PX, colour = colour, shadow = true } }
+    end
+    return { n = G.UIT.C, config = { align = 'cl', minw = ARROW_CELL_W, maxw = ARROW_CELL_W }, nodes = {
+        { n = G.UIT.R, config = { align = 'cm', padding = 0 }, nodes = {
+            { n = G.UIT.C, config = { minw = ARROW_LEFT }, nodes = {} },
+            { n = G.UIT.R, config = { align = 'cm', padding = 0 }, nodes = nodes },
+        } },
+    } }
+end
+
+-- Deeper shadows than the game's. It drops text shadows 0.5 parallax units
+-- away, which barely shows on the dark inset, and boxes' (the arrow) 1.5,
+-- which is a lot for something this small. The panel draws both itself, at
+-- SHADOW_DEPTH, in place of the game's.
+local SHADOW_DEPTH = 1.0
+
+local function draw_shadow(e)
+    local c = e.config
+    local dx = -e.shadow_parrallax.x * SHADOW_DEPTH / G.TILESIZE
+    local dy = -e.shadow_parrallax.y * SHADOW_DEPTH / G.TILESIZE
+    prep_draw(e, 1)
+    love.graphics.setColor(0, 0, 0, 0.3 * c.colour[4])
+    if e.UIT == G.UIT.T then
+        local font = c.lang.font
+        local k = c.scale * font.FONTSCALE / G.TILESIZE
+        love.graphics.draw(c.text_drawable, font.TEXT_OFFSET.x * k + dx, font.TEXT_OFFSET.y * k + dy, 0, k * font.squish, k)
+    else
+        love.graphics.rectangle('fill', dx, dy, e.VT.w, e.VT.h)
+    end
+    love.graphics.pop()
+end
+
+local function deepen_shadows(e)
+    if (e.UIT == G.UIT.T or e.UIT == G.UIT.B) and e.config.shadow then
+        e.config.shadow = false
+        local draw_self = e.draw_self
+        function e:draw_self()
+            local c = self.config
+            if self.states.visible and c.colour and G.SETTINGS.GRAPHICS.shadows == 'On'
+                    and (self.UIT == G.UIT.B or c.text_drawable) then
+                draw_shadow(self)
+            end
+            draw_self(self)
+        end
+    end
+    for _, child in pairs(e.children or {}) do
+        if type(child) == 'table' and child.UIT then deepen_shadows(child) end
+    end
+end
+
 local function cell(w, align, node)
     return { n = G.UIT.C, config = { align = align, minw = w, maxw = w }, nodes = { node } }
 end
@@ -444,8 +514,8 @@ local function sections(model, colours)
             return row({
                 cell(NAME_W, 'cl', label(t.name)),
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
-                t.discard and cell(GAP_W, 'cm', label('>', colours.muted)) or blank(GAP_W),
-                cell(DISCARD_W, 'cr', value(t.discard, colour)),
+                t.discard and arrow(colours.muted) or blank(ARROW_CELL_W),
+                cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour)),
             })
         end
     end
@@ -599,6 +669,7 @@ local function build_panel(model, per)
     panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2
     panel:align_to_major()
     panel:hard_set_VT()
+    if panel.UIRoot then deepen_shadows(panel.UIRoot) end
     return panel
 end
 
