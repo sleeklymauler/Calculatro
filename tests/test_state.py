@@ -60,13 +60,13 @@ G = {
   UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
   C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
        GREEN = 'green', RED = 'red', BLACK = {0.2, 0.4, 0.6, 1}, DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
-  -- Panel space: from 3.2 (under the consumables' label) to 6.05 (above the raised hand).
-  consumeables = {T = {y = 0, h = 2.6}},
+  -- Panel space: from 3.35 (under the consumables' label) to 6.2 (above the raised hand).
+  consumeables = {T = {y = 0, h = 2.75}},
 }
 G.deck.T.y = 8.9
 BOXES = {}  -- every UIBox created, newest last
 -- Mock layout: the panel is 3.25 wide per column, and 0.5 + 0.3 per row of its
--- tallest column, plus 0.3 for a footer (a body row after the odds).
+-- tallest column, plus 0.3 for a message row after the odds (there should be none).
 local function panel_size(node)
   local columns, rows = 0, 0
   local function walk(n)
