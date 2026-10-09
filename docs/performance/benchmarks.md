@@ -44,6 +44,29 @@ Scenarios (`tests/perf/scenarios.py`):
 
 ## Current numbers
 
+### Cerulean Bell (2026-10-09)
+
+The Cerulean Bell scenarios, added to `tests/perf/baseline.json` when it was
+modelled (`--repeat 5 --budget 120`; the rest of the baseline wasn't
+re-measured). Both discard cards from the hand, so the forced card is a
+random one of the final hand and the odds average one search per kept card
+and per group of unseen cards (see [engine.md](engine.md#the-model)).
+*Keep 3, draw 5* keeps 7♥ 8♥ 9♠; *Keep 6, draw 2* keeps the first 6.
+
+The 6 slowest rows; "Without" is the same row without the boss (*Keep 3,
+draw 5* in the baseline):
+
+| Situation | Target | Jokers | Cerulean Bell | Without |
+|---|---|---|---|---|
+| Keep 3, draw 5 | Full House + Straight Flush (any) | Four Fingers + Shortcut | 1.69 s ± 157 ms | - |
+| Keep 3, draw 5 | Straight Flush | Four Fingers + Shortcut | 1.34 s ± 131 ms | 79 ms |
+| Keep 3, draw 5 | Full House + Straight Flush (any) | Four Fingers | 624 ms ± 6 ms | - |
+| Keep 3, draw 5 | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared | 548 ms ± 9 ms | - |
+| Keep 3, draw 5 | Straight Flush | Four Fingers + Shortcut + Smeared | 495 ms ± 9 ms | 40 ms |
+| Keep 3, draw 5 | Straight Flush | Four Fingers | 381 ms ± 6 ms | 26 ms |
+
+Every other Bell scenario takes under 0.3 s, and 77 of the 96 under 50 ms.
+
 ### The Mark (2026-10-09)
 
 The Mark's scenarios, added to `tests/perf/baseline.json` when it was

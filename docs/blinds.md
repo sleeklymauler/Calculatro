@@ -12,9 +12,9 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 
 | Effect on the odds | Blinds |
 |---|---|
-| Modelled by the engine | The Serpent, The Mark |
+| Modelled by the engine | The Serpent, The Mark, Cerulean Bell |
 | Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
-| **Not modelled, odds are wrong** | Cerulean Bell |
+| **Not modelled, odds are wrong** | None |
 | Not modelled, odds are right but the hand may not score | The Psychic (only with fewer than 5 cards in hand), The Eye, The Mouth |
 | No effect | Small Blind, Big Blind, The Hook, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
 
@@ -96,12 +96,12 @@ For The Eye and The Mouth the odds are right, but a target the boss has banned c
 
 ### Forced selection (Cerulean Bell)
 
-**Not modelled; 5-card targets are overestimated.** In `drawn_to_hand`, if no hand card has `ability.forced_selection`, Cerulean Bell unhighlights the hand, picks a uniformly random hand card (face-down ones included), flags it and highlights it. `CardArea:remove_from_highlighted` refuses to unhighlight it, so it is part of **every play and discard**. Playing or discarding clears the flag for every card, so the next draw picks a new one, from the whole new hand.
+**Modelled.** In `drawn_to_hand`, if no hand card has `ability.forced_selection`, Cerulean Bell unhighlights the hand, picks a uniformly random hand card (face-down ones included), flags it and highlights it. `CardArea:remove_from_highlighted` refuses to unhighlight it, so it is part of **every play and discard**. Playing or discarding clears the flag for every card, so the next draw picks a new one, from the whole new hand.
 
 Effect on the odds:
 - **Discard:** the selection always includes the forced card, so `GameState.selected` already discards it, and the draw count is right.
-- **Targets:** any hand played must include the forced card, so a target counts only if it fits in 5 cards *together with* the forced card. Adding the forced card never loses a contained hand type (see The Psychic), so targets of 4 cards or fewer (Pair, Two Pair, Three of a Kind, Four of a Kind; Flush and Straight with Four Fingers) are unaffected. Targets that need 5 cards (Straight, Flush, Full House, Straight Flush, Flush House, Five of a Kind) need the forced card to be one of them. When keeping, the forced card is the one already highlighted; after a discard it is a uniformly random card of the final hand.
-- The engine doesn't know which card is forced: `forced_selection` isn't exported, only `highlighted`. Modelling it needs that flag, and a requirement that the pattern includes the forced card (keeping), or averaging over which final-hand card is forced (discarding).
+- **Targets:** any hand played must include the forced card, so a target counts only if it fits in 5 cards *together with* the forced card. Adding a card to 4 or fewer never loses a contained hand type (see The Psychic), with one exception: with Four Fingers, a 4-card Royal Flush plus a card below 10 that is of its suit or extends its run (9, or 8 with Shortcut) scores as a plain Straight Flush. So targets of 4 cards or fewer (Pair, Two Pair, Three of a Kind, Four of a Kind; Flush, Straight and Straight Flush with Four Fingers) are unaffected. Targets that need 5 cards (Straight, Flush, Full House, Straight Flush, Flush House, Five of a Kind, Flush Five) need the forced card to be one of them.
+- **How it's modelled:** the mod exports the flag as each hand card's `forced` (`GameState.forced`; the player sees the card raised and can't unselect it), and `GameState.bell` is the boss, not disabled. `hands.forced_patterns` turns a target into patterns for the hand without the forced card: a pattern the forced card counts towards needs one card fewer; one it doesn't count towards stays only if it needs at most 4 cards (and isn't a 4-card Royal Flush the card spoils, `_spoils`). Four Fingers' Straight Flush has overlapping requirements, which are split into disjoint ones first (`_disjoint`), so a pattern's size is the sum of its requirements. When keeping, the forced card is the one already highlighted (`engine.evaluate_discard`); after a discard it is a uniformly random card of the final hand, so the odds are the average over the final hand's cards of the odds with that card forced (`engine._bell_after_draw`): one search per kept card, and one per group of unseen cards that the forced patterns can't tell apart. Targets with no 5-card pattern skip all this (`hands.bell_matters`).
 
 ### No effect
 
@@ -188,4 +188,4 @@ Columns:
 | 27 | Verdant Leaf | `bl_final_leaf` | Showdown | 2x | $8 | All cards debuffed until 1 Joker sold | Y | debuff | Handled (debuff flags) |
 | 28 | Violet Vessel | `bl_final_vessel` | Showdown | 6x | $8 | Very large blind | N |  | No effect |
 | 29 | Crimson Heart | `bl_final_heart` | Showdown | 2x | $8 | One random Joker disabled every hand | N | joker | Handled (`Joker.debuff`) |
-| 30 | Cerulean Bell | `bl_final_bell` | Showdown | 2x | $8 | Forces 1 card to always be selected | N | forced | **Wrong** for 5-card targets |
+| 30 | Cerulean Bell | `bl_final_bell` | Showdown | 2x | $8 | Forces 1 card to always be selected | N | forced | **Modelled** (`GameState.forced`, `hands.forced_patterns`) |

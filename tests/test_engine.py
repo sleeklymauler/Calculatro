@@ -13,7 +13,8 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import _favourable, _split_by_suit, count_probability, evaluate_cards, evaluate_discard, probability
+from calculatro.engine import (_bell_after_draw, _favourable, _split_by_suit, count_probability, evaluate_cards,
+                               evaluate_discard, probability)
 from calculatro.cards import parse_query
 from calculatro import hands
 from calculatro.hands import TARGETS, Requirement, combine, get_target
@@ -725,6 +726,126 @@ def test_face_down_cards_are_any_unseen_card_without_the_mark(change):
     state = replace(mark_state(), **change)
     assert evaluate_discard(state, get_target("pair"), []).probability == Fraction(2, 5)
     assert evaluate_cards(state, parse_query("king"), [1]).probability == Fraction(2, 5)
+
+
+def contains_forced(final: list[Card], forced: Card, names: set[str], rules: Rules = Rules()) -> bool:
+    """Can a playable selection that includes `forced` be evaluated as one of `names`?"""
+    return any(evaluate([forced, *sel], rules) & names
+               for k in range(min(4, len(final)) + 1) for sel in combinations(final, k))
+
+
+def bell_brute(names: set[str], kept: list[Card], forced: Card, pool: list[Card], draws: int,
+               rules: Rules = Rules()) -> Fraction:
+    hits = sum(contains_forced(kept + list(d), forced, names, rules) for d in combinations(pool, draws))
+    return Fraction(hits, comb(len(pool), draws))
+
+
+def bell_draw_brute(names: set[str], kept: list[Card], pool: list[Card], draws: int,
+                    rules: Rules = Rules()) -> Fraction:
+    """Each card of the final hand is forced with equal probability."""
+    total = Fraction(0)
+    for d in combinations(pool, draws):
+        final = kept + list(d)
+        total += Fraction(sum(contains_forced(final[:i] + final[i + 1:], c, names, rules)
+                              for i, c in enumerate(final)), len(final))
+    return total / comb(len(pool), draws)
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("name", list(TARGETS))
+def test_forced_card_matches_brute_force(name, rules):
+    """Cerulean Bell, keeping the hand: its forced card must be part of the hand played."""
+    rng = random.Random(f"bell {name}")
+    for _ in range(5):
+        cards = [random_card(rng) for _ in range(rng.randint(3, 5))]
+        forced, kept = cards[0], cards[1:]
+        pool = [random_card(rng) for _ in range(rng.randint(7, 10))]
+        draws = rng.randint(1, min(3, 8 - len(cards)))
+        assert (probability(get_target(name), kept, pool, draws, rules, forced=forced)
+                == bell_brute({name}, kept, forced, pool, draws, rules))
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("name", ["Straight", "Flush", "Full House", "Straight Flush", "Royal Flush",
+                                  "Flush House", "Flush Five"])
+def test_forced_card_in_five_card_hands_matches_brute_force(name, rules):
+    """Dense cards so 5-card hands come up, and a forced card that often can't be part of them."""
+    rng = random.Random(f"bell dense {name}")
+    for _ in range(4):
+        forced = card(rng.randint(2, 14), rng.choice(SUITS))
+        kept = [dense_card(rng, 9) for _ in range(rng.randint(2, 4))]
+        pool = [dense_card(rng, 9) for _ in range(rng.randint(8, 10))]
+        draws = rng.randint(2, min(4, 7 - len(kept)))
+        assert (probability(get_target(name), kept, pool, draws, rules, forced=forced)
+                == bell_brute({name}, kept, forced, pool, draws, rules))
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("names", [("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
+                                   ("Royal Flush",), ("Flush House",), ("Pair", "Straight"),
+                                   ("Straight Flush", "Royal Flush")])
+def test_random_forced_card_matches_brute_force(names, rules):
+    """Cerulean Bell after a discard: it forces a random card of the final hand.
+
+    Dense cards so 5-card hands come up, and low cards of any suit in the pool
+    that often can't be part of them.
+    """
+    target = combine([get_target(n) for n in names])
+    rng = random.Random(f"bell draw {names}")
+    for _ in range(3):
+        kept = [dense_card(rng, 9) for _ in range(rng.randint(3, 4))]
+        pool = [dense_card(rng, 9) if rng.random() < 0.6 else card(rng.randint(2, 8), rng.choice(SUITS))
+                for _ in range(rng.randint(7, 9))]
+        draws = rng.randint(2, min(3, 8 - len(kept)))
+        assert (_bell_after_draw(target, kept, pool, draws, rules, None)
+                == bell_draw_brute(set(names), kept, pool, draws, rules))
+
+
+@pytest.mark.parametrize("hand, forced, rules, royal", [
+    # Four Fingers: four cards make a Royal Flush, and the forced card is played beside them.
+    ("TH JH QH KH", "2S", Rules(four_fingers=True), True),
+    ("TH JH QH KH", "2H", Rules(four_fingers=True), False),  # scores as a 5th flush card
+    ("TH JH QH KH", "9S", Rules(four_fingers=True), False),  # extends the straight down
+    ("TH JH QH KH", "8S", Rules(four_fingers=True), True),
+    ("TH JH QH KH", "8S", Rules(four_fingers=True, shortcut=True), False),  # 8 _ T is a run
+    ("TH JH QH KH", "AS", Rules(four_fingers=True), True),
+    ("TH JH QH KH", "AH", Rules(), True),  # it completes the Royal Flush
+    ("TH JH QH KH", "2S", Rules(), False),  # 5 cards needed, so no room for it
+])
+def test_forced_card_and_royal_flush(hand, forced, rules, royal):
+    cards, card_forced = hand_of(hand), hand_of(forced)[0]
+    assert contains_forced(cards, card_forced, {"Royal Flush"}, rules) == royal
+    assert probability(get_target("Royal Flush"), cards, [], 0, rules, forced=card_forced) == royal
+    # Still a Straight Flush, but for the 5-card one without Four Fingers.
+    straight_flush = rules.four_fingers or forced == "AH"
+    assert probability(get_target("Straight Flush"), cards, [], 0, rules, forced=card_forced) == straight_flush
+
+
+def bell_state(**kw) -> GameState:
+    """Cerulean Bell forcing the 2 of Spades; the deck has the Ace of Hearts that makes a Royal Flush."""
+    hand = [card(10, "Hearts"), card(11, "Hearts"), card(12, "Hearts"), card(13, "Hearts"),
+            card(2, "Spades", forced=True, highlighted=True)]
+    deck = [card(14, "Hearts"), card(3, "Clubs"), card(4, "Clubs")]
+    return GameState(in_run=True, hand_size=5, hand=hand, deck=deck, blind="Cerulean Bell", **kw)
+
+
+def test_bell_keeps_the_forced_card():
+    state = bell_state()
+    royal = get_target("Royal Flush")
+    # Keeping: the forced 2 has to be played, so no 5-card Royal Flush.
+    assert evaluate_discard(state, royal, []).probability == 0
+    # Discarding it draws one of 3 cards, then forces a random one of the 5 in hand.
+    assert evaluate_discard(state, royal, [4]).probability == Fraction(1, 3)
+
+
+@pytest.mark.parametrize("change", [{"blind": "The Wheel"}, {"blind_disabled": True}])
+def test_no_forced_card_without_the_bell(change):
+    state = replace(bell_state(), **change)
+    assert evaluate_discard(state, get_target("Royal Flush"), []).probability == 0  # nothing to draw
+    assert evaluate_discard(state, get_target("Royal Flush"), [4]).probability == Fraction(1, 3)
+    state = replace(state, hand_size=6)
+    assert evaluate_discard(state, get_target("Royal Flush"), []).probability == Fraction(1, 3)
+    assert evaluate_discard(replace(bell_state(), hand_size=6), get_target("Royal Flush"), []).probability == 0
 
 
 def test_full_deck_flush_five_speed():

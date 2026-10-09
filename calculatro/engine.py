@@ -58,7 +58,8 @@ from operator import gt
 from threading import Event, Lock
 
 from .cards import CardQuery
-from .hands import WILD, ClassKey, Pattern, Requirement, Target, card_key, suit_keys
+from .hands import (WILD, ClassKey, Pattern, Requirement, Target, bell_matters, card_key, forced_patterns,
+                    suit_keys)
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -69,17 +70,20 @@ class Cancelled(Exception):
 
 def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
                 rules: Rules = Rules(), cancel: Event | None = None,
-                marked: int = 0, marked_kept: int = 0) -> Fraction:
+                marked: int = 0, marked_kept: int = 0, forced: Card | None = None) -> Fraction:
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
 
     With The Mark, `marked` of the pool's cards are face down in hand, so they
     are known to be face cards (`flipped_by_mark`), and `marked_kept` of them
     are among the `draws`. The other draws come from the rest of the pool.
 
+    With Cerulean Bell, `forced` is a card in hand besides `kept` that must be
+    part of the hand played (`hands.forced_patterns`).
+
     Raises Cancelled soon after `cancel` is set.
     """
     draws = max(0, min(draws, len(pool)))
-    patterns = target.patterns(rules)
+    patterns = target.patterns(rules) if forced is None else forced_patterns(target, rules, card_key(forced, rules))
     _, by_suit = _split_by_suit(patterns)
     # An unseen Wild Card counts as every suit, which ties the suits back together.
     # With two suits (Smeared Joker's colours), one search only has to carry
@@ -812,9 +816,66 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
                      cancel: Event | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`."""
     d = _discard(state, discard)
-    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules, cancel,
-                    d.marked, d.hidden_kept)
+    rules = state.rules
+    unseen = d.hidden_kept + d.draws
+    if state.bell and bell_matters(target, rules):
+        forced = state.forced
+        if not discard and forced is not None and not state.hand[forced].hidden:
+            # Keeping the hand keeps its forced card.
+            kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
+            p = probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced])
+        else:
+            p = _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel)
+        return DiscardOutcome(d.discarded, d.draws, p)
+    p = probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept)
     return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: int,
+                     rules: Rules, cancel: Event | None) -> Fraction:
+    """P(`target` can be played) when Cerulean Bell forces a random card of the final hand.
+
+    Playing or discarding clears the forced card, and after the draw the game
+    forces a uniformly random card of the new hand (`Blind:drawn_to_hand`).
+    So the probability is the average over the final hand's cards of the
+    probability with that card forced: each kept card, and `draws` times a
+    random unseen one, which is any pool card with the others drawn from the rest.
+
+    Cards that the forced patterns can't tell apart give the same result, so
+    one search covers each group (_forced_group).
+    """
+    draws = max(0, min(draws, len(pool)))
+    size = len(kept) + draws
+    if not size:
+        return Fraction(0)
+    total = Fraction(0)
+    done: dict[object, Fraction] = {}
+    for i, c in enumerate(kept):
+        key = card_key(c, rules)
+        if key not in done:
+            done[key] = probability(target, kept[:i] + kept[i + 1:], pool, draws, rules, cancel, forced=c)
+        total += done[key]
+    if draws:
+        groups: dict[object, list[int]] = {}
+        for j, c in enumerate(pool):
+            groups.setdefault(_forced_group(target.hands, rules, card_key(c, rules)), []).append(j)
+        unseen = Fraction(0)
+        for members in groups.values():
+            j = members[0]
+            unseen += len(members) * probability(target, kept, pool[:j] + pool[j + 1:], draws - 1, rules,
+                                                 cancel, forced=pool[j])
+        total += draws * unseen / len(pool)
+    return total / size
+
+
+@cache
+def _forced_group(hands: tuple[str, ...], rules: Rules, key: ClassKey | None) -> tuple:
+    """What decides the odds with a forced card of class `key` drawn from the pool:
+    its forced patterns, and which of their requirements it would count towards
+    if it stayed in the pool (one card fewer there for those)."""
+    patterns = forced_patterns(Target("", hands), rules, key)
+    return patterns, frozenset((p, q) for p, pattern in enumerate(patterns)
+                               for q, req in enumerate(pattern) if key in req.keys)
 
 
 def count_probability(query: CardQuery, pool: list[Card], draws: int,
