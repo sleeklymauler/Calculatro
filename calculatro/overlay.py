@@ -84,13 +84,17 @@ def odds(state: GameState, report: Report | None) -> dict[str, Any]:
 
 
 def write(path: Path, payload: dict[str, Any], attempts: int = 20) -> bool:
-    """Replace the odds file atomically. False if the mod kept it open throughout (it reads it briefly)."""
+    """Replace the odds file atomically. False if it couldn't: the mod kept it open
+    throughout (it reads it briefly), or something else (antivirus) had a file locked."""
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    for _ in range(attempts):
-        try:
-            os.replace(tmp, path)
-            return True
-        except PermissionError:
-            time.sleep(0.005)
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        for _ in range(attempts):
+            try:
+                os.replace(tmp, path)
+                return True
+            except PermissionError:
+                time.sleep(0.005)
+    except OSError:
+        pass
     return False
