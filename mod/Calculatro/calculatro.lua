@@ -383,8 +383,8 @@ local function row(nodes, config)
     return { n = G.UIT.R, config = config, nodes = nodes }
 end
 
--- The odds rows in order, each a function building its row: targets, then
--- the drawn-card queries (under a subheader when there are targets too).
+-- The odds rows in order: targets, then the drawn-card queries (under a
+-- subheader when there are targets too). Each is {build = fn} or {subheader = true}.
 local function entries(model, colours)
     local C = G.C
     local has_keep = #model.targets > 0
@@ -392,25 +392,25 @@ local function entries(model, colours)
     local out = {}
     for _, t in ipairs(model.targets) do
         local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
-        out[#out + 1] = function()
+        out[#out + 1] = { build = function()
             return row({
                 cell(NAME_W, 'cl', label(t.name)),
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
                 t.discard and cell(GAP_W, 'cm', label('>', colours.muted)) or blank(GAP_W),
                 cell(DISCARD_W, 'cr', value(t.discard, colour)),
             })
-        end
+        end }
     end
     if #model.cards > 0 and has_keep then
         out[#out + 1] = { subheader = true }
     end
     for _, c in ipairs(model.cards) do
-        out[#out + 1] = function()
+        out[#out + 1] = { build = function()
             local r = { cell(NAME_W, 'cl', label(c.name)) }
             if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
             r[#r + 1] = cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
             return row(r)
-        end
+        end }
     end
     return out
 end
@@ -437,7 +437,26 @@ function Calculatro.definition(model, columns)
     local has_keep = #model.targets > 0
     local list = entries(model, colours)
     columns = math.max(1, math.min(columns or 1, #list))
+
+    -- Rows per column; a column never ends on the subheader (it belongs with
+    -- the rows below it), which can push rows into an extra column, so take
+    -- taller columns rather than more of them.
+    local function split(per)
+        local spans, i = {}, 1
+        while i <= #list do
+            local last = math.min(i + per - 1, #list)
+            if last > i and list[last].subheader then last = last - 1 end
+            spans[#spans + 1] = { i, last }
+            i = last + 1
+        end
+        return spans
+    end
     local per_column = math.ceil(#list / columns)
+    local spans = split(per_column)
+    while #spans > columns do
+        per_column = per_column + 1
+        spans = split(per_column)
+    end
 
     local function header()
         local nodes = { blank(NAME_W) }
@@ -449,23 +468,19 @@ function Calculatro.definition(model, columns)
         return row(nodes)
     end
 
-    local column_nodes, i = {}, 1
-    while i <= #list do
+    local column_nodes = {}
+    for _, span in ipairs(spans) do
         local rows = { header() }
-        local last = math.min(i + per_column - 1, #list)
-        -- Never end a column on the subheader: it belongs with the rows below it.
-        if last > i and type(list[last]) == 'table' and list[last].subheader then last = last - 1 end
-        for k = i, last do
+        for k = span[1], span[2] do
             local entry = list[k]
-            if type(entry) == 'function' then
-                rows[#rows + 1] = entry()
-            else
+            if entry.subheader then
                 rows[#rows + 1] = row({ label('Drawn cards', colours.muted, SCALE * 0.85) })
+            else
+                rows[#rows + 1] = entry.build()
             end
         end
         if #column_nodes > 0 then column_nodes[#column_nodes + 1] = blank(COLUMN_GAP) end
         column_nodes[#column_nodes + 1] = { n = G.UIT.C, config = { align = 'tl', id = 'calculatro_column' }, nodes = rows }
-        i = last + 1
     end
 
     local count = math.max(1, (#column_nodes + 1) / 2)
@@ -527,6 +542,10 @@ local function build_panel(model, columns)
     return panel
 end
 
+-- Most columns: a 4th reaches the HUD sidebar. The app limits what can be
+-- tracked (overlay.MAX_TRACKED) so 3 always fit; this is only a safety net.
+Calculatro.max_columns = 3
+
 -- Rebuilds the panel when what it shows changes; removes it outside blinds.
 -- Uses the fewest columns that keep it clear of the consumables; a box's size
 -- is only known once it's built, so it tries 1, 2, ... columns.
@@ -541,7 +560,7 @@ function Calculatro.refresh_panel()
     if not model then return end
 
     local max_h = Calculatro.max_panel_height()
-    local most = math.max(1, Calculatro.row_count(model))
+    local most = math.max(1, math.min(Calculatro.row_count(model), Calculatro.max_columns))
     local columns = 1
     panel = build_panel(model, columns)
     while max_h and panel.T.h > max_h and columns < most do

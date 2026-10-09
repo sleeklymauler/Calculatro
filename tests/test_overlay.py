@@ -280,6 +280,33 @@ def test_single_column_keeps_a_footer_row(lua, tmp_path):
     assert rt.eval("BOXES[#BOXES]").T.h == box.T.h
 
 
+def test_tracking_limit(capsys):
+    queries = ["-c", "queen"] * (overlay.MAX_TRACKED - 1)
+    with pytest.raises(SystemExit):
+        cli.main(["watch", "-t", "pair", "-t", "flush", *queries])
+    assert f"at most {overlay.MAX_TRACKED}" in capsys.readouterr().err
+
+
+def test_panel_never_wider_than_three_columns(lua, tmp_path):
+    rt, mod = lua
+    rt.execute("G.consumeables.T.h = 5")  # leaves 0.25: nothing fits
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=("pair", "two pair", "trips", "straight", "flush"), queries=("queen",))
+    mod.update(0.1)
+    assert len(columns(rt, rt.eval("BOXES[#BOXES]").definition)) == 3
+
+
+def test_subheader_never_adds_a_column(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    queries = ("queen", "king", "jack", "ace", "spade", "heart", "club", "diamond", "face", "2+ queens")
+    answer(lua, tmp_path, targets=("pair", "two pair", "trips"), queries=queries)
+    mod.update(0.1)
+    # 15 rows: columns of 5 would end the first on "Drawn cards" and spill
+    # into a 4th column, so the columns take 6.
+    assert [len(c) - 1 for c in columns(rt, mod.definition(mod.panel_model(), 3))] == [6, 6, 3]
+
+
 def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
