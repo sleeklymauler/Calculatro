@@ -420,8 +420,17 @@ function Calculatro.row_count(model)
     return #entries(model, {})
 end
 
--- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, BOSS_MAIN inset.
--- The odds rows fill `columns` columns (default 1) top to bottom, left to
+-- The inset behind the odds: what BOSS_MAIN is outside boss blinds
+-- (Blind:change_colour). BOSS_MAIN itself is the boss's colour, too light
+-- behind light text for some (The Club, The Water, The Psychic, ...) and
+-- the same hue as the green/red discard values for others.
+local function inset_colour()
+    local black = G.C.BLACK
+    return { black[1] * 0.95, black[2] * 0.95, black[3] * 0.95, black[4] }
+end
+
+-- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, and an inset that
+-- stays dark whatever the blind (inset_colour). The odds rows fill `columns` columns (default 1) top to bottom, left to
 -- right, each column with its own Keep/Discard header.
 --
 -- The message (model.footer) must not change the panel's height, or the
@@ -498,7 +507,7 @@ function Calculatro.definition(model, columns)
         body[1] = row({ title })
     end
     if #list > 0 then
-        body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = C.DYN_UI.BOSS_MAIN, emboss = 0.05 }, nodes = column_nodes }
+        body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = inset_colour(), emboss = 0.05, id = 'calculatro_inset' }, nodes = column_nodes }
     end
     if count == 1 then
         body[#body + 1] = row({ message or label(' ', colours.muted, SCALE * 0.85) }, { align = 'cm', maxw = width })

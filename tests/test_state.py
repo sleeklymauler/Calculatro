@@ -59,7 +59,7 @@ G = {
   -- UI, for the odds panel
   UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
   C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
-       GREEN = 'green', RED = 'red', DYN_UI = {MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
+       GREEN = 'green', RED = 'red', BLACK = {0.2, 0.4, 0.6, 1}, DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
   -- Panel space: from 3.2 (under the consumables' label) to 6.05 (above the raised hand).
   consumeables = {T = {y = 0, h = 2.6}},
 }

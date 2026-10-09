@@ -280,6 +280,24 @@ def test_single_column_keeps_a_footer_row(lua, tmp_path):
     assert rt.eval("BOXES[#BOXES]").T.h == box.T.h
 
 
+def test_odds_inset_stays_dark_in_boss_blinds(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path)
+    mod.update(0.1)
+    find = rt.execute(r"""
+      return function(n)
+        local function walk(m)
+          if m.config and m.config.id == 'calculatro_inset' then return m end
+          for _, c in ipairs(m.nodes or {}) do local f = walk(c); if f then return f end end
+        end
+        return walk(n)
+      end""")
+    colour = find(rt.eval("BOXES[#BOXES]").definition).config.colour
+    # G.C.BLACK darkened 5%, as BOSS_MAIN is outside boss blinds, never BOSS_MAIN itself.
+    assert list(colour.values()) == pytest.approx([0.19, 0.38, 0.57, 1])
+
+
 def test_tracking_limit(capsys):
     queries = ["-c", "queen"] * (overlay.MAX_TRACKED - 1)
     with pytest.raises(SystemExit):
