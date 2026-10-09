@@ -12,7 +12,8 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import _favourable, _split_by_suit, evaluate_discard, probability
+from calculatro.engine import _favourable, _split_by_suit, evaluate_cards, evaluate_discard, probability
+from calculatro.cards import parse_query
 from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
@@ -533,6 +534,53 @@ def test_short_deck_limits_draws():
     state = GameState(in_run=True, hand_size=8, hand=hand, deck=[card(5, "Spades")])
     out = evaluate_discard(state, get_target("pair"), [])
     assert out.draws == 1 and out.probability == 1
+
+
+def serpent_state(hand_cards: int, deck_cards: int = 10, **kw) -> GameState:
+    """A Serpent round after a discard: 8-card hand size, a Queen of Spades among `deck_cards`."""
+    hand = [card(r, "Hearts") for r in range(2, 2 + hand_cards)]
+    deck = [card(12, "Spades")] + [card(r, "Clubs") for r in range(2, 1 + deck_cards)]
+    return GameState(in_run=True, hand_size=8, hand=hand, deck=deck, blind="The Serpent",
+                     discards_used=1, **kw)
+
+
+@pytest.mark.parametrize("discarded", [1, 3, 5])
+def test_serpent_draws_three_after_any_discard(discarded):
+    state = serpent_state(8)
+    queen = parse_query("queen")
+    out = evaluate_cards(state, queen, list(range(discarded)))
+    assert out.draws == 3 and out.probability == Fraction(3, 10)
+    assert evaluate_discard(state, get_target("pair"), list(range(discarded))).draws == 3
+
+
+def test_serpent_draws_three_past_the_hand_size():
+    # Already over the hand size: other blinds would draw nothing.
+    state = serpent_state(9)
+    assert evaluate_discard(state, get_target("pair"), [0]).draws == 3
+    assert evaluate_discard(replace(state, blind="Small Blind"), get_target("pair"), [0]).draws == 0
+
+
+def test_serpent_draws_at_most_the_deck():
+    state = serpent_state(8, deck_cards=2)
+    out = evaluate_cards(state, parse_query("queen"), [0, 1, 2, 3])
+    assert out.draws == 2 and out.probability == 1
+
+
+def test_serpent_keeping_a_short_hand_draws_nothing():
+    # After a play or discard, its 3 cards were the round's draw until the next one.
+    for counters in ({"hands_played": 1, "discards_used": 0}, {"hands_played": 0, "discards_used": 1}):
+        state = replace(serpent_state(5), **counters)
+        assert evaluate_discard(state, get_target("pair"), []).draws == 0
+    # The round's first deal fills the hand as usual.
+    state = replace(serpent_state(5), discards_used=0)
+    assert evaluate_discard(state, get_target("pair"), []).draws == 3
+
+
+def test_disabled_serpent_fills_the_hand():
+    state = serpent_state(8, blind_disabled=True)
+    assert evaluate_discard(state, get_target("pair"), [0]).draws == 1
+    assert evaluate_discard(state, get_target("pair"), [0, 1, 2, 3, 4]).draws == 5
+    assert evaluate_discard(replace(serpent_state(5), blind_disabled=True), get_target("pair"), []).draws == 3
 
 
 def test_full_deck_flush_five_speed():
