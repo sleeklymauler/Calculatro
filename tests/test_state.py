@@ -238,3 +238,13 @@ def test_missing_or_partial_file_returns_none(tmp_path):
     assert FileStateSource(path).read() is None
     path.write_text('{"schema": 1, "in_ru')
     assert FileStateSource(path).read() is None
+
+
+def test_launch_command(lua, tmp_path):
+    _, mod = lua
+    assert mod.launch_command(1234) is None  # no launch.txt: the app isn't started
+    mod_dir = tmp_path / "Mods" / "Calculatro"
+    mod_dir.mkdir(parents=True)
+    (mod_dir / "launch.txt").write_text("C:\venv\Scripts\pythonw.exe\r\n", encoding="utf-8")
+    assert tuple(mod.launch_command(1234)) == (
+        "C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")

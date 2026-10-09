@@ -4,6 +4,7 @@ in game, and writes the odds for the mod's in-game panel."""
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -11,7 +12,7 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Event
 
-from . import overlay
+from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, get_target
 from .report import Report, build_report
@@ -180,6 +181,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     watch = sub.add_parser("watch", help="print the game state whenever it changes")
     watch.add_argument("--file", type=Path, help="state file (default: %%APPDATA%%/Balatro/calculatro_state.json)")
+    watch.add_argument("--game-pid", type=int,
+                       help="run in the background for the game with this process id, as the mod "
+                            "starts it: exit with the game, or at once if the app is already running")
     args = parser.parse_args(argv)
     # Suit symbols: Windows pipes/redirects default to cp1252.
     if hasattr(sys.stdout, "reconfigure"):
@@ -188,10 +192,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "watch":
         source = FileStateSource(args.file)
         odds_file = overlay.odds_path(source.path)
+        # Any instance claims it, so the game won't start a second one beside it.
+        if not process.claim_instance() and args.game_pid is not None:
+            return 0
+        stop = lambda: False
+        if args.game_pid is not None:
+            # No console (pythonw): keep errors in a log beside the state file.
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+            sys.stderr = open(source.path.parent / "calculatro.log", "w", encoding="utf-8", buffering=1)
+            stop = process.exited(args.game_pid)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
             run_watch(source, lambda text: print(text, flush=True),
-                      lambda payload: overlay.write(odds_file, payload))
+                      lambda payload: overlay.write(odds_file, payload), stop=stop)
         except KeyboardInterrupt:
             pass
     return 0

@@ -518,6 +518,47 @@ function Calculatro.read_odds()
 end
 
 ---------------------------------------------------------------------------
+-- Starting the app
+---------------------------------------------------------------------------
+-- install_mod.ps1 leaves the Python interpreter to run (the venv's
+-- pythonw.exe) in the mod's launch.txt. The app exits with the game (by its
+-- pid), and on its own if one is already running.
+function Calculatro.launch_command(pid)
+    local f = io.open(save_path('Mods/Calculatro/launch.txt'), 'rb')
+    if not f then return end
+    local exe = (f:read('*l') or ''):match('^%s*(.-)%s*$')
+    f:close()
+    if exe == '' then return end
+    return exe, '-m calculatro watch --game-pid ' .. string.format('%d', pid)
+end
+
+-- Through Windows itself rather than os.execute, whose cmd.exe would flash a
+-- console window over the game.
+function Calculatro.launch()
+    local ok, ffi = pcall(require, 'ffi')
+    if not ok then return end  -- not LuaJIT (the tests)
+    ffi.cdef [[
+        unsigned long GetCurrentProcessId(void);
+        int MultiByteToWideChar(unsigned int page, unsigned long flags, const char *s, int n,
+                                uint16_t *out, int size);
+        void *ShellExecuteW(void *hwnd, const uint16_t *op, const uint16_t *file,
+                            const uint16_t *params, const uint16_t *dir, int show);
+    ]]
+    local exe, params = Calculatro.launch_command(ffi.C.GetCurrentProcessId())
+    if not exe then return end
+    local function wide(s)
+        local n = ffi.C.MultiByteToWideChar(65001, 0, s, -1, nil, 0)
+        local out = ffi.new('uint16_t[?]', n)
+        ffi.C.MultiByteToWideChar(65001, 0, s, -1, out, n)
+        return out
+    end
+    local result = ffi.load('shell32').ShellExecuteW(nil, wide('open'), wide(exe), wide(params), nil, 0)
+    if tonumber(ffi.cast('intptr_t', result)) <= 32 then
+        error('could not start ' .. exe)
+    end
+end
+
+---------------------------------------------------------------------------
 -- Odds panel
 ---------------------------------------------------------------------------
 
@@ -1210,6 +1251,10 @@ end
 
 function Calculatro.update(dt)
     dt = dt or 0
+    if not Calculatro.launched then
+        Calculatro.launched = true
+        guard('starting the app', Calculatro.launch)
+    end
     Calculatro.clock = Calculatro.clock + dt
     Calculatro.elapsed = Calculatro.elapsed + dt
     Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
