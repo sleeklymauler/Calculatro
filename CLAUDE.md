@@ -27,7 +27,7 @@ Two halves connected by two JSON files:
 
 ### Contract between the halves
 
-- `SCHEMA` in `state.py` must match `schema` in `calculatro.lua`, and `overlay.SCHEMA` must match `odds_schema`; bump both sides when changing either JSON shape. The odds file never contains `null` (the Lua decoder doesn't support it).
+- `SCHEMA` in `state.py` must match `schema` in `calculatro.lua`, and `overlay.SCHEMA` must match `odds_schema`; bump both sides when changing either JSON shape. A snapshot of another schema (the previous version's file at startup, or a mod not reinstalled after an update) raises `state.SchemaMismatch`, which `FileStateSource.poll` skips with one message on stderr until the file changes, rather than stopping the app. The odds file never contains `null` (the Lua decoder doesn't support it).
 - Information hiding is deliberate: the deck is exported as a **sorted multiset** so draw order never leaks, and face-down hand cards are exported as `{hidden: true}` with their identities only in a separate sorted `hidden_pool`. The engine treats `hidden_pool` cards as part of the unseen pool (same as undrawn deck). Don't add anything to the export that reveals information a player couldn't see.
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY` metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key (`m_stone`, `m_wild`, `c_base`, ...).
