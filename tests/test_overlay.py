@@ -19,10 +19,14 @@ from test_watch import FakeSource
 lupa = pytest.importorskip("lupa")
 
 TEXTS = r"""
-return function(node)  -- text nodes of a UI definition, in order, as 'text@colour'
+return function(node)  -- text nodes of a UI definition, in order, as 'text@colour', and icons as '[atlas x,y]'
   local out = {}
   local function walk(n)
     if n.n == G.UIT.T then out[#out + 1] = n.config.text .. '@' .. tostring(n.config.colour) end
+    if n.n == G.UIT.O then
+      local s = n.config.object
+      out[#out + 1] = string.format('[%s %d,%d]', s.atlas, s.pos.x, s.pos.y)
+    end
     for _, child in ipairs(n.nodes or {}) do walk(child) end
   end
   walk(node)
@@ -60,17 +64,52 @@ def test_percent_never_rounds_to_certainty():
     assert overlay.percent(1 - Fraction(1, 10**6)) == ">99.9%"
 
 
-def test_card_labels_are_short_and_ascii():
+def test_card_labels_are_short_and_ascii_but_for_suits():
     labels = {q: overlay.card_label(parse_query(q)) for q in
-              ["2+ queens", "at most 1 spade", "no face cards", "exactly 2 hearts", "QS", "at most 0 clubs"]}
+              ["2+ queens", "at most 1 spade", "no face cards", "exactly 2 hearts", "QS", "at most 0 clubs",
+               "foil diamonds", "10 of hearts"]}
     assert labels == {
         "2+ queens": "Queen: 2+",
-        "at most 1 spade": "Spade: 0-1",
+        "at most 1 spade": "♠: 0-1",
         "no face cards": "Face card: none",
-        "exactly 2 hearts": "Heart: 2",
-        "QS": "Q of Spades: 1+",
-        "at most 0 clubs": "Club: none",
+        "exactly 2 hearts": "♥: 2",
+        "QS": "Q♠: 1+",
+        "at most 0 clubs": "♣: none",
+        "foil diamonds": "Foil ♦: 1+",
+        "10 of hearts": "T♥: 1+",
     }
+    for label in labels.values():  # the mod draws these four as icons
+        assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
+
+
+def test_panel_draws_suits_as_icons(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=(), queries=("QS", "at most 1 heart", "foil diamonds", "clubs", "queen"))
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    rows = [t for t in texts[texts.index("Discard 2@muted") + 1:] if "%" not in t]  # without the odds
+    assert rows == ["Q@light", "[ui_1 3,1]", ": 1+@light",
+                    "[ui_1 0,1]", ": 0-1@light",
+                    "Foil @light", "[ui_1 1,1]", ": 1+@light",
+                    "[ui_1 2,1]", ": 1+@light",
+                    "Queen: 1+@light"]
+    # Each icon on a white tile, so the black suits show on the dark inset.
+    tiles = rt.execute("""return function(node)
+      local out = {}
+      local function walk(n)
+        for _, c in ipairs(n.nodes or {}) do
+          if c.n == G.UIT.O then out[#out + 1] = n.config.colour end
+          walk(c)
+        end
+      end
+      walk(node)
+      return out
+    end""")(rt.eval("BOXES[#BOXES]").definition)
+    assert list(tiles.values()) == ["white"] * 4
+    # The high-contrast icons with the colourblind option.
+    rt.execute("G.SETTINGS.colourblind_option = true")
+    assert "[ui_2 3,1]" in list(rt.execute(TEXTS)(mod.definition(mod.panel_model())).values())
 
 
 def test_payloads(lua, tmp_path):
