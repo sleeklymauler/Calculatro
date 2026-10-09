@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 5,
+    schema = 6,
     odds_schema = 3,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -365,10 +365,13 @@ end
 ---------------------------------------------------------------------------
 -- Snapshot
 ---------------------------------------------------------------------------
-local function card_info(card, hide_face_down)
+-- `in_hand`: also says whether Cerulean Bell forces the card into every
+-- play and discard (the player sees it raised and can't unselect it).
+local function card_info(card, hide_face_down, in_hand)
     local highlighted = card.highlighted and true or false
+    local forced = in_hand and card.ability and card.ability.forced_selection and true or nil
     if hide_face_down and card.facing == 'back' then
-        return { hidden = true, highlighted = highlighted }
+        return { hidden = true, highlighted = highlighted, forced = forced }
     end
     return {
         rank = card.base and card.base.value,   -- '2'..'10', 'Jack', 'Queen', 'King', 'Ace'
@@ -379,13 +382,14 @@ local function card_info(card, hide_face_down)
         seal = card.seal,
         debuff = card.debuff and true or false,
         highlighted = highlighted,
+        forced = forced,
     }
 end
 
-local function area_cards(area, hide_face_down)
+local function area_cards(area, hide_face_down, in_hand)
     local out = array()
     if area and area.cards then
-        for i, card in ipairs(area.cards) do out[i] = card_info(card, hide_face_down) end
+        for i, card in ipairs(area.cards) do out[i] = card_info(card, hide_face_down, in_hand) end
     end
     return out
 end
@@ -454,7 +458,7 @@ function Calculatro.snapshot()
         blind_disabled = G.GAME.blind and G.GAME.blind.disabled and true or false,
         hands_played = round.hands_played or 0,
         discards_used = round.discards_used or 0,
-        hand = area_cards(G.hand, true),
+        hand = area_cards(G.hand, true, true),
         played = area_cards(G.play, true),
         deck = sorted_deck(G.deck),
         hidden_pool = hidden_pool(G.hand),

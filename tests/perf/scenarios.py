@@ -20,7 +20,7 @@ time an older checkout (see docs/performance/README.md).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from threading import Event
 
@@ -72,7 +72,9 @@ class Situation:
     kept: int  # known hand cards kept; the other known cards are discarded
     hidden: int  # face-down hand cards (kept: they can't be told apart)
     cold: bool = False  # clear the caches before each run (see the module docstring)
-    blind: str | None = None  # with "The Mark", the face-down cards are the hand's face cards
+    # With "The Mark", the face-down cards are the hand's face cards; with
+    # "Cerulean Bell", the first card discarded is the forced one.
+    blind: str | None = None
 
     @property
     def unknown(self) -> int:
@@ -87,6 +89,10 @@ COLD_KEEP_3 = Situation("Keep 3, draw 5, nothing cached", kept=3, hidden=0, cold
 # The Mark draws face cards face down, so they're HAND's 3 face cards, known to be face cards.
 MARK_KEEP_2 = Situation("6 unknown: The Mark, 3 face-down, draw 3", kept=2, hidden=3, blind="The Mark")
 MARK_ALL = Situation("8 unknown: The Mark, 3 face-down, draw 5", kept=0, hidden=3, blind="The Mark")
+# Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
+# kind of unseen card.
+BELL_KEEP_3 = Situation("Keep 3, draw 5, Cerulean Bell", kept=3, hidden=0, blind="Cerulean Bell")
+BELL_KEEP_6 = Situation("Keep 6, draw 2, Cerulean Bell", kept=6, hidden=0, blind="Cerulean Bell")
 
 
 def clear_caches() -> None:
@@ -120,6 +126,8 @@ class Scenario:
             hand_cards.sort(key=lambda c: c.rank_id in (11, 12, 13))
         known = len(HAND) - self.situation.hidden
         hand = hand_cards[:known] + [Card(hidden=True)] * self.situation.hidden
+        if self.situation.blind == "Cerulean Bell" and "forced" in Card.__dataclass_fields__:
+            hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
             in_run=True, hand_size=len(HAND), hands_left=4, discards_left=3,
             hand=hand, deck=sorted(cards.values(), key=lambda c: (c.suit, c.rank_id)),
@@ -172,6 +180,9 @@ def _scenarios() -> list[Scenario]:
                 for t in (("Flush House",), ("Full House", "Straight Flush"), ("Pair", "Flush"))]
         out += [Scenario(COLD_KEEP_3, c, jokers) for c in COLD_COMBINED]
         # The Mark: one search per number of face cards among the unknown cards.
+        out += [Scenario(s, t, jokers) for s in (BELL_KEEP_3, BELL_KEEP_6)
+                for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",), ("Royal Flush",),
+                          ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
                 for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",), ("Full House", "Straight Flush"))]
     return out

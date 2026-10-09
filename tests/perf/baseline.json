@@ -6534,6 +6534,1542 @@
     0.554926
    ],
    "probability": "10620249/14932610"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | No jokers": {
+   "runs": 5,
+   "mean": 0.004604279999330174,
+   "stdev": 0.0005670902907139101,
+   "median": 0.004354299999249633,
+   "min": 0.004228999998304062,
+   "max": 0.005584800001088297,
+   "times": [
+    0.004354,
+    0.005585,
+    0.004598,
+    0.004229,
+    0.004256
+   ],
+   "probability": "31232/135751"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0007696799999393989,
+   "stdev": 5.973966080703795e-05,
+   "median": 0.0007917000002635177,
+   "min": 0.0006807999998272862,
+   "max": 0.000825700000859797,
+   "times": [
+    0.000826,
+    0.000738,
+    0.000681,
+    0.000792,
+    0.000812
+   ],
+   "probability": "7941/155144"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.010116199999902164,
+   "stdev": 0.0002901887575910498,
+   "median": 0.010036699997726828,
+   "min": 0.009738600001583109,
+   "max": 0.01045470000099158,
+   "times": [
+    0.010037,
+    0.010455,
+    0.010358,
+    0.009993,
+    0.009739
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.007334260000061476,
+   "stdev": 0.00035820815681749296,
+   "median": 0.007383500000287313,
+   "min": 0.006738799998856848,
+   "max": 0.0076685000021825545,
+   "times": [
+    0.007669,
+    0.007335,
+    0.006739,
+    0.007384,
+    0.007545
+   ],
+   "probability": "933/620576"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0014735000004293397,
+   "stdev": 0.0002764437724312218,
+   "median": 0.0013357000025280286,
+   "min": 0.0012190000015834812,
+   "max": 0.0018799999998009298,
+   "times": [
+    0.001219,
+    0.001298,
+    0.001635,
+    0.001336,
+    0.00188
+   ],
+   "probability": "5/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.042289960000198336,
+   "stdev": 0.0023744590589405384,
+   "median": 0.04062070000145468,
+   "min": 0.040522999999666354,
+   "max": 0.04510579999987385,
+   "times": [
+    0.040536,
+    0.040621,
+    0.040523,
+    0.045106,
+    0.044664
+   ],
+   "probability": "3629/98728"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | No jokers": {
+   "runs": 5,
+   "mean": 0.0032327400003850926,
+   "stdev": 0.0002163964033100387,
+   "median": 0.0032652000008965842,
+   "min": 0.002942899998743087,
+   "max": 0.003499900001770584,
+   "times": [
+    0.003352,
+    0.003265,
+    0.003104,
+    0.002943,
+    0.0035
+   ],
+   "probability": "14/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0008654599994770251,
+   "stdev": 7.967984800725217e-05,
+   "median": 0.0009052000023075379,
+   "min": 0.000734499997633975,
+   "max": 0.0009298000004491769,
+   "times": [
+    0.000912,
+    0.000734,
+    0.00093,
+    0.000846,
+    0.000905
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.005471179999585729,
+   "stdev": 0.0003063849489180408,
+   "median": 0.005454899997857865,
+   "min": 0.0050795999995898455,
+   "max": 0.005935699999099597,
+   "times": [
+    0.00508,
+    0.005936,
+    0.00549,
+    0.005395,
+    0.005455
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.005873219999921275,
+   "stdev": 0.00034625665657462933,
+   "median": 0.005905500001972541,
+   "min": 0.005349999999452848,
+   "max": 0.006316599999991013,
+   "times": [
+    0.005906,
+    0.00535,
+    0.005838,
+    0.006317,
+    0.005956
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0017868400005681905,
+   "stdev": 0.0004517261266230876,
+   "median": 0.001695400002063252,
+   "min": 0.0012419999984558672,
+   "max": 0.0024568000008002855,
+   "times": [
+    0.001595,
+    0.001242,
+    0.001695,
+    0.002457,
+    0.001946
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.015009399998234585,
+   "stdev": 0.000406127644870562,
+   "median": 0.015099699998245342,
+   "min": 0.014506800001981901,
+   "max": 0.01544119999743998,
+   "times": [
+    0.015441,
+    0.015325,
+    0.0151,
+    0.014674,
+    0.014507
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0008144599989464041,
+   "stdev": 5.732602411286126e-05,
+   "median": 0.0008468999985780101,
+   "min": 0.0007178999985626433,
+   "max": 0.0008511999985785224,
+   "times": [
+    0.000851,
+    0.000718,
+    0.000805,
+    0.000847,
+    0.000851
+   ],
+   "probability": "360193/543004"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0015182000010099729,
+   "stdev": 0.00024859464964491033,
+   "median": 0.0015000999992480502,
+   "min": 0.0011867000030179042,
+   "max": 0.0018105000017385464,
+   "times": [
+    0.001187,
+    0.001389,
+    0.0015,
+    0.001705,
+    0.001811
+   ],
+   "probability": "42093/98728"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.009883260000060545,
+   "stdev": 0.0009690610844511624,
+   "median": 0.009444600000279024,
+   "min": 0.009033300000737654,
+   "max": 0.011506799997732742,
+   "times": [
+    0.011507,
+    0.009989,
+    0.009442,
+    0.009033,
+    0.009445
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.38094616000016684,
+   "stdev": 0.005770247307422556,
+   "median": 0.38064700000177254,
+   "min": 0.37468079999962356,
+   "max": 0.3869535000012547,
+   "times": [
+    0.386954,
+    0.380647,
+    0.375858,
+    0.374681,
+    0.386591
+   ],
+   "probability": "113291/789824"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.044220740000309885,
+   "stdev": 0.002626376263039119,
+   "median": 0.044507000002340646,
+   "min": 0.04009729999961564,
+   "max": 0.046641299999464536,
+   "times": [
+    0.046641,
+    0.046279,
+    0.040097,
+    0.044507,
+    0.043579
+   ],
+   "probability": "613/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.623801920000551,
+   "stdev": 0.006259938915681194,
+   "median": 0.6239841000024171,
+   "min": 0.6150081999985559,
+   "max": 0.6318967000006523,
+   "times": [
+    0.615008,
+    0.621441,
+    0.62668,
+    0.623984,
+    0.631897
+   ],
+   "probability": "35569/202048"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Four Fingers": {
+   "runs": 5,
+   "mean": 0.00046882000024197625,
+   "stdev": 5.365549242382493e-05,
+   "median": 0.0004847999989578966,
+   "min": 0.00040440000157104805,
+   "max": 0.0005215999990468845,
+   "times": [
+    0.000513,
+    0.000485,
+    0.000522,
+    0.00042,
+    0.000404
+   ],
+   "probability": "164/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0006874400001834147,
+   "stdev": 0.00010593254024306127,
+   "median": 0.0007441999987349845,
+   "min": 0.0005689999998139683,
+   "max": 0.000781700000516139,
+   "times": [
+    0.000767,
+    0.000576,
+    0.000782,
+    0.000569,
+    0.000744
+   ],
+   "probability": "50/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.005808360001537949,
+   "stdev": 0.0005463192397736416,
+   "median": 0.005825200001709163,
+   "min": 0.004999300002964446,
+   "max": 0.0065133999996760394,
+   "times": [
+    0.006513,
+    0.005714,
+    0.004999,
+    0.005825,
+    0.00599
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.07447127999912481,
+   "stdev": 0.002491053720763628,
+   "median": 0.07383289999779663,
+   "min": 0.07228119999854243,
+   "max": 0.07875950000016019,
+   "times": [
+    0.074027,
+    0.073456,
+    0.073833,
+    0.072281,
+    0.07876
+   ],
+   "probability": "15/946"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.014785560000746045,
+   "stdev": 0.0008087108718764876,
+   "median": 0.014427099999011261,
+   "min": 0.01411519999965094,
+   "max": 0.015969600000971695,
+   "times": [
+    0.014115,
+    0.015267,
+    0.014427,
+    0.014149,
+    0.01597
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0928823399997782,
+   "stdev": 0.003444944957340857,
+   "median": 0.09302049999678275,
+   "min": 0.08858499999769265,
+   "max": 0.09767959999953746,
+   "times": [
+    0.09302,
+    0.09768,
+    0.088585,
+    0.094261,
+    0.090865
+   ],
+   "probability": "15/946"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Shortcut": {
+   "runs": 5,
+   "mean": 0.018862619998981246,
+   "stdev": 0.0008342562899400485,
+   "median": 0.019164099998306483,
+   "min": 0.01764299999922514,
+   "max": 0.019819900000584312,
+   "times": [
+    0.018463,
+    0.017643,
+    0.019164,
+    0.01982,
+    0.019223
+   ],
+   "probability": "361245/620576"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.0007978199995704926,
+   "stdev": 7.88359502509158e-05,
+   "median": 0.0008331999997608364,
+   "min": 0.0006567999989783857,
+   "max": 0.0008339000014530029,
+   "times": [
+    0.000834,
+    0.000833,
+    0.000833,
+    0.000832,
+    0.000657
+   ],
+   "probability": "7941/155144"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Shortcut": {
+   "runs": 5,
+   "mean": 0.009884320000855951,
+   "stdev": 0.0006746428592060945,
+   "median": 0.009941899999830639,
+   "min": 0.008962300002167467,
+   "max": 0.010714400003053015,
+   "times": [
+    0.009529,
+    0.008962,
+    0.010714,
+    0.009942,
+    0.010274
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.037607020000723426,
+   "stdev": 0.002725329264662003,
+   "median": 0.036767400000826456,
+   "min": 0.03552290000152425,
+   "max": 0.042388099998788675,
+   "times": [
+    0.042388,
+    0.036481,
+    0.035523,
+    0.036767,
+    0.036875
+   ],
+   "probability": "2169/197456"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.0015044799998577218,
+   "stdev": 0.00018359247505923476,
+   "median": 0.0016293000007863156,
+   "min": 0.0012894999999844003,
+   "max": 0.0016503999977430794,
+   "times": [
+    0.001635,
+    0.001318,
+    0.00165,
+    0.001289,
+    0.001629
+   ],
+   "probability": "5/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.08256695999953081,
+   "stdev": 0.0012285435133156002,
+   "median": 0.0831901999990805,
+   "min": 0.08052039999893168,
+   "max": 0.0834684000001289,
+   "times": [
+    0.082322,
+    0.08319,
+    0.083334,
+    0.083468,
+    0.08052
+   ],
+   "probability": "200671/4344032"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Shortcut": {
+   "runs": 5,
+   "mean": 0.0133142400001816,
+   "stdev": 0.0006844370086251272,
+   "median": 0.013130299998010742,
+   "min": 0.012682399999903282,
+   "max": 0.014052700000320328,
+   "times": [
+    0.012685,
+    0.01313,
+    0.014021,
+    0.014053,
+    0.012682
+   ],
+   "probability": "653/1892"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.0008621599998150486,
+   "stdev": 8.892099357092017e-05,
+   "median": 0.0009155000007012859,
+   "min": 0.0007135999985621311,
+   "max": 0.0009188000003632624,
+   "times": [
+    0.000844,
+    0.000919,
+    0.000714,
+    0.000916,
+    0.000919
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Shortcut": {
+   "runs": 5,
+   "mean": 0.005763120000483468,
+   "stdev": 0.0002534685721616465,
+   "median": 0.005764000001363456,
+   "min": 0.0055212000006577,
+   "max": 0.006134100000053877,
+   "times": [
+    0.006134,
+    0.005764,
+    0.00586,
+    0.005536,
+    0.005521
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.02640807999923709,
+   "stdev": 0.001963544084975305,
+   "median": 0.02675009999802569,
+   "min": 0.02322709999862127,
+   "max": 0.02860789999976987,
+   "times": [
+    0.02675,
+    0.028608,
+    0.026995,
+    0.02646,
+    0.023227
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.0016635200001474005,
+   "stdev": 0.00016183601821251816,
+   "median": 0.0016192000002774876,
+   "min": 0.0014665000016975682,
+   "max": 0.0018863000004785135,
+   "times": [
+    0.001589,
+    0.001619,
+    0.001757,
+    0.001467,
+    0.001886
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.03369481999980053,
+   "stdev": 0.0006773141603335243,
+   "median": 0.034002000000327826,
+   "min": 0.032536200000322424,
+   "max": 0.03422800000043935,
+   "times": [
+    0.033676,
+    0.034032,
+    0.034228,
+    0.032536,
+    0.034002
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0022386200005712455,
+   "stdev": 0.000342651479469947,
+   "median": 0.00232260000120732,
+   "min": 0.001712100001896033,
+   "max": 0.0025582999987818766,
+   "times": [
+    0.002558,
+    0.002323,
+    0.002495,
+    0.002106,
+    0.001712
+   ],
+   "probability": "473719/543004"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0015850399984628893,
+   "stdev": 0.00026462161151193005,
+   "median": 0.001506699998572003,
+   "min": 0.0012454999996407423,
+   "max": 0.0019306999965920113,
+   "times": [
+    0.001486,
+    0.001931,
+    0.001507,
+    0.001756,
+    0.001245
+   ],
+   "probability": "42093/98728"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.00932909999974072,
+   "stdev": 0.0003488316503729668,
+   "median": 0.009184999998979038,
+   "min": 0.009076199999981327,
+   "max": 0.009911299999657786,
+   "times": [
+    0.009076,
+    0.009185,
+    0.009085,
+    0.009388,
+    0.009911
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 1.343255319999298,
+   "stdev": 0.13127436197531378,
+   "median": 1.2907277999984217,
+   "min": 1.2768686999988859,
+   "max": 1.577780100000382,
+   "times": [
+    1.57778,
+    1.290728,
+    1.276869,
+    1.291803,
+    1.279097
+   ],
+   "probability": "2267369/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.05580478000047151,
+   "stdev": 0.0027457050855907716,
+   "median": 0.05466789999991306,
+   "min": 0.05383770000116783,
+   "max": 0.06062170000222977,
+   "times": [
+    0.054668,
+    0.053838,
+    0.054546,
+    0.055351,
+    0.060622
+   ],
+   "probability": "1767/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 1.687459459999809,
+   "stdev": 0.15731569296597867,
+   "median": 1.6323210000009567,
+   "min": 1.5982167000001937,
+   "max": 1.9675346000003628,
+   "times": [
+    1.967535,
+    1.632321,
+    1.606576,
+    1.598217,
+    1.632649
+   ],
+   "probability": "2536151/8688064"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0012185599996882956,
+   "stdev": 0.0001262580022344506,
+   "median": 0.0011469999990367796,
+   "min": 0.0011199000000488013,
+   "max": 0.0014104000001680106,
+   "times": [
+    0.001285,
+    0.00112,
+    0.00141,
+    0.001147,
+    0.001131
+   ],
+   "probability": "511/946"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0007690200000070035,
+   "stdev": 1.0259483000716387e-05,
+   "median": 0.0007733999991614837,
+   "min": 0.000750700000935467,
+   "max": 0.000774300002376549,
+   "times": [
+    0.000774,
+    0.000751,
+    0.000773,
+    0.000774,
+    0.000773
+   ],
+   "probability": "50/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.005547739999747137,
+   "stdev": 0.0004563016913041413,
+   "median": 0.005475899997691158,
+   "min": 0.004910299998300616,
+   "max": 0.006061000000045169,
+   "times": [
+    0.005382,
+    0.005476,
+    0.005909,
+    0.006061,
+    0.00491
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.26672832000040214,
+   "stdev": 0.004853291535515574,
+   "median": 0.2674308999994537,
+   "min": 0.2599306999982218,
+   "max": 0.27224480000222684,
+   "times": [
+    0.269926,
+    0.264109,
+    0.259931,
+    0.272245,
+    0.267431
+   ],
+   "probability": "39/946"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.01849945999929332,
+   "stdev": 0.001521476214829388,
+   "median": 0.017844199999672128,
+   "min": 0.016908699999476084,
+   "max": 0.020308799998019822,
+   "times": [
+    0.017844,
+    0.016909,
+    0.017507,
+    0.020309,
+    0.019928
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.2912882400014496,
+   "stdev": 0.011791449778036468,
+   "median": 0.29364580000037677,
+   "min": 0.27757970000311616,
+   "max": 0.30258540000068024,
+   "times": [
+    0.302585,
+    0.302156,
+    0.280474,
+    0.293646,
+    0.27758
+   ],
+   "probability": "39/946"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Smeared": {
+   "runs": 5,
+   "mean": 0.004719360001035966,
+   "stdev": 0.0004378396948285023,
+   "median": 0.004689299999881769,
+   "min": 0.004300700002204394,
+   "max": 0.00543880000259378,
+   "times": [
+    0.004719,
+    0.004449,
+    0.004301,
+    0.005439,
+    0.004689
+   ],
+   "probability": "31232/135751"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0006075199991755654,
+   "stdev": 8.860833496271268e-05,
+   "median": 0.0005538000004889909,
+   "min": 0.0005368999991333112,
+   "max": 0.0007114999971236102,
+   "times": [
+    0.000711,
+    0.000554,
+    0.000539,
+    0.000697,
+    0.000537
+   ],
+   "probability": "135089/310288"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Smeared": {
+   "runs": 5,
+   "mean": 0.010540100000071106,
+   "stdev": 0.00024671047829799217,
+   "median": 0.010624200000165729,
+   "min": 0.010219399999186862,
+   "max": 0.010788700001285179,
+   "times": [
+    0.010219,
+    0.010723,
+    0.010789,
+    0.010345,
+    0.010624
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.007073000000673346,
+   "stdev": 0.0008752658943126315,
+   "median": 0.0065585000011196826,
+   "min": 0.006467600000178209,
+   "max": 0.008501200001774123,
+   "times": [
+    0.006503,
+    0.008501,
+    0.006468,
+    0.006559,
+    0.007335
+   ],
+   "probability": "89031/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0014756799981114454,
+   "stdev": 0.00017276828926498082,
+   "median": 0.001519099998404272,
+   "min": 0.0012086999995517544,
+   "max": 0.0016795999981695786,
+   "times": [
+    0.001519,
+    0.00168,
+    0.001209,
+    0.001438,
+    0.001533
+   ],
+   "probability": "15/1086008"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.03036303999979282,
+   "stdev": 0.002015240071202799,
+   "median": 0.029514300000300864,
+   "min": 0.029066100003547035,
+   "max": 0.0339109999986249,
+   "times": [
+    0.033911,
+    0.03003,
+    0.029514,
+    0.029294,
+    0.029066
+   ],
+   "probability": "394085/8688064"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Smeared": {
+   "runs": 5,
+   "mean": 0.003189579999889247,
+   "stdev": 0.0003443505138831671,
+   "median": 0.0032446000004711095,
+   "min": 0.0027810999999928754,
+   "max": 0.0035990999967907555,
+   "times": [
+    0.002902,
+    0.002781,
+    0.003422,
+    0.003599,
+    0.003245
+   ],
+   "probability": "14/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0008549999998649582,
+   "stdev": 8.416923298961252e-05,
+   "median": 0.0008625000009487849,
+   "min": 0.0007437000022036955,
+   "max": 0.0009394999979122076,
+   "times": [
+    0.00093,
+    0.000863,
+    0.000939,
+    0.000799,
+    0.000744
+   ],
+   "probability": "2315/7568"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Smeared": {
+   "runs": 5,
+   "mean": 0.005807860001368681,
+   "stdev": 0.0002026126664827648,
+   "median": 0.005866100000275765,
+   "min": 0.005519100002857158,
+   "max": 0.006048200000805082,
+   "times": [
+    0.005704,
+    0.006048,
+    0.005519,
+    0.005902,
+    0.005866
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0043982599992887115,
+   "stdev": 0.0003753109143503156,
+   "median": 0.004195800000161398,
+   "min": 0.004049099999974715,
+   "max": 0.004853299997193972,
+   "times": [
+    0.004139,
+    0.004049,
+    0.004853,
+    0.004754,
+    0.004196
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0012059599997883198,
+   "stdev": 0.0001750230074204397,
+   "median": 0.00120269999752054,
+   "min": 0.0009927999999490567,
+   "max": 0.0014774000010220334,
+   "times": [
+    0.001209,
+    0.000993,
+    0.001203,
+    0.001477,
+    0.001148
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.010117919999902369,
+   "stdev": 0.00027424842305450196,
+   "median": 0.010138599998754216,
+   "min": 0.009717599998111837,
+   "max": 0.010484300000825897,
+   "times": [
+    0.010484,
+    0.010139,
+    0.010071,
+    0.010179,
+    0.009718
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.000751799999125069,
+   "stdev": 0.00010127613141431568,
+   "median": 0.0006800999981351197,
+   "min": 0.000676499999826774,
+   "max": 0.0008695999968040269,
+   "times": [
+    0.000856,
+    0.000677,
+    0.000676,
+    0.00068,
+    0.00087
+   ],
+   "probability": "360193/543004"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.000239020000299206,
+   "stdev": 3.2414457630287565e-05,
+   "median": 0.00022620000163442455,
+   "min": 0.00020640000002458692,
+   "max": 0.0002807000018947292,
+   "times": [
+    0.000281,
+    0.000226,
+    0.000266,
+    0.000216,
+    0.000206
+   ],
+   "probability": "1"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.010337299999810057,
+   "stdev": 0.000536487954294978,
+   "median": 0.010218499999609776,
+   "min": 0.009877399999822956,
+   "max": 0.01125769999998738,
+   "times": [
+    0.009877,
+    0.010066,
+    0.010267,
+    0.011258,
+    0.010218
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.1312168800002837,
+   "stdev": 0.006672656985606928,
+   "median": 0.12844740000218735,
+   "min": 0.1266386000024795,
+   "max": 0.14291790000061155,
+   "times": [
+    0.128447,
+    0.130281,
+    0.142918,
+    0.126639,
+    0.1278
+   ],
+   "probability": "1914645/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.010590019999654032,
+   "stdev": 0.0006987978806788478,
+   "median": 0.010419199999887496,
+   "min": 0.009945099998731166,
+   "max": 0.011483300000691088,
+   "times": [
+    0.009957,
+    0.010419,
+    0.009945,
+    0.011483,
+    0.011146
+   ],
+   "probability": "467/620576"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.16623474000007263,
+   "stdev": 0.00405655194887963,
+   "median": 0.16619099999661557,
+   "min": 0.16200279999975464,
+   "max": 0.1716621000014129,
+   "times": [
+    0.166191,
+    0.168642,
+    0.171662,
+    0.162003,
+    0.162676
+   ],
+   "probability": "46933/101024"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.000548779999371618,
+   "stdev": 0.00012866837948689104,
+   "median": 0.0005224999986239709,
+   "min": 0.00044020000132150017,
+   "max": 0.0007685999989917036,
+   "times": [
+    0.000769,
+    0.000536,
+    0.000522,
+    0.00044,
+    0.000476
+   ],
+   "probability": "164/473"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.00021868000039830803,
+   "stdev": 2.319972158206396e-05,
+   "median": 0.0002119999990100041,
+   "min": 0.00020289999883971177,
+   "max": 0.00025940000341506675,
+   "times": [
+    0.000259,
+    0.000212,
+    0.000214,
+    0.000205,
+    0.000203
+   ],
+   "probability": "1"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.005548119999730261,
+   "stdev": 0.0003280571338595467,
+   "median": 0.005410499998106388,
+   "min": 0.005195499998080777,
+   "max": 0.005952900002739625,
+   "times": [
+    0.005195,
+    0.005346,
+    0.00541,
+    0.005836,
+    0.005953
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.051232779999554626,
+   "stdev": 0.002549161736148755,
+   "median": 0.05079280000063591,
+   "min": 0.049133999997138744,
+   "max": 0.05545610000262968,
+   "times": [
+    0.049356,
+    0.055456,
+    0.050793,
+    0.051425,
+    0.049134
+   ],
+   "probability": "585/3784"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.006940860000759131,
+   "stdev": 0.0003495689808218385,
+   "median": 0.006814300002588425,
+   "min": 0.006682100000034552,
+   "max": 0.0075552999987849034,
+   "times": [
+    0.006814,
+    0.006682,
+    0.006858,
+    0.006794,
+    0.007555
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.05710107999984757,
+   "stdev": 0.0037776902851539857,
+   "median": 0.05498980000265874,
+   "min": 0.05413390000103391,
+   "max": 0.06301329999769223,
+   "times": [
+    0.05499,
+    0.054134,
+    0.058748,
+    0.063013,
+    0.05462
+   ],
+   "probability": "585/3784"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.021373200000380167,
+   "stdev": 0.002682006019800609,
+   "median": 0.021078900001157308,
+   "min": 0.01859150000018417,
+   "max": 0.025127900000370573,
+   "times": [
+    0.022853,
+    0.019215,
+    0.021079,
+    0.025128,
+    0.018592
+   ],
+   "probability": "361245/620576"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0006294200007687323,
+   "stdev": 8.498680630565902e-05,
+   "median": 0.000647900000330992,
+   "min": 0.0004894999983662274,
+   "max": 0.0006960000027902424,
+   "times": [
+    0.000696,
+    0.000618,
+    0.000489,
+    0.000696,
+    0.000648
+   ],
+   "probability": "135089/310288"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.010030020000704099,
+   "stdev": 0.0004813266786448887,
+   "median": 0.009874800001853146,
+   "min": 0.009450000001379522,
+   "max": 0.010540200000832556,
+   "times": [
+    0.009875,
+    0.00945,
+    0.010517,
+    0.009768,
+    0.01054
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.031632800001534636,
+   "stdev": 0.0005742649034218637,
+   "median": 0.03172100000301725,
+   "min": 0.03083360000164248,
+   "max": 0.032375999999203486,
+   "times": [
+    0.032376,
+    0.030834,
+    0.031721,
+    0.031861,
+    0.031372
+   ],
+   "probability": "311007/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0014260800002375618,
+   "stdev": 0.0002440756062996572,
+   "median": 0.0014298999994935002,
+   "min": 0.0010677000027499162,
+   "max": 0.0016852000007929746,
+   "times": [
+    0.001685,
+    0.00143,
+    0.001612,
+    0.001336,
+    0.001068
+   ],
+   "probability": "15/1086008"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.06584512000044924,
+   "stdev": 0.002101211907597688,
+   "median": 0.06529369999771006,
+   "min": 0.06387720000202535,
+   "max": 0.06934410000030766,
+   "times": [
+    0.064739,
+    0.063877,
+    0.065972,
+    0.069344,
+    0.065294
+   ],
+   "probability": "65981/620576"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.013511280000966509,
+   "stdev": 0.0007949883602203091,
+   "median": 0.013374599999224301,
+   "min": 0.012642000001505949,
+   "max": 0.014801200002693804,
+   "times": [
+    0.013375,
+    0.013527,
+    0.014801,
+    0.012642,
+    0.013212
+   ],
+   "probability": "653/1892"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0008860799993271939,
+   "stdev": 7.806649176698717e-05,
+   "median": 0.0009054000001924578,
+   "min": 0.0007502999978896696,
+   "max": 0.0009390000013809185,
+   "times": [
+    0.000937,
+    0.000939,
+    0.00075,
+    0.000898,
+    0.000905
+   ],
+   "probability": "2315/7568"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.005492580000282033,
+   "stdev": 0.00027725645597465,
+   "median": 0.005453699999634409,
+   "min": 0.005116000000271015,
+   "max": 0.00589120000222465,
+   "times": [
+    0.005116,
+    0.005454,
+    0.005891,
+    0.00545,
+    0.005552
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.019482499999867287,
+   "stdev": 0.0020471336309656617,
+   "median": 0.01939219999985653,
+   "min": 0.017833199999586213,
+   "max": 0.02285209999899962,
+   "times": [
+    0.017833,
+    0.017845,
+    0.022852,
+    0.019392,
+    0.01949
+   ],
+   "probability": "5/946"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.001158440000290284,
+   "stdev": 0.00014504603603633054,
+   "median": 0.0011589999994612299,
+   "min": 0.0009467000018048566,
+   "max": 0.0013016999982937705,
+   "times": [
+    0.001159,
+    0.001302,
+    0.001102,
+    0.001283,
+    0.000947
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.02628273999944213,
+   "stdev": 0.002351318997177521,
+   "median": 0.025275099997088546,
+   "min": 0.02479970000058529,
+   "max": 0.03039609999905224,
+   "times": [
+    0.024895,
+    0.030396,
+    0.026047,
+    0.025275,
+    0.0248
+   ],
+   "probability": "5/946"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0023277000007510653,
+   "stdev": 0.0003343300236597252,
+   "median": 0.0023757000017212704,
+   "min": 0.0018371000005572569,
+   "max": 0.0027641999986371957,
+   "times": [
+    0.002764,
+    0.002248,
+    0.002376,
+    0.002413,
+    0.001837
+   ],
+   "probability": "473719/543004"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0002592999990156386,
+   "stdev": 1.808632162146702e-05,
+   "median": 0.00026559999969322234,
+   "min": 0.00022759999774280004,
+   "max": 0.0002722999997786246,
+   "times": [
+    0.000228,
+    0.000268,
+    0.000266,
+    0.000272,
+    0.000262
+   ],
+   "probability": "1"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0095575799998187,
+   "stdev": 0.0002891072932628331,
+   "median": 0.009637499999371357,
+   "min": 0.00919140000041807,
+   "max": 0.009913300000334857,
+   "times": [
+    0.009343,
+    0.009703,
+    0.009637,
+    0.009191,
+    0.009913
+   ],
+   "probability": "153225/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Straight Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.49508548000012526,
+   "stdev": 0.008956511899396861,
+   "median": 0.4998286999980337,
+   "min": 0.48520149999967543,
+   "max": 0.5044458000011218,
+   "times": [
+    0.485201,
+    0.485759,
+    0.504446,
+    0.500193,
+    0.499829
+   ],
+   "probability": "6485607/8688064"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Royal Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.01641432000033092,
+   "stdev": 0.000694126413044458,
+   "median": 0.01622280000083265,
+   "min": 0.015794800001458498,
+   "max": 0.01759640000091167,
+   "times": [
+    0.015795,
+    0.016086,
+    0.016371,
+    0.017596,
+    0.016223
+   ],
+   "probability": "8291/4344032"
+  },
+  "standard | Keep 3, draw 5, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.5479475599997385,
+   "stdev": 0.009002779530341882,
+   "median": 0.5496284000000742,
+   "min": 0.5335696000001917,
+   "max": 0.5584441999999399,
+   "times": [
+    0.55006,
+    0.558444,
+    0.549628,
+    0.53357,
+    0.548036
+   ],
+   "probability": "118451/155144"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.00148990000016056,
+   "stdev": 0.0002311698295173723,
+   "median": 0.0014572000000043772,
+   "min": 0.0011750000012398232,
+   "max": 0.001718700001219986,
+   "times": [
+    0.001457,
+    0.001175,
+    0.001385,
+    0.001714,
+    0.001719
+   ],
+   "probability": "511/946"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.00021720000004279427,
+   "stdev": 4.143065665014514e-06,
+   "median": 0.00021689999994123355,
+   "min": 0.00021180000112508424,
+   "max": 0.00022339999850373715,
+   "times": [
+    0.000218,
+    0.000223,
+    0.000216,
+    0.000217,
+    0.000212
+   ],
+   "probability": "1"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.005326279998553218,
+   "stdev": 0.00011960910135580691,
+   "median": 0.005328499999450287,
+   "min": 0.0051681999975699,
+   "max": 0.005442999998194864,
+   "times": [
+    0.005443,
+    0.00544,
+    0.005168,
+    0.005251,
+    0.005328
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Straight Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.20589811999961966,
+   "stdev": 0.004689708904505596,
+   "median": 0.20711429999937536,
+   "min": 0.20088060000125552,
+   "max": 0.2121934999995574,
+   "times": [
+    0.212193,
+    0.200881,
+    0.201603,
+    0.207699,
+    0.207114
+   ],
+   "probability": "3297/7568"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Royal Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.009874280000076396,
+   "stdev": 0.0005400974593159436,
+   "median": 0.009962199997971766,
+   "min": 0.00901730000259704,
+   "max": 0.010410399998363573,
+   "times": [
+    0.009017,
+    0.010225,
+    0.009962,
+    0.01041,
+    0.009756
+   ],
+   "probability": "0"
+  },
+  "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.20981797999993432,
+   "stdev": 0.0057999406170773475,
+   "median": 0.20915809999860357,
+   "min": 0.2037214000010863,
+   "max": 0.21863470000243979,
+   "times": [
+    0.205864,
+    0.218635,
+    0.209158,
+    0.211712,
+    0.203721
+   ],
+   "probability": "3297/7568"
   }
  }
 }

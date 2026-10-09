@@ -34,6 +34,16 @@ step-by-step table for the second pass.
   reaches the same position as drawing another card when 2 are left. That
   makes it 1-1.5x the time of the same cards without The Mark, against
   2-2.5x for a separate search per count.
+- **Cerulean Bell averages searches.** After a discard it forces a random
+  card of the final hand, so the odds are an average over which card that
+  is: one search per kept card, and one per unseen card, each with the
+  target's patterns rewritten for that forced card (`forced_patterns`).
+  Unseen cards that the rewritten patterns can't tell apart share a search
+  (`_forced_group`): 4 suits for Flush, 13 ranks for Full House, but every
+  card for Straight Flush, so a plain deck needs about 47 searches of 4
+  draws each. That makes Four Fingers' Straight Flush 12-17x slower than
+  without the boss (1.3 s with Shortcut); most targets stay under 50 ms.
+  Keeping the hand, the forced card is known and it's one search.
 - **Integers until the end.** The search counts favourable draws as Python
   ints and divides by C(pool, draws) once at the end, so no fractions are
   built along the way.

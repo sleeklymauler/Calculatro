@@ -158,6 +158,24 @@ def test_snapshot_sends_the_serpents_state(lua):
     assert state.blind_disabled and not state.serpent
 
 
+def test_snapshot_sends_the_bells_forced_card(lua):
+    rt, _ = lua
+    state = GameState.from_json(snapshot_json(lua))
+    assert state.forced is None and not state.bell
+    rt.execute("""G.GAME.blind = {name = 'Cerulean Bell'}
+                  G.hand.cards[3].ability.forced_selection = true""")
+    raw = snapshot_json(lua)
+    state = GameState.from_json(raw)
+    assert state.bell and state.forced == 2
+    assert [c.forced for c in state.hand] == [False, False, True, False, False]
+    # Only hand cards say whether they're forced.
+    rt.execute("G.deck.cards[1].ability.forced_selection = true")
+    raw = snapshot_json(lua)
+    assert not any("forced" in c for c in raw["deck"])
+    rt.execute("G.GAME.blind.disabled = true")
+    assert not GameState.from_json(snapshot_json(lua)).bell
+
+
 def test_rules_from_jokers():
     assert Rules.from_jokers([]) == Rules()
     # Copies change nothing; Splash and other jokers don't change the odds.

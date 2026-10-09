@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 5
+SCHEMA = 6
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -27,6 +27,7 @@ class Card:
     debuff: bool = False
     hidden: bool = False  # face-down in hand: identity unknown to the player
     highlighted: bool = False  # selected in hand
+    forced: bool = False  # Cerulean Bell: part of every play and discard
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Card:
@@ -40,6 +41,7 @@ class Card:
             debuff=bool(d.get("debuff", False)),
             hidden=bool(d.get("hidden", False)),
             highlighted=bool(d.get("highlighted", False)),
+            forced=bool(d.get("forced", False)),
         )
 
     @property
@@ -148,6 +150,16 @@ class GameState:
     def mark(self) -> bool:
         """Whether The Mark is in play: face cards are drawn face down, so face-down cards are face cards."""
         return self.blind == "The Mark" and not self.blind_disabled
+
+    @property
+    def bell(self) -> bool:
+        """Whether Cerulean Bell is in play: one hand card is forced into every play and discard."""
+        return self.blind == "Cerulean Bell" and not self.blind_disabled
+
+    @property
+    def forced(self) -> int | None:
+        """Index of the hand card Cerulean Bell forces, if any."""
+        return next((i for i, c in enumerate(self.hand) if c.forced), None)
 
     @property
     def rules(self) -> Rules:
