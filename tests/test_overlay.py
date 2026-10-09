@@ -174,6 +174,7 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "Pair@light", "100%@light", ">@muted", "100%@light",
         "Drawn cards@muted",
         "Face card: none@light", "20.0%@light",
+        " @muted",  # blank footer row
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
@@ -238,6 +239,45 @@ def test_panel_spills_into_columns(lua, tmp_path):
     assert box.T.h <= mod.max_panel_height()
     assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
     assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 2  # the 1- and 2-column tries
+
+
+def test_message_does_not_change_the_columns(lua, tmp_path):
+    rt, mod = lua
+    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
+    mod.update(1.0)
+    everything = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+                  "straight flush", "royal", "five of a kind", "flush house", "flush five")
+    answer(lua, tmp_path, targets=everything, queries=())
+    mod.update(0.1)
+    # 13 rows: 2 columns of 7 (2.9 tall) don't fit in 2.85 -- they would with
+    # the message in a footer pushing to 4 columns -- so 3 columns, with the
+    # message beside the title.
+    texts = panel_texts(rt)
+    assert texts[:2] == ["CALCULATRO@light", f"{overlay.NO_SELECTION}@muted"]
+    unselected = columns(rt, rt.eval("BOXES[#BOXES]").definition)
+    assert [len(c) for c in unselected] == [6, 6, 4]
+
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.2)
+    answer(lua, tmp_path, targets=everything, queries=())
+    mod.update(0.1)
+    assert panel_texts(rt)[1] == "Keep@muted"  # no message
+    assert [len(c) for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 6, 4]
+
+
+def test_single_column_keeps_a_footer_row(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=("pair",), queries=())
+    mod.update(0.1)
+    assert panel_texts(rt)[-1] == " @muted"  # blank, so the panel doesn't resize when a message appears
+    box = rt.eval("BOXES[#BOXES]")
+    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
+    mod.update(0.2)
+    answer(lua, tmp_path, targets=("pair",), queries=())
+    mod.update(0.1)
+    assert panel_texts(rt)[-1] == f"{overlay.NO_SELECTION}@muted"
+    assert rt.eval("BOXES[#BOXES]").T.h == box.T.h
 
 
 def test_columns_keep_the_subheader_with_its_rows(lua, tmp_path):
