@@ -97,7 +97,11 @@ def odds(state: GameState, report: Report | None, configured: bool = True) -> di
             target["discard"] = percent(row.discard)
             target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
         payload["targets"].append(target)
-    payload["cards"] = [{"name": card_label(q), "discard": percent(p)} for q, p in report.cards]
+    for q, p in report.cards:
+        card: dict[str, Any] = {"name": card_label(q)}
+        if p is not None:
+            card["discard"] = percent(p)
+        payload["cards"].append(card)
     if report.discarded and report.discards_left <= 0:
         payload["message"] = NO_DISCARDS
     return payload

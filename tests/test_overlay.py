@@ -392,7 +392,26 @@ def test_panel_without_selection(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light", "Keep@muted", "Discard@muted",
         "Trips@light", "80.0%@light", "-@light",
+        "Drawn cards@muted", "Face card: none@light", "-@light",
     ]
+
+
+def test_panel_with_only_card_queries(lua, tmp_path):
+    rt, mod = lua
+    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=(), queries=("no face",))
+    mod.update(0.1)
+    # Listed without a selection too, so the panel doesn't vanish between discards.
+    assert panel_texts(rt) == [
+        "CALCULATRO@light", "Discard@muted",
+        "Face card: none@light", "-@light",
+    ]
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.2)
+    answer(lua, tmp_path, targets=(), queries=("no face",))
+    mod.update(0.1)
+    assert panel_texts(rt)[-2:] == ["Face card: none@light", "20.0%@light"]
 
 
 def test_panel_greys_out_old_odds(lua, tmp_path):
