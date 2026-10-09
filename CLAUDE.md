@@ -10,8 +10,8 @@ Windows-only project (paths rely on `%APPDATA%`). Use the venv interpreter:
 - All tests: `.venv\Scripts\python -m pytest`
 - Single test: `.venv\Scripts\python -m pytest tests/test_engine.py::test_name`
 - Performance: `.venv\Scripts\python tests\perf\benchmark.py` (timings; `-k` filters, `--compare tests\perf\baseline.json`), and `.venv\Scripts\python -m pytest -m perf` (exact results and timings against `tests/perf/baseline.json`; skipped by a plain `pytest`). See `docs/performance/README.md`.
-- Run: `.venv\Scripts\python -m calculatro watch` (`--file` overrides the state file path). What to calculate is set in game, with the panel's target editor.
-- Install the mod into the game: `pwsh scripts/install_mod.ps1` (copies `mod/Calculatro` to `%AppData%\Balatro\Mods`; requires the Lovely injector DLL next to `Balatro.exe`). Re-run after any change to the Lua.
+- Run: the mod starts the app with the game (see below). By hand: `.venv\Scripts\python -m calculatro watch` (`--file` overrides the state file path), which shows the console output. What to calculate is set in game, with the panel's target editor.
+- Install the mod into the game: `pwsh scripts/install_mod.ps1` (copies `mod/Calculatro` to `%AppData%\Balatro\Mods`; requires the Lovely injector DLL next to `Balatro.exe`). Re-run after any change to the Lua. It also writes the venv's `pythonw.exe` path to the installed mod's `launch.txt` (skip with `-NoAutoStart`): on its first frame the mod starts `pythonw -m calculatro watch --game-pid <pid>` through LuaJIT's FFI (`ShellExecuteW`; `os.execute` would flash a console). With `--game-pid` the app exits when the game does (`process.exited`), exits at once if another instance holds the `Local\Calculatro` mutex (`process.claim_instance`; every `watch` claims it), and logs errors to `%AppData%\Balatro\calculatro.log`.
 
 No runtime dependencies; `pytest` and `lupa` are dev-only. There is no linter configured.
 
