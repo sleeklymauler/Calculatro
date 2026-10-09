@@ -122,6 +122,9 @@ def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
 
 CALCULATING = "Calculating odds..."
 NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
+RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
+ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updates the in-game "
+                   "panel: this one only shows the odds here.")
 
 
 def run_watch(source: StateSource, write: Callable[[str], None],
@@ -137,12 +140,31 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     a placeholder line, then follow directly below it.
 
     `panel` receives the payloads for the mod's odds panel: a `pending` one as
-    soon as a state arrives, then its odds.
+    soon as a state arrives, then its odds. It returns False if it couldn't
+    deliver one; that payload is then sent again every RETRY seconds until it
+    is, or a newer one replaces it.
     """
     job: Job[tuple[str, dict]] | None = None
     pending = ""  # summary of the job's state, until it's printed
     deadline = 0.0
+    unsent: dict | None = None  # the latest payload, until the panel gets it
+    retry_at = 0.0
+
+    def send(payload: dict) -> None:
+        nonlocal unsent, retry_at
+        if panel(payload) is not False:
+            if unsent is not None:
+                print("Odds file written again.", file=sys.stderr, flush=True)
+            unsent = None
+            return
+        if unsent is None:
+            print("Couldn't write the odds file (something else has it open); retrying.",
+                  file=sys.stderr, flush=True)
+        unsent, retry_at = payload, time.monotonic() + RETRY
+
     while not stop():
+        if unsent is not None and time.monotonic() >= retry_at:
+            send(unsent)
         state = source.poll()
         if state is not None:
             if job is not None:
@@ -150,13 +172,13 @@ def run_watch(source: StateSource, write: Callable[[str], None],
             job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
             targets, queries = tracked(state)
             if targets or queries:
-                panel(overlay.pending(state))
+                send(overlay.pending(state))
                 job = Job(lambda cancel, state=state, targets=targets, queries=queries:
                           calculate(state, targets, queries, cancel))
                 deadline = time.monotonic() + patience
             else:
                 write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
-                panel(overlay.odds(state, None))
+                send(overlay.odds(state, None))
                 pending = ""
         if job is None:
             time.sleep(poll_interval)
@@ -170,7 +192,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 write(pending + ("\n" + out if out else ""))
             elif out:
                 write(out)
-            panel(payload)
+            send(payload)
             job, pending = None, ""
         elif pending and time.monotonic() >= deadline:
             write(pending + "\n" + CALCULATING)
@@ -193,9 +215,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "watch":
         source = FileStateSource(args.file)
         odds_file = overlay.odds_path(source.path)
-        # Any instance claims it, so the game won't start a second one beside it.
-        if not process.claim_instance() and args.game_pid is not None:
+        # Any instance claims it, so the game won't start a second one beside it,
+        # and only one writes the panel's odds: two would clash over its file.
+        first = process.claim_instance()
+        if not first and args.game_pid is not None:
             return 0
+        panel: Callable[[dict], object] = lambda payload: overlay.write(odds_file, payload)
+        if not first:
+            print(ALREADY_RUNNING, flush=True)
+            panel = lambda payload: None
         stop = lambda: False
         if args.game_pid is not None:
             # No console (pythonw): keep errors in a log beside the state file.
@@ -204,8 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             stop = process.exited(args.game_pid)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
-            run_watch(source, lambda text: print(text, flush=True),
-                      lambda payload: overlay.write(odds_file, payload), stop=stop)
+            run_watch(source, lambda text: print(text, flush=True), panel, stop=stop)
         except KeyboardInterrupt:
             pass
     return 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from fractions import Fraction
 
 import pytest
@@ -302,6 +303,69 @@ def test_watch_sends_pending_then_odds():
     cli.run_watch(FakeSource(untracked), lambda text: None, sent.append,
                   poll_interval=0.005, stop=lambda: bool(sent))
     assert sent == [overlay.odds(untracked, None)]
+
+
+def test_watch_resends_odds_the_panel_missed(monkeypatch, capsys):
+    """A payload that couldn't be written is sent again, without a new state to prompt it."""
+    monkeypatch.setattr(cli, "RETRY", 0.01)
+    state = GameState(in_run=True, id="s:1", hand_size=1, tracked_hands=["Pair"])
+    attempts: list[dict] = []
+    delivered: list[dict] = []
+
+    def panel(payload):
+        attempts.append(payload)
+        if len(attempts) <= 3:  # the pending payload, the odds, and their first retry
+            return False
+        delivered.append(payload)
+        return True
+
+    end = time.monotonic() + 5
+    cli.run_watch(FakeSource(state), lambda text: None, panel,
+                  poll_interval=0.005, stop=lambda: bool(delivered) or time.monotonic() > end)
+    assert attempts[0] == overlay.pending(state)
+    assert delivered == [overlay.odds(state, None)]  # the odds replaced the pending payload
+    err = capsys.readouterr().err
+    assert err.count("Couldn't write the odds file") == 1 and "written again" in err
+
+
+def test_watch_drops_missed_odds_for_a_newer_state(monkeypatch):
+    monkeypatch.setattr(cli, "RETRY", 0.01)
+    old = GameState(in_run=True, id="s:1", hand_size=1, tracked_hands=["Pair"])
+    new = GameState(in_run=True, id="s:2", hand_size=1)
+    source = FakeSource(old)
+    delivered: list[dict] = []
+
+    def panel(payload):
+        if payload["id"] == "s:1":
+            source.queue[:] = [new]  # the game moves on while the file is locked
+            return False
+        delivered.append(payload)
+        return True
+
+    end = time.monotonic() + 5
+    cli.run_watch(source, lambda text: None, panel, poll_interval=0.005,
+                  stop=lambda: bool(delivered) or time.monotonic() > end)
+    assert delivered == [overlay.odds(new, None)]
+
+
+def test_write_fails_softly(tmp_path, monkeypatch):
+    path = tmp_path / "calculatro_odds.json"
+    payload = {"schema": overlay.SCHEMA, "id": "s:1", "pending": True}
+    (tmp_path / "calculatro_odds.json.tmp").mkdir()  # the temporary file can't be written
+    assert overlay.write(path, payload) is False
+    (tmp_path / "calculatro_odds.json.tmp").rmdir()
+
+    monkeypatch.setattr(overlay.time, "sleep", lambda s: None)
+
+    def locked(src, dst):
+        raise PermissionError
+    monkeypatch.setattr(overlay.os, "replace", locked)
+    assert overlay.write(path, payload) is False
+
+    def gone(src, dst):  # e.g. removed by something else
+        raise FileNotFoundError
+    monkeypatch.setattr(overlay.os, "replace", gone)
+    assert overlay.write(path, payload) is False
 
 
 # --- Lua side --------------------------------------------------------------
