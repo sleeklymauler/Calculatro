@@ -65,7 +65,8 @@ G = {
 }
 G.deck.T.y = 8.9
 BOXES = {}  -- every UIBox created, newest last
--- Mock layout: the panel is 3.25 wide per column, 0.5 + 0.3 per row of its tallest column.
+-- Mock layout: the panel is 3.25 wide per column, and 0.5 + 0.3 per row of its
+-- tallest column, plus 0.3 for a footer (a body row after the odds).
 local function panel_size(node)
   local columns, rows = 0, 0
   local function walk(n)
@@ -75,7 +76,9 @@ local function panel_size(node)
     for _, child in ipairs(n.nodes or {}) do walk(child) end
   end
   walk(node)
-  return 3.25 * math.max(columns, 1), 0.5 + 0.3 * rows
+  local body = node.nodes[1].nodes[1].nodes  -- title, odds, footer
+  local footer = (columns > 0 and #body > 2) and 0.3 or 0
+  return 3.25 * math.max(columns, 1), 0.5 + 0.3 * rows + footer
 end
 function UIBox(args)
   local w, h = panel_size(args.definition)

@@ -361,7 +361,8 @@ function Calculatro.panel_model()
     return model
 end
 
-local NAME_W, VALUE_W, GAP_W = 1.4, 0.75, 0.25
+local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fits "Discard 5"
+local TITLE_W, COLUMN_GAP = 1.6, 0.2
 local SCALE = 0.32
 
 local function label(text, colour, scale)
@@ -396,7 +397,7 @@ local function entries(model, colours)
                 cell(NAME_W, 'cl', label(t.name)),
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
                 t.discard and cell(GAP_W, 'cm', label('>', colours.muted)) or blank(GAP_W),
-                cell(VALUE_W, 'cr', value(t.discard, colour)),
+                cell(DISCARD_W, 'cr', value(t.discard, colour)),
             })
         end
     end
@@ -407,7 +408,7 @@ local function entries(model, colours)
         out[#out + 1] = function()
             local r = { cell(NAME_W, 'cl', label(c.name)) }
             if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
-            r[#r + 1] = cell(VALUE_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
+            r[#r + 1] = cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
             return row(r)
         end
     end
@@ -422,6 +423,12 @@ end
 -- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, BOSS_MAIN inset.
 -- The odds rows fill `columns` columns (default 1) top to bottom, left to
 -- right, each column with its own Keep/Discard header.
+--
+-- The message (model.footer) must not change the panel's height, or the
+-- column count would change whenever it comes and goes (e.g. selecting
+-- cards): with several columns it goes on the title row, which has room
+-- beside "CALCULATRO"; a single column is too narrow for that, so it always
+-- has a footer row, left blank when there's no message.
 function Calculatro.definition(model, columns)
     local C = G.C
     -- Solid greys: the game's semi-transparent TEXT_INACTIVE vanishes on some
@@ -438,7 +445,7 @@ function Calculatro.definition(model, columns)
             nodes[#nodes + 1] = cell(VALUE_W, 'cr', label('Keep', colours.muted))
             nodes[#nodes + 1] = blank(GAP_W)
         end
-        nodes[#nodes + 1] = cell(VALUE_W, 'cr', label(model.discard, colours.muted))
+        nodes[#nodes + 1] = cell(DISCARD_W, 'cr', label(model.discard, colours.muted))
         return row(nodes)
     end
 
@@ -456,20 +463,30 @@ function Calculatro.definition(model, columns)
                 rows[#rows + 1] = row({ label('Drawn cards', colours.muted, SCALE * 0.85) })
             end
         end
-        if #column_nodes > 0 then column_nodes[#column_nodes + 1] = blank(0.2) end
+        if #column_nodes > 0 then column_nodes[#column_nodes + 1] = blank(COLUMN_GAP) end
         column_nodes[#column_nodes + 1] = { n = G.UIT.C, config = { align = 'tl', id = 'calculatro_column' }, nodes = rows }
         i = last + 1
     end
 
-    local width = (NAME_W + VALUE_W + (has_keep and VALUE_W + GAP_W or 0)) * math.max(1, #column_nodes)
-    local body = {
-        row({ label('CALCULATRO', C.UI.TEXT_LIGHT, 0.36) }),
-    }
-    if #column_nodes > 0 then
+    local count = math.max(1, (#column_nodes + 1) / 2)
+    local column_w = NAME_W + (has_keep and VALUE_W + GAP_W or 0) + DISCARD_W
+    local width = column_w * count + COLUMN_GAP * (count - 1)
+    local title = label('CALCULATRO', C.UI.TEXT_LIGHT, 0.36)
+    local message = model.footer and label(model.footer, colours.muted, SCALE * 0.85)
+    local body = {}
+    if count > 1 and message then
+        body[1] = row({
+            { n = G.UIT.C, config = { align = 'cl', minw = TITLE_W }, nodes = { title } },
+            cell(width - TITLE_W, 'cr', message),
+        })
+    else
+        body[1] = row({ title })
+    end
+    if #list > 0 then
         body[#body + 1] = { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = C.DYN_UI.BOSS_MAIN, emboss = 0.05 }, nodes = column_nodes }
     end
-    if model.footer then
-        body[#body + 1] = row({ label(model.footer, colours.muted, SCALE * 0.85) }, { align = 'cm', maxw = width })
+    if count == 1 then
+        body[#body + 1] = row({ message or label(' ', colours.muted, SCALE * 0.85) }, { align = 'cm', maxw = width })
     end
     return { n = G.UIT.ROOT, config = { align = 'cm', padding = 0.05, r = 0.1, colour = C.DYN_UI.MAIN }, nodes = {
         { n = G.UIT.R, config = { align = 'cm', padding = 0.08, r = 0.1, colour = C.DYN_UI.BOSS_DARK }, nodes = {
