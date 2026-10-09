@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
-from .state import GameState
+from .state import SCHEMA, GameState, SchemaMismatch
 
 
 def default_state_path() -> Path:
@@ -29,9 +30,30 @@ class FileStateSource:
         self.path = path or default_state_path()
         self.poll_interval = poll_interval
         self._last_key: tuple[int, int] | None = None
+        self._mismatch: object = None  # the last schema reported by _ignore
+
+    def _ignore(self, e: SchemaMismatch) -> None:
+        """Report a snapshot from another version of the mod, once per schema.
+
+        It's usually the previous version's file, left from the last session
+        until the mod writes its first snapshot, or the mod wasn't reinstalled
+        after an update. Either way the app waits for one it can read.
+        """
+        if e.schema == self._mismatch:
+            return
+        self._mismatch = e.schema
+        if isinstance(e.schema, int) and e.schema < SCHEMA:
+            hint = "if it persists, re-run scripts/install_mod.ps1 to update the mod"
+        else:
+            hint = "if it persists, update the app to match the mod"
+        print(f"Ignoring {self.path.name}: it has schema {e.schema!r}, and this app reads {SCHEMA} "
+              f"({hint}).", file=sys.stderr, flush=True)
 
     def read(self) -> GameState | None:
-        """Return the current state, or None if the file is missing or mid-write."""
+        """Return the current state, or None if the file is missing or mid-write.
+
+        Raises SchemaMismatch for a file from another version of the mod.
+        """
         try:
             raw = self.path.read_text(encoding="utf-8")
             return GameState.from_json(json.loads(raw))
@@ -47,7 +69,12 @@ class FileStateSource:
         key = (st.st_mtime_ns, st.st_size)
         if key == self._last_key:
             return None
-        state = self.read()
+        try:
+            state = self.read()
+        except SchemaMismatch as e:
+            self._ignore(e)
+            self._last_key = key  # not read again until it changes
+            return None
         if state is not None:
             self._last_key = key
         return state

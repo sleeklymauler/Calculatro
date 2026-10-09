@@ -12,7 +12,7 @@ from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.source import FileStateSource
 from calculatro.rules import Rules
-from calculatro.state import GameState, Joker
+from calculatro.state import SCHEMA, GameState, Joker, SchemaMismatch
 
 lupa = pytest.importorskip("lupa")
 
@@ -255,6 +255,36 @@ def test_missing_or_partial_file_returns_none(tmp_path):
     assert FileStateSource(path).read() is None
     path.write_text('{"schema": 1, "in_ru')
     assert FileStateSource(path).read() is None
+
+
+def test_old_schema_waits_for_a_current_snapshot(lua, tmp_path, capsys):
+    """A file from another version of the mod (the last session's, or a mod not
+    reinstalled after an update) is skipped with one message, not fatal."""
+    _, mod = lua
+    path = tmp_path / "calculatro_state.json"
+    source = FileStateSource(path)
+    path.write_text(json.dumps({"schema": SCHEMA - 1, "id": "old:1", "in_run": False}))
+    with pytest.raises(SchemaMismatch):
+        source.read()
+    assert source.poll() is None
+    assert source.poll() is None  # unchanged: not read or reported again
+    err = capsys.readouterr().err
+    assert err.count("Ignoring") == 1 and "install_mod.ps1" in err
+
+    path.write_text(json.dumps({"schema": SCHEMA - 1, "id": "old:2", "in_run": False}))
+    assert source.poll() is None
+    assert capsys.readouterr().err == ""  # the same schema is reported once
+
+    mod.update(1.0)  # the mod's first snapshot
+    state = source.poll()
+    assert state is not None and state.in_run and len(state.hand) == 5
+
+
+def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
+    path = tmp_path / "calculatro_state.json"
+    path.write_text(json.dumps({"schema": SCHEMA + 1, "in_run": False}))
+    assert FileStateSource(path).poll() is None
+    assert "update the app" in capsys.readouterr().err
 
 
 def test_launch_command(lua, tmp_path):

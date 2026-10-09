@@ -78,6 +78,14 @@ def _strings(raw: Any) -> list[str]:
     return [s for s in raw or [] if isinstance(s, str)]
 
 
+class SchemaMismatch(ValueError):
+    """A snapshot written by a different version of the mod."""
+
+    def __init__(self, schema: Any):
+        super().__init__(f"unsupported state schema {schema!r} (expected {SCHEMA})")
+        self.schema = schema
+
+
 @dataclass(frozen=True)
 class GameState:
     in_run: bool
@@ -105,7 +113,7 @@ class GameState:
     def from_json(cls, d: dict[str, Any]) -> GameState:
         schema = d.get("schema")
         if schema != SCHEMA:
-            raise ValueError(f"unsupported state schema {schema!r} (expected {SCHEMA})")
+            raise SchemaMismatch(schema)
         if not d.get("in_run"):
             return cls(in_run=False, id=d.get("id"))
         tracked = d.get("tracked") or {}
