@@ -351,17 +351,16 @@ function Calculatro.panel_model()
         end
         stale = message ~= nil or nil
     end
-    local model = { targets = array(), cards = array(), message = message, stale = stale, discard = 'Discard' }
+    local model = { targets = array(), cards = array(), message = message, stale = stale }
     if odds then
         model.targets, model.cards = odds.targets or array(), odds.cards or array()
-        if (odds.selected or 0) > 0 then model.discard = 'Discard ' .. odds.selected end
         model.message = message or odds.message
     end
     if #model.targets == 0 and #model.cards == 0 and not model.message then return nil end
     return model
 end
 
-local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fits "Discard 5"
+local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fits "Discard"
 -- Card query rows have no Keep value, so their names also take its place:
 -- labels like "Lucky card: 1+" are too long for NAME_W, and text wider than
 -- its cell is shrunk. Card-only columns are as wide as target columns too.
@@ -432,60 +431,60 @@ local function row(nodes, config)
     return { n = G.UIT.R, config = config, nodes = nodes }
 end
 
--- The odds rows in order: targets, then the drawn-card queries (under a
--- subheader when there are targets too). Each is {build = fn} or {subheader = true}.
-local function entries(model, colours)
+-- The odds rows in sections, each filling columns of its own: the target
+-- hands (kind 'hands'), then the drawn-card queries ('cards'). Empty
+-- sections are left out. Each row is a function building it.
+local function sections(model, colours)
     local C = G.C
-    local has_keep = #model.targets > 0
     local function value(text, colour) return label(text or '-', model.stale and colours.stale or colour) end
-    local out = {}
+    local hands, cards = {}, {}
     for _, t in ipairs(model.targets) do
         local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
-        out[#out + 1] = { build = function()
+        hands[#hands + 1] = function()
             return row({
                 cell(NAME_W, 'cl', label(t.name)),
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
                 t.discard and cell(GAP_W, 'cm', label('>', colours.muted)) or blank(GAP_W),
                 cell(DISCARD_W, 'cr', value(t.discard, colour)),
             })
-        end }
-    end
-    if #model.cards > 0 and has_keep then
-        out[#out + 1] = { subheader = true }
+        end
     end
     for _, c in ipairs(model.cards) do
-        out[#out + 1] = { build = function()
+        cards[#cards + 1] = function()
             return row({
                 cell(CARD_NAME_W, 'cl', name_label(c.name)),
                 cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT)),
             })
-        end }
+        end
     end
+    local out = {}
+    if #hands > 0 then out[#out + 1] = { kind = 'hands', rows = hands } end
+    if #cards > 0 then out[#out + 1] = { kind = 'cards', rows = cards } end
     return out
 end
 
--- Number of odds rows.
+-- Rows in the longest section: the most a column ever needs.
 function Calculatro.row_count(model)
-    return #entries(model, {})
+    local most = 0
+    for _, section in ipairs(sections(model, {})) do most = math.max(most, #section.rows) end
+    return most
 end
 
--- The odds rows split into columns of at most `per` rows, as {first, last}
--- spans. A column never ends on the subheader (it belongs with the rows
--- below it), so that one is a row short.
+-- The sections split into columns of at most `per` rows, as
+-- {section, first, last} spans; each section starts a new column.
 local function split(list, per)
-    local spans, i = {}, 1
-    while i <= #list do
-        local last = math.min(i + per - 1, #list)
-        if last > i and list[last].subheader then last = last - 1 end
-        spans[#spans + 1] = { i, last }
-        i = last + 1
+    local spans = {}
+    for _, section in ipairs(list) do
+        for first = 1, #section.rows, per do
+            spans[#spans + 1] = { section = section, first = first, last = math.min(first + per - 1, #section.rows) }
+        end
     end
     return spans
 end
 
 -- Number of columns with at most `per` rows each.
 function Calculatro.column_count(model, per)
-    return #split(entries(model, {}), per)
+    return #split(sections(model, {}), per)
 end
 
 -- The inset behind the odds: what BOSS_MAIN is outside boss blinds
@@ -499,8 +498,9 @@ end
 
 -- Styled like the HUD sidebar: MAIN frame, BOSS_DARK body, and an inset that
 -- stays dark whatever the blind (inset_colour). The odds rows fill columns
--- of at most `per` rows (default: all in one) top to bottom, left to right,
--- each column with its own Keep/Discard header.
+-- of at most `per` rows (default: each section in one) top to bottom, left
+-- to right, target hands and drawn cards in columns of their own, each with
+-- its section's header ("Hands  Keep  Discard" or "Drawn cards  Discard").
 --
 -- The message (model.message) must not change the panel's size, or the
 -- columns would change whenever it comes and goes: beside the odds it goes
@@ -512,30 +512,27 @@ function Calculatro.definition(model, per)
     -- Solid greys: the game's semi-transparent TEXT_INACTIVE vanishes on some
     -- bosses' panel colours.
     local colours = { muted = C.JOKER_GREY, stale = C.UI.BACKGROUND_INACTIVE }
-    local has_keep = #model.targets > 0
-    local list = entries(model, colours)
-    local spans = split(list, math.max(1, per or #list))
+    local list = sections(model, colours)
+    local spans = split(list, math.max(1, per or Calculatro.row_count(model)))
 
-    local function header()
-        local nodes = { blank(has_keep and NAME_W or CARD_NAME_W) }
-        if has_keep then
-            nodes[#nodes + 1] = cell(VALUE_W, 'cr', label('Keep', colours.muted))
-            nodes[#nodes + 1] = blank(GAP_W)
+    local function header(kind)
+        local discard = cell(DISCARD_W, 'cr', label('Discard', colours.muted))
+        if kind == 'cards' then
+            return row({ cell(CARD_NAME_W, 'cl', label('Drawn cards', colours.muted)), discard })
         end
-        nodes[#nodes + 1] = cell(DISCARD_W, 'cr', label(model.discard, colours.muted))
-        return row(nodes)
+        return row({
+            cell(NAME_W, 'cl', label('Hands', colours.muted)),
+            cell(VALUE_W, 'cr', label('Keep', colours.muted)),
+            blank(GAP_W),
+            discard,
+        })
     end
 
     local column_nodes = {}
     for _, span in ipairs(spans) do
-        local rows = { header() }
-        for k = span[1], span[2] do
-            local entry = list[k]
-            if entry.subheader then
-                rows[#rows + 1] = row({ label('Drawn cards', colours.muted, SCALE * 0.85) })
-            else
-                rows[#rows + 1] = entry.build()
-            end
+        local rows = { header(span.section.kind) }
+        for k = span.first, span.last do
+            rows[#rows + 1] = span.section.rows[k]()
         end
         if #column_nodes > 0 then column_nodes[#column_nodes + 1] = blank(COLUMN_GAP) end
         column_nodes[#column_nodes + 1] = { n = G.UIT.C, config = { align = 'tl', id = 'calculatro_column' }, nodes = rows }
@@ -606,14 +603,14 @@ local function build_panel(model, per)
 end
 
 -- Most columns: a 4th reaches the HUD sidebar. The app limits what can be
--- tracked (overlay.MAX_TRACKED) so 3 columns of 6 rows fit; this is only a
--- safety net.
+-- tracked (overlay.columns_needed) so 3 columns of 6 rows fit; this is only
+-- a safety net.
 Calculatro.max_columns = 3
 
 -- Rebuilds the panel when what it shows changes; removes it outside blinds.
 -- Fills each column with as many rows as keep it clear of the consumables
 -- before starting the next; a box's size is only known once it's built, so it
--- tries all rows in one column, then one fewer per column, and so on.
+-- tries each section in one column, then one fewer row per column, and so on.
 function Calculatro.refresh_panel()
     local model = Calculatro.visible and Calculatro.in_blind() and Calculatro.panel_model() or nil
     local key = model and encode(model)

@@ -172,9 +172,13 @@ def main(argv: list[str] | None = None) -> int:
                        help='odds for the drawn cards, e.g. "queen", "2+ queens", "no face cards", '
                             '"exactly 1 spade", "2 of clubs"; repeat for several')
     args = parser.parse_args(argv)
-    if args.cmd == "watch" and len(args.target) + len(args.cards) > overlay.MAX_TRACKED:
-        parser.error(f"at most {overlay.MAX_TRACKED} targets and card queries in total "
-                     f"(got {len(args.target) + len(args.cards)}), so the in-game panel fits")
+    if args.cmd == "watch":
+        columns = overlay.columns_needed(len(args.target), len(args.cards))
+        if columns > overlay.MAX_COLUMNS:
+            parser.error(f"too many targets and card queries for the in-game panel: it fits "
+                         f"{overlay.MAX_COLUMNS} columns of {overlay.ROWS_PER_COLUMN} rows, with targets "
+                         f"(plus \"Any target\" when there are several) and card queries in columns "
+                         f"of their own, and these need {columns}")
     # Suit symbols: Windows pipes/redirects default to cp1252.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")

@@ -24,11 +24,17 @@ from .state import SUIT_SHORT, GameState
 
 SCHEMA = 2  # `odds_schema` in calculatro.lua
 
-# Most targets and card queries together. The panel fits 3 columns
-# (`max_columns` in calculatro.lua; a 4th reaches the HUD sidebar) of 6 rows
-# under the consumables: 18 rows, two of which may be the "Any target" row and
-# the "Drawn cards" subheader.
-MAX_TRACKED = 16
+# The panel fits 3 columns (`max_columns` in calculatro.lua; a 4th reaches
+# the HUD sidebar) of 6 rows under the consumables. Target hands and card
+# queries each fill columns of their own.
+ROWS_PER_COLUMN = 6
+MAX_COLUMNS = 3
+
+
+def columns_needed(targets: int, queries: int) -> int:
+    """Columns the panel needs for this many targets and card queries."""
+    hand_rows = targets + (targets > 1)  # with "Any target" above several
+    return -(-hand_rows // ROWS_PER_COLUMN) - (-queries // ROWS_PER_COLUMN)
 
 NO_DISCARDS = "No discards left"  # short: it sits beside the panel's title
 NO_TARGETS = "No targets set: run with -t or -c"
@@ -90,7 +96,6 @@ def odds(state: GameState, report: Report | None, configured: bool = True) -> di
         if not configured and state.in_run and state.hand:
             payload["message"] = NO_TARGETS
         return payload
-    payload["selected"] = len(report.discarded)
     for row in report.targets:
         target: dict[str, Any] = {"name": SHORT_NAMES.get(row.name, row.name), "keep": percent(row.keep)}
         if row.discard is not None:
