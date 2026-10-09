@@ -22,6 +22,12 @@ from .state import SUIT_SHORT, GameState
 
 SCHEMA = 1  # `odds_schema` in calculatro.lua
 
+# Most targets and card queries together. The panel fits 3 columns
+# (`max_columns` in calculatro.lua; a 4th reaches the HUD sidebar) of 5 rows
+# under the consumables: 15 rows, two of which may be the "Any target" row and
+# the "Drawn cards" subheader.
+MAX_TRACKED = 13
+
 NO_SELECTION = "Select cards to compare a discard"
 NO_DISCARDS = "No discards left this round"
 NO_TARGETS = "No targets set: run with -t or -c"
