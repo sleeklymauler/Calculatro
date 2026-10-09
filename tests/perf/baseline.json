@@ -5254,6 +5254,1286 @@
     0.025186
    ],
    "probability": "1"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0007391200015263166,
+   "stdev": 7.018120778399002e-05,
+   "median": 0.0007747000017843675,
+   "min": 0.0006228000020200852,
+   "max": 0.0007919000017864164,
+   "times": [
+    0.000792,
+    0.000782,
+    0.000775,
+    0.000724,
+    0.000623
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.001417819999915082,
+   "stdev": 0.0001323331669037245,
+   "median": 0.0013620999998238403,
+   "min": 0.0013484000010066666,
+   "max": 0.0016541000004508533,
+   "times": [
+    0.001348,
+    0.001362,
+    0.001355,
+    0.001654,
+    0.00137
+   ],
+   "probability": "200099/1456840"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.0029281200004334096,
+   "stdev": 0.0003439662212560744,
+   "median": 0.003013099998497637,
+   "min": 0.0025678000019979663,
+   "max": 0.0033731000003172085,
+   "times": [
+    0.002568,
+    0.002595,
+    0.003092,
+    0.003373,
+    0.003013
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0039105800009565424,
+   "stdev": 0.0002718806752124606,
+   "median": 0.00400660000013886,
+   "min": 0.0035233000016887672,
+   "max": 0.004158399999141693,
+   "times": [
+    0.003523,
+    0.004158,
+    0.004125,
+    0.00374,
+    0.004007
+   ],
+   "probability": "29/24080"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.02424345999970683,
+   "stdev": 0.0005086546658525547,
+   "median": 0.024085199998808093,
+   "min": 0.023680999998759944,
+   "max": 0.024975600001198472,
+   "times": [
+    0.024518,
+    0.024976,
+    0.023957,
+    0.023681,
+    0.024085
+   ],
+   "probability": "64751/728420"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | No jokers": {
+   "runs": 5,
+   "mean": 0.0010131199996976648,
+   "stdev": 0.00011027103904983716,
+   "median": 0.0010446999986015726,
+   "min": 0.000865699999849312,
+   "max": 0.0011187999989488162,
+   "times": [
+    0.000932,
+    0.001104,
+    0.000866,
+    0.001045,
+    0.001119
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.0018658400003914721,
+   "stdev": 0.00025236067062096965,
+   "median": 0.0018022000003838912,
+   "min": 0.0016161999992618803,
+   "max": 0.002287600000272505,
+   "times": [
+    0.00186,
+    0.001802,
+    0.001616,
+    0.001764,
+    0.002288
+   ],
+   "probability": "309107/5430040"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | No jokers": {
+   "runs": 5,
+   "mean": 0.004340039999078726,
+   "stdev": 0.00012028259701144593,
+   "median": 0.004318800001783529,
+   "min": 0.004183399996691151,
+   "max": 0.004488499998842599,
+   "times": [
+    0.004283,
+    0.004427,
+    0.004488,
+    0.004319,
+    0.004183
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | No jokers": {
+   "runs": 5,
+   "mean": 0.005230680000386201,
+   "stdev": 0.00033665648171632607,
+   "median": 0.005239900001470232,
+   "min": 0.004765800000313902,
+   "max": 0.005677199998899596,
+   "times": [
+    0.005677,
+    0.00524,
+    0.004766,
+    0.005373,
+    0.005098
+   ],
+   "probability": "17863/14932610"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.04849557999914396,
+   "stdev": 0.0009074745799671626,
+   "median": 0.04859319999741274,
+   "min": 0.04733779999878607,
+   "max": 0.049481800000648946,
+   "times": [
+    0.049229,
+    0.047837,
+    0.047338,
+    0.048593,
+    0.049482
+   ],
+   "probability": "35593573/238921760"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0007515400007832796,
+   "stdev": 6.0879495346901095e-05,
+   "median": 0.0007585000021208543,
+   "min": 0.0006565000003320165,
+   "max": 0.0008215999987442046,
+   "times": [
+    0.000759,
+    0.000822,
+    0.000657,
+    0.000742,
+    0.000779
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.002762859999347711,
+   "stdev": 0.0002217635174234304,
+   "median": 0.002734599998802878,
+   "min": 0.002570600001490675,
+   "max": 0.0031343999980890658,
+   "times": [
+    0.002618,
+    0.002735,
+    0.002756,
+    0.002571,
+    0.003134
+   ],
+   "probability": "1511863/2913680"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.002940359999774955,
+   "stdev": 0.0002369597698763703,
+   "median": 0.002997800002049189,
+   "min": 0.002658299999893643,
+   "max": 0.003217399997083703,
+   "times": [
+    0.002736,
+    0.003092,
+    0.003217,
+    0.002998,
+    0.002658
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.06386005999956978,
+   "stdev": 0.0014182541265990042,
+   "median": 0.06339870000010706,
+   "min": 0.06274390000180574,
+   "max": 0.06633549999969546,
+   "times": [
+    0.063399,
+    0.066335,
+    0.062744,
+    0.063243,
+    0.063579
+   ],
+   "probability": "206523/2913680"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.13528080000032788,
+   "stdev": 0.0018521185498105782,
+   "median": 0.13574809999772697,
+   "min": 0.13225940000120318,
+   "max": 0.13673980000021402,
+   "times": [
+    0.136736,
+    0.13674,
+    0.132259,
+    0.135748,
+    0.134921
+   ],
+   "probability": "92061/582736"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Four Fingers": {
+   "runs": 5,
+   "mean": 0.0011347799998475238,
+   "stdev": 0.00016536950099953053,
+   "median": 0.0011266000001342036,
+   "min": 0.0009213999983330723,
+   "max": 0.001333599997451529,
+   "times": [
+    0.000921,
+    0.001127,
+    0.001037,
+    0.001256,
+    0.001334
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.004960299999947892,
+   "stdev": 0.0005715829036023646,
+   "median": 0.004631299998436589,
+   "min": 0.004538699999102391,
+   "max": 0.00589870000112569,
+   "times": [
+    0.004539,
+    0.005899,
+    0.004619,
+    0.004631,
+    0.005114
+   ],
+   "probability": "20892197/59730440"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Four Fingers": {
+   "runs": 5,
+   "mean": 0.004251740000472637,
+   "stdev": 0.00022883802786385015,
+   "median": 0.0042179000010946766,
+   "min": 0.004004700000223238,
+   "max": 0.004512999999860767,
+   "times": [
+    0.004063,
+    0.004005,
+    0.004218,
+    0.004513,
+    0.00446
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Four Fingers": {
+   "runs": 5,
+   "mean": 0.3538211799997953,
+   "stdev": 0.004892946561266867,
+   "median": 0.35669029999917257,
+   "min": 0.34688050000113435,
+   "max": 0.3581369999992603,
+   "times": [
+    0.346881,
+    0.356916,
+    0.35669,
+    0.350482,
+    0.358137
+   ],
+   "probability": "4557225/47784352"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.7892985200000112,
+   "stdev": 0.009080938632109388,
+   "median": 0.7892877999984194,
+   "min": 0.777304200000799,
+   "max": 0.8027978999998595,
+   "times": [
+    0.789288,
+    0.787402,
+    0.802798,
+    0.7897,
+    0.777304
+   ],
+   "probability": "56746741/238921760"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Shortcut": {
+   "runs": 5,
+   "mean": 0.0006737199997587595,
+   "stdev": 6.294185420572217e-05,
+   "median": 0.0006430999965232331,
+   "min": 0.0006149000000732485,
+   "max": 0.0007557999997516163,
+   "times": [
+    0.000756,
+    0.000726,
+    0.000643,
+    0.000615,
+    0.000629
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.0016074200000730343,
+   "stdev": 0.00021097123434739447,
+   "median": 0.0015600000006088521,
+   "min": 0.00141789999906905,
+   "max": 0.001909200000227429,
+   "times": [
+    0.00156,
+    0.001909,
+    0.001418,
+    0.001728,
+    0.001422
+   ],
+   "probability": "200099/1456840"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Shortcut": {
+   "runs": 5,
+   "mean": 0.0033710399991832675,
+   "stdev": 0.0005127345199247265,
+   "median": 0.0035910999977204483,
+   "min": 0.0027153999981237575,
+   "max": 0.003942499999538995,
+   "times": [
+    0.003942,
+    0.003648,
+    0.003591,
+    0.002959,
+    0.002715
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.013199559999338816,
+   "stdev": 0.0007075695745170699,
+   "median": 0.01333879999947385,
+   "min": 0.012497199997596908,
+   "max": 0.014201499998307554,
+   "times": [
+    0.012539,
+    0.012497,
+    0.014201,
+    0.013422,
+    0.013339
+   ],
+   "probability": "37619/1456840"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.0404982400003064,
+   "stdev": 0.0012730429774717496,
+   "median": 0.0400043999979971,
+   "min": 0.03918170000179089,
+   "max": 0.04197639999983949,
+   "times": [
+    0.041729,
+    0.0396,
+    0.039182,
+    0.041976,
+    0.040004
+   ],
+   "probability": "65657/582736"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Shortcut": {
+   "runs": 5,
+   "mean": 0.00102382000113721,
+   "stdev": 5.361023226128238e-05,
+   "median": 0.0010351999990234617,
+   "min": 0.0009599000004527625,
+   "max": 0.0010858000023290515,
+   "times": [
+    0.001086,
+    0.00096,
+    0.00106,
+    0.001035,
+    0.000978
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.001930079999146983,
+   "stdev": 0.00035177446926335437,
+   "median": 0.0019137999988743104,
+   "min": 0.0016264999976556282,
+   "max": 0.0025009999990288634,
+   "times": [
+    0.001955,
+    0.001626,
+    0.002501,
+    0.001654,
+    0.001914
+   ],
+   "probability": "309107/5430040"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Shortcut": {
+   "runs": 5,
+   "mean": 0.0045559999998658895,
+   "stdev": 0.00031271203205377807,
+   "median": 0.004411699999764096,
+   "min": 0.004293199999665376,
+   "max": 0.0050706000001810025,
+   "times": [
+    0.005071,
+    0.004412,
+    0.004293,
+    0.004626,
+    0.004378
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Shortcut": {
+   "runs": 5,
+   "mean": 0.01648057999991579,
+   "stdev": 0.0003754770923649078,
+   "median": 0.016462899999169167,
+   "min": 0.015967999999702442,
+   "max": 0.016912899998715147,
+   "times": [
+    0.016296,
+    0.016463,
+    0.015968,
+    0.016913,
+    0.016763
+   ],
+   "probability": "1346333/238921760"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.08748123999976087,
+   "stdev": 0.001230751579908121,
+   "median": 0.08757250000053318,
+   "min": 0.08573400000022957,
+   "max": 0.08919139999852632,
+   "times": [
+    0.087643,
+    0.087573,
+    0.085734,
+    0.089191,
+    0.087265
+   ],
+   "probability": "3660991/23892176"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0007281799989868887,
+   "stdev": 8.895991858702246e-05,
+   "median": 0.0007506000001740176,
+   "min": 0.0006064999979571439,
+   "max": 0.0008362999978999142,
+   "times": [
+    0.000836,
+    0.000751,
+    0.000676,
+    0.000772,
+    0.000606
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.002478479999990668,
+   "stdev": 0.00030835723908841827,
+   "median": 0.002353100000618724,
+   "min": 0.002284700000018347,
+   "max": 0.0030251999996835366,
+   "times": [
+    0.002398,
+    0.003025,
+    0.002353,
+    0.002331,
+    0.002285
+   ],
+   "probability": "1511863/2913680"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0031156999997620006,
+   "stdev": 0.00041730844193386523,
+   "median": 0.00330989999929443,
+   "min": 0.0026409999991301447,
+   "max": 0.0035318000009283423,
+   "times": [
+    0.00331,
+    0.003532,
+    0.003402,
+    0.002641,
+    0.002693
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.20028458000015234,
+   "stdev": 0.00854991659010589,
+   "median": 0.19641240000055404,
+   "min": 0.19401569999899948,
+   "max": 0.21510879999914323,
+   "times": [
+    0.194016,
+    0.196412,
+    0.196021,
+    0.199865,
+    0.215109
+   ],
+   "probability": "146193/582736"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.3014157800003886,
+   "stdev": 0.0048025891088486605,
+   "median": 0.2997331000005943,
+   "min": 0.29655089999869233,
+   "max": 0.3090940000001865,
+   "times": [
+    0.299733,
+    0.302606,
+    0.296551,
+    0.299095,
+    0.309094
+   ],
+   "probability": "7971/24080"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.0010622000016155652,
+   "stdev": 0.00011949365989349293,
+   "median": 0.0010252000029140618,
+   "min": 0.0009109000020544045,
+   "max": 0.0012268999998923391,
+   "times": [
+    0.001025,
+    0.001126,
+    0.001022,
+    0.000911,
+    0.001227
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.004876040000090143,
+   "stdev": 0.0003925154248958776,
+   "median": 0.005010100001527462,
+   "min": 0.004265299998223782,
+   "max": 0.005238900001131697,
+   "times": [
+    0.005142,
+    0.004724,
+    0.004265,
+    0.00501,
+    0.005239
+   ],
+   "probability": "20892197/59730440"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.004239339999912772,
+   "stdev": 0.00039185918059073355,
+   "median": 0.004342299998825183,
+   "min": 0.00368960000196239,
+   "max": 0.004735200000141049,
+   "times": [
+    0.00438,
+    0.004342,
+    0.004735,
+    0.00369,
+    0.00405
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 1.1171088000010059,
+   "stdev": 0.017918806087784813,
+   "median": 1.117348400002811,
+   "min": 1.0968720000018948,
+   "max": 1.1451487000013003,
+   "times": [
+    1.118387,
+    1.145149,
+    1.107788,
+    1.096872,
+    1.117348
+   ],
+   "probability": "22801311/119460880"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 1.8514636200001404,
+   "stdev": 0.020075142099452024,
+   "median": 1.8512330000012298,
+   "min": 1.8326166000006197,
+   "max": 1.8838340000002063,
+   "times": [
+    1.883834,
+    1.837052,
+    1.852582,
+    1.832617,
+    1.851233
+   ],
+   "probability": "77938687/238921760"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Smeared": {
+   "runs": 5,
+   "mean": 0.0006198799994308502,
+   "stdev": 1.9055235482484145e-05,
+   "median": 0.0006231000006664544,
+   "min": 0.0005885999999009073,
+   "max": 0.0006407000000763219,
+   "times": [
+    0.000622,
+    0.000641,
+    0.000625,
+    0.000589,
+    0.000623
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0003204200002073776,
+   "stdev": 1.4227684129134388e-05,
+   "median": 0.00031630000012228265,
+   "min": 0.00030920000062906183,
+   "max": 0.0003440000000409782,
+   "times": [
+    0.000309,
+    0.000316,
+    0.000323,
+    0.00031,
+    0.000344
+   ],
+   "probability": "2845/3784"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Smeared": {
+   "runs": 5,
+   "mean": 0.0027718400007870512,
+   "stdev": 0.00018399930109203142,
+   "median": 0.0027382000007492024,
+   "min": 0.002605900001071859,
+   "max": 0.0030471999998553656,
+   "times": [
+    0.002738,
+    0.002616,
+    0.002852,
+    0.003047,
+    0.002606
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0019149199993989895,
+   "stdev": 0.00027940518442513194,
+   "median": 0.001835799997934373,
+   "min": 0.001695400002063252,
+   "max": 0.0023999000004550908,
+   "times": [
+    0.00177,
+    0.001695,
+    0.001836,
+    0.0024,
+    0.001873
+   ],
+   "probability": "3133/364210"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.007516980000946205,
+   "stdev": 0.00015867552455765425,
+   "median": 0.007499200000893325,
+   "min": 0.007308100000955164,
+   "max": 0.0076876000021002255,
+   "times": [
+    0.007308,
+    0.007431,
+    0.007499,
+    0.007659,
+    0.007688
+   ],
+   "probability": "17527/182105"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Smeared": {
+   "runs": 5,
+   "mean": 0.0010474200003955047,
+   "stdev": 0.0001537630063747023,
+   "median": 0.0010452000024088193,
+   "min": 0.0008861999995133374,
+   "max": 0.0012790000000677537,
+   "times": [
+    0.000934,
+    0.000886,
+    0.001093,
+    0.001279,
+    0.001045
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.0005139200002304278,
+   "stdev": 5.81674480941544e-05,
+   "median": 0.0005055000001448207,
+   "min": 0.00044490000072983094,
+   "max": 0.0005734000005759299,
+   "times": [
+    0.000445,
+    0.000473,
+    0.000506,
+    0.000573,
+    0.000573
+   ],
+   "probability": "26861/38786"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Smeared": {
+   "runs": 5,
+   "mean": 0.003835600000456907,
+   "stdev": 9.08057823638476e-05,
+   "median": 0.003821900001639733,
+   "min": 0.0037382999980764,
+   "max": 0.003954800002247794,
+   "times": [
+    0.003738,
+    0.003955,
+    0.003764,
+    0.003822,
+    0.003899
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Smeared": {
+   "runs": 5,
+   "mean": 0.004688060000626137,
+   "stdev": 0.0002654417692603872,
+   "median": 0.004685100000642706,
+   "min": 0.0043900999990000855,
+   "max": 0.0050355999992461875,
+   "times": [
+    0.00439,
+    0.004476,
+    0.004685,
+    0.005036,
+    0.004853
+   ],
+   "probability": "834567/59730440"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.025316639999073232,
+   "stdev": 0.0009235412565761565,
+   "median": 0.0252424999998766,
+   "min": 0.024294999999256106,
+   "max": 0.026586699998006225,
+   "times": [
+    0.025242,
+    0.026587,
+    0.025835,
+    0.024295,
+    0.024624
+   ],
+   "probability": "9635327/59730440"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.0007193399993411731,
+   "stdev": 0.00012149293388689385,
+   "median": 0.0007244999978865962,
+   "min": 0.0006023999994795304,
+   "max": 0.0008956999990914483,
+   "times": [
+    0.000765,
+    0.000609,
+    0.000602,
+    0.000896,
+    0.000724
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.0003500599996186793,
+   "stdev": 3.636128383092096e-05,
+   "median": 0.00034270000105607323,
+   "min": 0.00032529999953112565,
+   "max": 0.00041309999869554304,
+   "times": [
+    0.000413,
+    0.000344,
+    0.000325,
+    0.000325,
+    0.000343
+   ],
+   "probability": "1"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.00315106000052765,
+   "stdev": 0.00045366382691193767,
+   "median": 0.0031608999997843057,
+   "min": 0.002671300000656629,
+   "max": 0.003715099999681115,
+   "times": [
+    0.002671,
+    0.003472,
+    0.003715,
+    0.003161,
+    0.002736
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.019949240000278222,
+   "stdev": 0.0007063290478537249,
+   "median": 0.019661800000903895,
+   "min": 0.019352499999513384,
+   "max": 0.021155300000827992,
+   "times": [
+    0.019662,
+    0.019629,
+    0.019947,
+    0.021155,
+    0.019352
+   ],
+   "probability": "153977/728420"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.030397079999238484,
+   "stdev": 0.0006647831222577907,
+   "median": 0.03007630000138306,
+   "min": 0.02987070000017411,
+   "max": 0.031442599996807985,
+   "times": [
+    0.029871,
+    0.031443,
+    0.030669,
+    0.029927,
+    0.030076
+   ],
+   "probability": "54251/182105"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.001025320000917418,
+   "stdev": 0.00018576974249767862,
+   "median": 0.000947299999097595,
+   "min": 0.000872600001457613,
+   "max": 0.001341900002444163,
+   "times": [
+    0.000947,
+    0.001342,
+    0.000934,
+    0.001031,
+    0.000873
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.0004767599995830096,
+   "stdev": 6.539986896519058e-05,
+   "median": 0.00044490000072983094,
+   "min": 0.0004140999990340788,
+   "max": 0.0005667999976139981,
+   "times": [
+    0.000567,
+    0.000434,
+    0.000414,
+    0.000445,
+    0.000524
+   ],
+   "probability": "1"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.004028000000107568,
+   "stdev": 0.00018130977546633377,
+   "median": 0.004014699999970617,
+   "min": 0.0038591000011365395,
+   "max": 0.004325599998992402,
+   "times": [
+    0.004015,
+    0.004326,
+    0.003909,
+    0.004032,
+    0.003859
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.10257907999985036,
+   "stdev": 0.00366223607809051,
+   "median": 0.10177739999926416,
+   "min": 0.09977360000266344,
+   "max": 0.10888079999858746,
+   "times": [
+    0.100285,
+    0.101777,
+    0.102179,
+    0.099774,
+    0.108881
+   ],
+   "probability": "1988083/5973044"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.1620335799998429,
+   "stdev": 0.002733081158556095,
+   "median": 0.16224480000164476,
+   "min": 0.15844799999831594,
+   "max": 0.16574780000155442,
+   "times": [
+    0.158448,
+    0.162245,
+    0.163114,
+    0.165748,
+    0.160614
+   ],
+   "probability": "62333/135751"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0006933599986950866,
+   "stdev": 6.110051500395412e-05,
+   "median": 0.0007353999972110614,
+   "min": 0.0006236000008357223,
+   "max": 0.0007408999990730081,
+   "times": [
+    0.000737,
+    0.000741,
+    0.000735,
+    0.000624,
+    0.000629
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0003548599997884594,
+   "stdev": 3.8441423449294875e-05,
+   "median": 0.00033999999868683517,
+   "min": 0.0003324999997857958,
+   "max": 0.0004229000005580019,
+   "times": [
+    0.00034,
+    0.000333,
+    0.000332,
+    0.000423,
+    0.000346
+   ],
+   "probability": "2845/3784"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0029020000001764856,
+   "stdev": 0.00037927105825461455,
+   "median": 0.0028176999985589646,
+   "min": 0.00260080000225571,
+   "max": 0.0035276000016892795,
+   "times": [
+    0.002818,
+    0.003528,
+    0.002601,
+    0.002613,
+    0.002951
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.00816871999995783,
+   "stdev": 0.000334753182029054,
+   "median": 0.008053400000790134,
+   "min": 0.007871599998907186,
+   "max": 0.008726200001547113,
+   "times": [
+    0.008726,
+    0.007872,
+    0.008053,
+    0.008209,
+    0.007984
+   ],
+   "probability": "19521/145684"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.017791519999445882,
+   "stdev": 0.0006420904265112671,
+   "median": 0.017508600001747254,
+   "min": 0.017345799999020528,
+   "max": 0.018901699997513788,
+   "times": [
+    0.017509,
+    0.01742,
+    0.017346,
+    0.017781,
+    0.018902
+   ],
+   "probability": "5661/26015"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.000950639999791747,
+   "stdev": 6.285111688775193e-05,
+   "median": 0.000947299999097595,
+   "min": 0.000891700001375284,
+   "max": 0.0010441999984323047,
+   "times": [
+    0.001044,
+    0.000892,
+    0.000974,
+    0.000896,
+    0.000947
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0004915000004984904,
+   "stdev": 4.069238285478064e-05,
+   "median": 0.0004791999999724794,
+   "min": 0.00045820000013918616,
+   "max": 0.000561500000912929,
+   "times": [
+    0.000562,
+    0.000479,
+    0.00047,
+    0.000458,
+    0.000488
+   ],
+   "probability": "26861/38786"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.003965220000100089,
+   "stdev": 0.00030327287661953455,
+   "median": 0.0038429000014730264,
+   "min": 0.003717499999766005,
+   "max": 0.004489900002226932,
+   "times": [
+    0.003843,
+    0.003934,
+    0.003717,
+    0.003841,
+    0.00449
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.017468319999898084,
+   "stdev": 0.00055647434208131,
+   "median": 0.017539799999212846,
+   "min": 0.016787699998531025,
+   "max": 0.01820670000233804,
+   "times": [
+    0.01754,
+    0.016788,
+    0.017074,
+    0.017733,
+    0.018207
+   ],
+   "probability": "3378043/59730440"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.07617132000159473,
+   "stdev": 0.000355378934900235,
+   "median": 0.07613630000196281,
+   "min": 0.07577300000048126,
+   "max": 0.07673830000203452,
+   "times": [
+    0.076018,
+    0.075773,
+    0.076136,
+    0.076738,
+    0.076191
+   ],
+   "probability": "78449/387860"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Pair | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0006633000011788681,
+   "stdev": 7.773474138912573e-05,
+   "median": 0.000644200001261197,
+   "min": 0.0006054000004951376,
+   "max": 0.0007966000011947472,
+   "times": [
+    0.000659,
+    0.000797,
+    0.000612,
+    0.000605,
+    0.000644
+   ],
+   "probability": "171517/182105"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0003491999981633853,
+   "stdev": 2.452661807290441e-05,
+   "median": 0.0003436999977566302,
+   "min": 0.00032479999936185777,
+   "max": 0.00038919999860809185,
+   "times": [
+    0.000352,
+    0.000336,
+    0.000344,
+    0.000325,
+    0.000389
+   ],
+   "probability": "1"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.003188439999939874,
+   "stdev": 0.0003170511362181891,
+   "median": 0.00308009999935166,
+   "min": 0.0028512999997474253,
+   "max": 0.003583599998819409,
+   "times": [
+    0.003458,
+    0.003584,
+    0.002969,
+    0.00308,
+    0.002851
+   ],
+   "probability": "4563/52030"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Straight Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.06990311999979895,
+   "stdev": 0.0017782194971843628,
+   "median": 0.06959839999763062,
+   "min": 0.06758089999857475,
+   "max": 0.07239580000168644,
+   "times": [
+    0.072396,
+    0.069598,
+    0.070656,
+    0.067581,
+    0.069285
+   ],
+   "probability": "21693/41624"
+  },
+  "standard | 6 unknown: The Mark, 3 face-down, draw 3 | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.08902343999943696,
+   "stdev": 0.005459111848787189,
+   "median": 0.0871430999977747,
+   "min": 0.08522000000084518,
+   "max": 0.09858890000032261,
+   "times": [
+    0.087143,
+    0.08604,
+    0.08522,
+    0.088125,
+    0.098589
+   ],
+   "probability": "431301/728420"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Pair | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0010803799996210728,
+   "stdev": 8.38115577663287e-05,
+   "median": 0.0010870000005525071,
+   "min": 0.0009508999974059407,
+   "max": 0.001182100000733044,
+   "times": [
+    0.001182,
+    0.00111,
+    0.001087,
+    0.001072,
+    0.000951
+   ],
+   "probability": "1029653/1066615"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.0005275600000459235,
+   "stdev": 5.2717435262097744e-05,
+   "median": 0.0005485000001499429,
+   "min": 0.0004415000003064051,
+   "max": 0.0005681000002368819,
+   "times": [
+    0.000566,
+    0.000568,
+    0.000442,
+    0.000549,
+    0.000514
+   ],
+   "probability": "1"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.004400539999915054,
+   "stdev": 0.00032798971474387866,
+   "median": 0.00428979999924195,
+   "min": 0.003999299999122741,
+   "max": 0.004868799998803297,
+   "times": [
+    0.00429,
+    0.004558,
+    0.004869,
+    0.004287,
+    0.003999
+   ],
+   "probability": "441513/2986522"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Straight Flush | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.421900300001289,
+   "stdev": 0.0033393989363501545,
+   "median": 0.42114600000059,
+   "min": 0.41875640000216663,
+   "max": 0.4275825000004261,
+   "times": [
+    0.421379,
+    0.427583,
+    0.418756,
+    0.420638,
+    0.421146
+   ],
+   "probability": "7297581/11946088"
+  },
+  "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.5577366599995003,
+   "stdev": 0.008123103531691713,
+   "median": 0.5551917999982834,
+   "min": 0.5499796000003698,
+   "max": 0.5714838999992935,
+   "times": [
+    0.557102,
+    0.571484,
+    0.54998,
+    0.555192,
+    0.554926
+   ],
+   "probability": "10620249/14932610"
   }
  }
 }

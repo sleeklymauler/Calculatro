@@ -4,6 +4,8 @@ The final hand is the kept known cards plus `m` cards drawn uniformly without
 replacement from the unseen pool: the undrawn deck plus any face-down cards
 in hand, which are equally unknown to the player. Kept face-down cards are
 modelled as part of that draw, since by symmetry it's the same distribution.
+The Mark's face-down cards are known to be face cards, so there the draw is
+weighted by how many face cards it has; see _mark_split.
 
 Cards are grouped into classes that every pattern treats identically, so for
 example Pair only distinguishes 13 ranks. Draws are then enumerated class by
@@ -51,7 +53,7 @@ from dataclasses import dataclass
 from functools import cache
 from fractions import Fraction
 from itertools import combinations, repeat
-from math import comb
+from math import comb, lcm
 from operator import gt
 from threading import Event, Lock
 
@@ -66,24 +68,74 @@ class Cancelled(Exception):
 
 
 def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
-                rules: Rules = Rules(), cancel: Event | None = None) -> Fraction:
+                rules: Rules = Rules(), cancel: Event | None = None,
+                marked: int = 0, marked_kept: int = 0) -> Fraction:
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
+
+    With The Mark, `marked` of the pool's cards are face down in hand, so they
+    are known to be face cards (`flipped_by_mark`), and `marked_kept` of them
+    are among the `draws`. The other draws come from the rest of the pool.
 
     Raises Cancelled soon after `cancel` is set.
     """
     draws = max(0, min(draws, len(pool)))
     patterns = target.patterns(rules)
     _, by_suit = _split_by_suit(patterns)
+    # An unseen Wild Card counts as every suit, which ties the suits back together.
+    # With two suits (Smeared Joker's colours), one search only has to carry
+    # what the term with both of them does, and it can stop at either colour's
+    # pattern, so splitting doesn't pay.
+    split = len(by_suit) > 2 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key)
+
+    def favourable(faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = ()) -> int:
+        if split:
+            return _union_by_suit(patterns, kept, pool, draws, rules, cancel, faces, face_weights)
+        return _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel,
+                           faces=faces, face_weights=face_weights)
+
     with _gc_paused():
-        # An unseen Wild Card counts as every suit, which ties the suits back together.
-        # With two suits (Smeared Joker's colours), one search only has to carry
-        # what the term with both of them does, and it can stop at either colour's
-        # pattern, so splitting doesn't pay.
-        if len(by_suit) > 2 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key):
-            favourable = _union_by_suit(patterns, kept, pool, draws, rules, cancel)
-        else:
-            favourable = _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel)
-    return Fraction(favourable, comb(len(pool), draws))
+        split_faces = _mark_split(pool, draws, rules, marked, marked_kept)
+        if split_faces is None:
+            return Fraction(favourable(), comb(len(pool), draws))
+        # One search for every number of face cards, with the weights scaled to integers.
+        faces, weights = split_faces
+        scale = lcm(*(w.denominator for _, w in weights))
+        return Fraction(favourable(faces, [(a, int(w * scale)) for a, w in weights]), scale)
+
+
+def flipped_by_mark(card: Card, rules: Rules) -> bool:
+    """Whether The Mark draws `card` face down: `Card:is_face(true)`, which ignores debuffs."""
+    return rules.pareidolia or (not card.is_stone and card.rank_id in (11, 12, 13))
+
+
+def _mark_split(pool: list[Card], draws: int, rules: Rules, marked: int,
+                marked_kept: int) -> tuple[list[bool], list[tuple[int, Fraction]]] | None:
+    """How The Mark's face-down cards skew the unseen cards in the final hand.
+
+    The `marked` face-down cards are a uniform sample of the pool's f face
+    cards, and the other d = draws - marked_kept cards come uniformly from the
+    pool less all of them, so k of those are face cards with probability
+    C(f - marked, k) C(nf, d - k) / C(N - marked, d). Given k, the final hand's
+    unseen face cards are a uniform sample of a = marked_kept + k of the f,
+    and its other unseen cards one of d - k of the nf others. So P(target) is
+    the sum over a of (favourable draws with exactly a face cards) times
+    C(f - marked, k) / (C(N - marked, d) C(f, a)), the C(nf, d - k) cancelling.
+
+    Returns which pool cards are face cards and those (a, weight) pairs, or
+    None when the draw is uniform: no face-down cards, or every card a face
+    card (Pareidolia). Also None if fewer pool cards are face cards than are
+    face down, which only a rank changed while face down can cause.
+    """
+    if not marked or rules.pareidolia:
+        return None
+    faces = [flipped_by_mark(c, rules) for c in pool]
+    f, n = sum(faces), len(pool)
+    if f < marked:
+        return None
+    d = draws - marked_kept
+    weights = [(marked_kept + k, Fraction(comb(f - marked, k), comb(n - marked, d) * comb(f, marked_kept + k)))
+               for k in range(max(0, d - (n - f)), min(d, f - marked) + 1)]
+    return faces, weights
 
 
 _gc_lock = Lock()
@@ -150,7 +202,8 @@ def _interchangeable(patterns: tuple[Pattern, ...]) -> bool:
 
 
 def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[Card], draws: int,
-                   rules: Rules, cancel: Event | None) -> int:
+                   rules: Rules, cancel: Event | None, faces: list[bool] | None = None,
+                   face_weights: Sequence[tuple[int, int]] = ()) -> int:
     """Favourable draws for `patterns`, by inclusion-exclusion over suits.
 
     The patterns with requirements on one suit's cards are grouped by that
@@ -170,6 +223,10 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
     some of them have the same ranks kept and unseen, as with a fresh deck
     and nothing known), terms that differ only by relabelling suits are equal
     and computed once.
+
+    `faces` and `face_weights` are passed on to _favourable: the identity
+    holds for any weighting of the draws that depends only on their number of
+    face cards, and relabelling suits keeps every card's rank.
     """
     rest, by_suit = _split_by_suit(patterns)
     suits = list(by_suit)
@@ -197,10 +254,12 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
             key = frozenset(subset)
             together = tuple(necessary[s] for s in subset)
             if (any(key - {s} in impossible for s in subset)
-                    or not _favourable([together], [1], kept, pool, draws, rules, cancel)):
+                    or not _favourable([together], [1], kept, pool, draws, rules, cancel,
+                                       faces=faces, face_weights=face_weights)):
                 impossible.add(key)
                 if rest_ways is None:
-                    rest_ways = _favourable(rest, [1] * len(rest), kept, pool, draws, rules, cancel)
+                    rest_ways = _favourable(rest, [1] * len(rest), kept, pool, draws, rules, cancel,
+                                           faces=faces, face_weights=face_weights)
                 total += sign * rest_ways
                 continue
             tk = term_key(subset)
@@ -211,7 +270,7 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
                     chosen += by_suit[s]
                     masks += [1 << bit] * len(by_suit[s])
                 terms[tk] = _favourable(chosen, masks, kept, pool, draws, rules, cancel,
-                                        together if size > 1 else None)
+                                        together if size > 1 else None, faces, face_weights)
             total += sign * terms[tk]
     return total
 
@@ -223,13 +282,20 @@ def _cards_within(pattern: Pattern, keys: frozenset[ClassKey], present: set[Clas
 
 
 def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card], pool: list[Card],
-                draws: int, rules: Rules, cancel: Event | None, constraint: Pattern | None = None) -> int:
+                draws: int, rules: Rules, cancel: Event | None, constraint: Pattern | None = None,
+                faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = ()) -> int:
     """Draws of `draws` cards from `pool` after which the satisfied patterns cover every group.
 
     Pattern p belongs to the groups in the bitmask `masks[p]`; with a single
     group this is "some pattern is satisfied". `constraint` holds whenever the
     groups are covered without a pattern that belongs to all of them, so once
     it's out of reach only such patterns are left.
+
+    With `faces` (which pool cards are face cards, for The Mark), a draw with
+    a face cards counts w times for each (a, w) in `face_weights` (none if a
+    isn't listed). Face cards and others are then kept in separate classes,
+    and the search tracks how many face cards are still to be drawn; the
+    searches for each a share their memo.
     """
     if not patterns:
         return 0
@@ -269,29 +335,40 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     # their rank. If no requirement spans several suits, the suits don't
     # interact (but through Wild Cards), and sweeping suit by suit only has to
     # remember one suit's progress at a time.
-    class_counts: Counter[tuple[tuple[int, int], ...]] = Counter()
-    lowest: dict[tuple[tuple[int, int], ...], tuple] = {}
+    # A class is its cards' membership and whether they're face cards (only told apart with `faces`).
+    class_counts: Counter[tuple[tuple[tuple[int, int], ...], bool]] = Counter()
+    lowest: dict[tuple[tuple[tuple[int, int], ...], bool], tuple] = {}
     suit_by_suit = not any(len({suit for _, suit in req.keys} - {WILD}) > 1
                            for pattern in patterns for req in pattern)
-    for card in pool:
+    for j, card in enumerate(pool):
         key = card_key(card, rules)
-        sig = tuple(members.get(key, ()))
-        class_counts[sig] += 1
-        if sig:
+        cls = tuple(members.get(key, ())), faces is not None and faces[j]
+        class_counts[cls] += 1
+        if cls[0]:
             rank, suit = key
             place = (suit != WILD, suit, rank) if suit_by_suit else (rank, suit != WILD, suit)
-            lowest[sig] = min(lowest.get(sig, place), place)
-    dead = class_counts.pop((), 0)
-    classes = sorted(class_counts.items(), key=lambda item: (lowest[item[0]], item[0]))
+            lowest[cls] = min(lowest.get(cls, place), place)
+    dead = class_counts.pop(((), False), 0)
+    dead_faces = class_counts.pop(((), True), 0)
+    by_place = sorted(class_counts.items(), key=lambda item: (lowest[item[0]], item[0]))
+    classes = [(sig, count) for (sig, _), count in by_place]
+    face_class = [face for (_, face), _ in by_place]
     # Requirements on a single rank, which decide when a pattern joins the search.
     local = [[len({rank for rank, _ in req.keys}) == 1 for req in pattern] for pattern in patterns]
     n = len(classes)
 
-    # remaining[i] = pool cards in classes i.. plus dead cards
+    # remaining[i] = pool cards in classes i.. plus dead cards; faces_left[i] = the face cards among them
     remaining = [0] * (n + 1)
-    remaining[n] = dead
+    remaining[n] = dead + dead_faces
+    faces_left = [0] * (n + 1)
+    faces_left[n] = dead_faces
     for i in range(n - 1, -1, -1):
         remaining[i] = remaining[i + 1] + classes[i][1]
+        faces_left[i] = faces_left[i + 1] + (classes[i][1] if face_class[i] else 0)
+    split = faces is not None
+    if split:
+        face_weights = [(a, w) for a, w in face_weights
+                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
 
     # slots[i] = for each pattern class i counts towards, the requirements it counts towards.
     slots: list[dict[int, list[int]]] = []
@@ -439,6 +516,9 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         if missing == 0:
             todo &= ~masks[p]
     if not todo:
+        if split:
+            return sum(w * comb(faces_left[0], a) * comb(remaining[0] - faces_left[0], draws - a)
+                       for a, w in face_weights)
         return comb(len(pool), draws)
     activate: list[list[int]] = [[] for _ in range(n)]
     # pending[a][i][r] = groups covered by possible patterns that join at class
@@ -507,13 +587,20 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     # Joining parts, by (class, draws left, todo, free, deferred counts).
     joining: dict[tuple, list[int]] = {}
 
-    def ways(i: int, rem: int, todo: int, state: list[int], cp: int | None) -> int:
+    def ways(i: int, rem: int, todo: int, state: list[int], cp: int | None, fr: int) -> int:
         """Ways to draw `rem` more cards from classes i.. (plus dead cards) after
         which the groups in `todo` are covered. `state` holds the parts of the
         patterns that have joined and may still be possible, and `todo`
         already leaves out the groups of satisfied ones. `cp` is the
-        constraint's part once it has joined (DEAD once out of reach)."""
-        if not todo:
+        constraint's part once it has joined (DEAD once out of reach). With
+        `faces`, exactly `fr` of the `rem` cards are face cards (0 otherwise)."""
+        if split:
+            others = remaining[i] - faces_left[i]
+            if fr > faces_left[i] or rem - fr > others:
+                return 0
+            if not todo:
+                return comb(faces_left[i], fr) * comb(others, rem - fr)
+        elif not todo:
             return comb(remaining[i], rem)
         if i == n:
             return 0
@@ -542,7 +629,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             if covered & todo != todo:
                 return 0
         deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i][rem]])
-        memo_key = (i, rem, todo, frozenset(live), deferred_key)
+        memo_key = (i, rem, todo, frozenset(live), deferred_key, fr)
         total = memo.get(memo_key)
         if total is not None:
             return total
@@ -574,7 +661,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                                 live.discard(pid)
                                 break
             if len(live) < size:
-                memo_key = (i, rem, todo, frozenset(live), deferred_key)
+                memo_key = (i, rem, todo, frozenset(live), deferred_key, fr)
                 total = memo.get(memo_key)
                 if total is not None:
                     memo[keys[0]] = total
@@ -602,7 +689,13 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             cp = join(c) if free else DEAD
         c_moves = cp is not None and cp != DEAD and part_bits[cp] & bit
         sets = in_deferred[i]
-        drawn = min(count, rem)
+        # The most cards of class i that can be drawn, and whether they use up `fr`.
+        if not split:
+            drawn, face_step = min(count, rem), 0
+        elif face_class[i]:
+            drawn, face_step = min(count, fr), 1
+        else:
+            drawn, face_step = min(count, rem - fr), 0
         total = 0
         moves = transitions[i]
         for k in range(drawn + 1):
@@ -626,7 +719,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                 child_cp = table.get(cp)
                 if child_cp is None:
                     child_cp = table[cp] = step(cp, i, k)
-            total += comb(count, k) * ways(i + 1, rem - k, left, child, child_cp)
+            total += comb(count, k) * ways(i + 1, rem - k, left, child, child_cp, fr - face_step * k)
         for d in sets:
             drawn_from[d] -= drawn
         for key in keys:
@@ -634,7 +727,9 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         return total
 
     try:
-        return ways(0, draws, todo, [], None)
+        if split:
+            return sum(w * ways(0, draws, todo, [], None, a) for a, w in face_weights)
+        return ways(0, draws, todo, [], None, 0)
     finally:
         # `ways` refers to itself through its closure, which would keep this whole
         # frame alive until the garbage collector runs (it's paused, see
@@ -692,6 +787,7 @@ class _Discard:
     hidden_kept: int
     draws: int
     pool: list[Card]  # unseen cards: undrawn deck + face-down hand cards
+    marked: int  # face-down hand cards known to be face cards (The Mark), discarded or not
 
 
 def _discard(state: GameState, discard: list[int]) -> _Discard:
@@ -708,20 +804,42 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
         draws = state.hand_size - len(kept)
     draws = max(0, min(draws, len(state.deck)))
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
-                    len(kept) - len(kept_known), draws, state.deck + state.hidden_pool)
+                    len(kept) - len(kept_known), draws, state.deck + state.hidden_pool,
+                    len(state.hidden_pool) if state.mark else 0)
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
                      cancel: Event | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`."""
     d = _discard(state, discard)
-    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules, cancel)
+    p = probability(target, d.kept_known, d.pool, d.hidden_kept + d.draws, state.rules, cancel,
+                    d.marked, d.hidden_kept)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
 def count_probability(query: CardQuery, pool: list[Card], draws: int,
-                      rules: Rules = Rules()) -> Fraction:
-    """P(the number of matching cards among `draws` drawn from `pool` satisfies `query`)."""
+                      rules: Rules = Rules(), marked: int = 0) -> Fraction:
+    """P(the number of matching cards among `draws` drawn from `pool` satisfies `query`).
+
+    With The Mark, `marked` of the pool's face cards are face down in hand, so
+    the draws come from the rest of the pool; see _mark_split.
+    """
+    after_marked = max(0, min(draws, len(pool) - marked))
+    split = _mark_split(pool, after_marked, rules, marked, 0)
+    if split is not None:
+        faces, weights = split
+        draws = after_marked
+        f = sum(faces)
+        others = len(pool) - f
+        face_matches = sum(1 for c, face in zip(pool, faces) if face and query.filter.test(c, rules))
+        other_matches = sum(1 for c, face in zip(pool, faces) if not face and query.filter.test(c, rules))
+        # Given k face cards drawn, they're a uniform sample of all f (as the face-down ones
+        # are), and the other draws - k one of the others.
+        return sum((w * sum(comb(face_matches, x) * comb(f - face_matches, k - x)
+                            * comb(other_matches, y) * comb(others - other_matches, draws - k - y)
+                            for x in range(min(face_matches, k) + 1)
+                            for y in range(min(other_matches, draws - k) + 1) if query.accepts(x + y))
+                    for k, w in weights), Fraction(0))
     draws = max(0, min(draws, len(pool)))
     matches = sum(1 for c in pool if query.filter.test(c, rules))
     others = len(pool) - matches
@@ -734,7 +852,10 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
     """Probability that the cards drawn after discarding satisfy `query`.
 
     Only the newly drawn cards count. From the player's view they are a uniform
-    sample of the unseen pool, even when face-down cards are kept in hand.
+    sample of the unseen pool, even when face-down cards are kept in hand,
+    except with The Mark: its face-down cards are face cards, so fewer of
+    those are left to draw.
     """
     d = _discard(state, discard)
-    return DiscardOutcome(d.discarded, d.draws, count_probability(query, d.pool, d.draws, state.rules))
+    return DiscardOutcome(d.discarded, d.draws,
+                          count_probability(query, d.pool, d.draws, state.rules, d.marked))

@@ -24,6 +24,16 @@ step-by-step table for the second pass.
   from the unseen pool (undrawn deck + `hidden_pool`). By symmetry the
   distribution is the same, so "unknown cards" = face-down cards kept + cards
   drawn after the discard.
+- **Except under The Mark.** Its face-down cards are known to be face cards,
+  so the unknown cards aren't one uniform draw. Given how many of them are
+  face cards, though, they are a uniform draw of that many face cards and
+  one of the other cards (`_mark_split`). The face cards then go in classes
+  of their own and the search tracks how many are still to be drawn. A
+  single search covers every face-card count, weighted by its probability:
+  the counts share the memo, since drawing a face card when 3 are left
+  reaches the same position as drawing another card when 2 are left. That
+  makes it 1-1.5x the time of the same cards without The Mark, against
+  2-2.5x for a separate search per count.
 - **Integers until the end.** The search counts favourable draws as Python
   ints and divides by C(pool, draws) once at the end, so no fractions are
   built along the way.

@@ -37,9 +37,38 @@ Scenarios (`tests/perf/scenarios.py`):
   - *7 unknown*: 5♦ J♥ are face-down; keep 7♥ and discard 5.
   - *8 unknown, The House*: the whole hand is face-down, so nothing is
     known.
+  - *The Mark*: Q♣ K♦ J♥ are face-down, known to be face cards. *6
+    unknown* keeps 7♥ 8♥ and discards 3; *8 unknown* discards all 5 known
+    cards.
 - **"Any":** several targets combined, as in the "Any target" row.
 
 ## Current numbers
+
+### The Mark (2026-10-09)
+
+The Mark's scenarios, added to `tests/perf/baseline.json` when it was
+modelled (`--repeat 5 --budget 120`; the rest of the baseline wasn't
+re-measured). The search covers every number of face cards among the
+unknown cards at once (see [engine.md](engine.md#the-model)). "Without"
+is the same state without The Mark, so face-down cards are any unseen card,
+timed once each in the same session. A separate search per number of face
+cards took 2-2.5x "Without" in these rows.
+
+The 8 slowest rows:
+
+| Situation | Target | Jokers | The Mark | Without |
+|---|---|---|---|---|
+| 8 unknown | Full House + Straight Flush (any) | Four Fingers + Shortcut | 1.85 s ± 20 ms | 1.22 s |
+| 8 unknown | Straight Flush | Four Fingers + Shortcut | 1.12 s ± 18 ms | 807 ms |
+| 8 unknown | Full House + Straight Flush (any) | Four Fingers | 789 ms ± 9 ms | 467 ms |
+| 8 unknown | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared | 558 ms ± 8 ms | 436 ms |
+| 8 unknown | Straight Flush | Four Fingers + Shortcut + Smeared | 422 ms ± 3 ms | 344 ms |
+| 8 unknown | Straight Flush | Four Fingers | 354 ms ± 5 ms | 231 ms |
+| 6 unknown | Full House + Straight Flush (any) | Four Fingers + Shortcut | 301 ms ± 5 ms | 312 ms |
+| 6 unknown | Straight Flush | Four Fingers + Shortcut | 200 ms ± 9 ms | 199 ms |
+
+Every other Mark scenario takes under 0.25 s, most under 15 ms. The
+existing scenarios were unchanged within noise, with the same results.
 
 ### Partial-state reductions (2026-10-08)
 

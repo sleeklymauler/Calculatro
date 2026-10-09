@@ -13,12 +13,12 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import _favourable, _split_by_suit, evaluate_cards, evaluate_discard, probability
+from calculatro.engine import _favourable, _split_by_suit, count_probability, evaluate_cards, evaluate_discard, probability
 from calculatro.cards import parse_query
 from calculatro import hands
 from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
-from calculatro.state import SUITS, Card, GameState
+from calculatro.state import SUITS, Card, GameState, Joker
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
 
@@ -621,6 +621,110 @@ def test_disabled_serpent_fills_the_hand():
     assert evaluate_discard(state, get_target("pair"), [0]).draws == 1
     assert evaluate_discard(state, get_target("pair"), [0, 1, 2, 3, 4]).draws == 5
     assert evaluate_discard(replace(serpent_state(5), blind_disabled=True), get_target("pair"), []).draws == 3
+
+
+def is_face(c: Card) -> bool:
+    """Card:is_face(true), as The Mark asks it: debuffs don't matter."""
+    return not c.is_stone and c.rank_id in (11, 12, 13)
+
+
+def mark_draws(pool: list[Card], marked: int, marked_kept: int, draws: int):
+    """Every way The Mark's round can turn out, equally likely: which `marked` face
+    cards are face down, which `marked_kept` of them are kept, and the `draws` cards
+    drawn from the rest. Yields the unseen cards of the final hand."""
+    faces = [j for j, c in enumerate(pool) if is_face(c)]
+    for down in combinations(faces, marked):
+        rest = [c for j, c in enumerate(pool) if j not in down]
+        for kept_down in combinations(down, marked_kept):
+            for drawn in combinations(rest, draws):
+                yield [pool[j] for j in kept_down], list(drawn)
+
+
+def mark_brute(names: set[str], kept: list[Card], pool: list[Card], marked: int, marked_kept: int,
+               draws: int, rules: Rules = Rules()) -> Fraction:
+    outcomes = [contains(kept + down + drawn, names, rules)
+                for down, drawn in mark_draws(pool, marked, marked_kept, draws)]
+    return Fraction(sum(outcomes), len(outcomes))
+
+
+def mark_case(rng: random.Random, card_maker=random_card, **kw):
+    """Kept cards, a pool with enough face cards for the face-down ones, and the
+    counts to draw: at least one card, and usually a final hand of 5 or more."""
+    while True:
+        pool = [card_maker(rng, **kw) for _ in range(rng.randint(8, 10))]
+        f = sum(map(is_face, pool))
+        if 1 <= f < len(pool):
+            break
+    marked = rng.randint(1, min(3, f))
+    marked_kept = rng.randint(0, min(2, marked))
+    draws = rng.randint(1, min(4 - marked_kept, len(pool) - marked))
+    kept = [card_maker(rng, **kw) for _ in range(max(1, rng.randint(5, 6) - marked_kept - draws))]
+    return kept, pool, marked, marked_kept, draws
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+@pytest.mark.parametrize("name", list(TARGETS))
+def test_mark_matches_brute_force(name, rules):
+    """The Mark's face-down cards are face cards, and the draws come from the rest of the pool."""
+    rng = random.Random(f"mark {name}")
+    for _ in range(4):
+        kept, pool, marked, marked_kept, draws = mark_case(rng)
+        assert (probability(get_target(name), kept, pool, marked_kept + draws, rules, None, marked, marked_kept)
+                == mark_brute({name}, kept, pool, marked, marked_kept, draws, rules))
+
+
+@pytest.mark.parametrize("rules", SPLIT_RULESETS.values(), ids=SPLIT_RULESETS.keys())
+@pytest.mark.parametrize("names", [("Straight Flush",), ("Flush",), ("Full House", "Straight Flush")])
+def test_mark_split_by_suit_matches_brute_force(names, rules):
+    """No unseen Wild Cards, so these targets are split by suit, each term counting draws with so many face cards."""
+    target = combine([get_target(n) for n in names])
+    rng = random.Random(f"mark {names}")
+    for _ in range(4):
+        _, pool, marked, marked_kept, draws = mark_case(rng, two_suit_card, low_rank=9, wild=False)
+        kept = [two_suit_card(rng, 9, wild=True) for _ in range(max(1, 5 - marked_kept - draws))]
+        assert (probability(target, kept, pool, marked_kept + draws, rules, None, marked, marked_kept)
+                == mark_brute(set(names), kept, pool, marked, marked_kept, draws, rules))
+
+
+@pytest.mark.parametrize("text", ["king", "2+ face card", "at most 1 face card", "ace", "1+ heart", "0 queen"])
+def test_mark_card_queries_match_brute_force(text):
+    query = parse_query(text)
+    rng = random.Random(f"mark {text}")
+    for _ in range(6):
+        _, pool, marked, _, draws = mark_case(rng)
+        outcomes = [query.accepts(sum(query.filter.test(c, Rules()) for c in drawn))
+                    for _, drawn in mark_draws(pool, marked, 0, draws)]
+        assert count_probability(query, pool, draws, Rules(), marked) == Fraction(sum(outcomes), len(outcomes))
+
+
+def mark_state(**kw) -> GameState:
+    """The Mark: a King and a face-down card in hand; the unseen face cards are two Kings."""
+    hand = [card(13, "Diamonds"), Card(hidden=True)]
+    deck = [card(13, "Hearts"), card(2, "Clubs"), card(3, "Clubs"), card(4, "Clubs")]
+    return GameState(in_run=True, hand_size=2, hand=hand, deck=deck, hidden_pool=[card(13, "Spades")],
+                     blind="The Mark", **kw)
+
+
+def test_mark_face_down_cards_are_face_cards():
+    state = mark_state()
+    # The face-down card is a face card, and both unseen face cards are Kings.
+    assert evaluate_discard(state, get_target("pair"), []).probability == 1
+    # Discarding the King: the face-down King pairs only with the other one, among 4 cards to draw.
+    assert evaluate_discard(state, get_target("pair"), [0]).probability == Fraction(1, 4)
+    # Discarding the face-down card leaves one King among 4 cards to draw.
+    king = parse_query("king")
+    assert evaluate_cards(state, king, [1]).probability == Fraction(1, 4)
+    assert evaluate_discard(state, get_target("pair"), [1]).probability == Fraction(1, 4)
+
+
+@pytest.mark.parametrize("change", [{"blind": "The Wheel"}, {"blind_disabled": True},
+                                    {"jokers": [Joker("j_pareidolia")]}])
+def test_face_down_cards_are_any_unseen_card_without_the_mark(change):
+    # Any unseen card, as with The Wheel: once The Mark is disabled, its cards are
+    # face up again, and with Pareidolia every card is a face card.
+    state = replace(mark_state(), **change)
+    assert evaluate_discard(state, get_target("pair"), []).probability == Fraction(2, 5)
+    assert evaluate_cards(state, parse_query("king"), [1]).probability == Fraction(2, 5)
 
 
 def test_full_deck_flush_five_speed():
