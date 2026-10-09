@@ -23,31 +23,28 @@ See [docs/performance](docs/performance/README.md).
 ## Usage
 
 ```
-.venv\Scripts\python -m calculatro watch -t trips -t "full house" -c "queen" -c "no face cards"
+.venv\Scripts\python -m calculatro watch
 ```
+
+Choose what to track in game: press the `+` beside "CALCULATRO" on the panel above the deck. Its Hands tab
+toggles target hands; its Cards tab builds card counts (a count, rank, suit and special) and lists the tracked
+ones. Done goes back to the odds, and the `x` on a row stops tracking it. Targets last for the run (they're saved
+with it) and a new run starts with none. The `+` is greyed out once the panel is full (3 columns of 6 rows).
 
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
 Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
 
-The odds appear both in the console and in a panel above the deck in game. The panel is only shown while
-playing a blind (not in the shop, blind select, booster packs or menus, nor while a played hand is
-scored); press `C` to hide or show it. So that the panel fits, at most 16 targets and card queries can be
-tracked in total.
+The odds appear both in the console and in the panel. The panel is only shown while playing a blind (not in
+the shop, blind select, booster packs or menus, nor while a played hand is scored); press `C` to hide or show it.
 A discard's odds are green when they beat keeping the hand and red when they're worse. Odds still being
 calculated for your latest selection are greyed out.
 
 - `--file`: read the state from another path instead of `%AppData%\Balatro\calculatro_state.json`.
-- `-t/--target`: hand types (`pair`, `two pair`, `trips`, `straight`, `flush`, `full house`, `quads`,
-  `straight flush`, `royal`, `five of a kind`, `flush house`, `flush five`). A target counts if you could
-  play a hand Balatro scores as containing it (a Straight Flush counts as a Straight). Several targets also
-  show the odds of hitting any of them.
-- `-c/--cards`: counts over the newly drawn cards only — `queen`, `2+ queens`, `at most 1 spade`,
-  `exactly 2 hearts`, `no face cards`, `2 of clubs` / `2c`. A bare number means "at least";
-  `QS`/`10s` are poker notation for a specific card (use `tens` for the rank).
-  Special cards: enhancements (`bonus`, `mult`, `wild`, `glass`, `steel`, `stone`, `gold`, `lucky`, or any
-  `enhanced`), editions (`foil`, `holo`, `polychrome`, `negative`, or any `edition`) and seals (`red seal`,
-  `blue seal`, `gold seal`, `purple seal`, or `any seal`). These can prefix a rank, suit or card to narrow it:
-  `2+ lucky`, `no glass cards`, `foil hearts`, `lucky red seal queen`. `gold` is the Gold Card and `gold seal` the seal.
+- Target hands: a target counts if you could play a hand Balatro scores as containing it (a Straight Flush
+  counts as a Straight). Several targets also show the odds of hitting any of them.
+- Card counts cover the newly drawn cards only: at least / exactly / at most a number of cards of a rank
+  (or any face card), suit, specific card, and/or special: an enhancement (or any `Enhanced`), edition
+  (or any edition) or seal (or `Sealed`).
 
 Jokers that change how hands or cards are read are taken into account (unless debuffed): Four Fingers,
 Shortcut and Smeared Joker for targets and suit queries, and Pareidolia for face-card queries.

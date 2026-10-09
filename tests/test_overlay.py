@@ -1,18 +1,19 @@
-"""The odds panel: the app's odds file, and the mod reading it and drawing the panel."""
+"""The odds panel and target editor: the app's odds file, and the mod reading it and drawing the panel."""
 
 from __future__ import annotations
 
 import json
+import re
 from fractions import Fraction
 
 import pytest
 
 import calculatro.__main__ as cli
 from calculatro import overlay
-from calculatro.cards import parse_query
+from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
 from calculatro.report import build_report
-from calculatro.state import GameState
+from calculatro.state import SUIT_SHORT, GameState
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
 
@@ -20,8 +21,9 @@ lupa = pytest.importorskip("lupa")
 
 TEXTS = r"""
 return function(node)  -- text nodes of a UI definition, in order, as 'text@colour', icons as '[atlas x,y]',
-  local out = {}       -- and the arrow drawn in boxes as '->@colour'
+  local out = {}       -- the arrow drawn in boxes as '->@colour', and other drawn icons as '[name]'
   local function walk(n)
+    if n.config and n.config.glyph then out[#out + 1] = '[' .. n.config.glyph .. ']'; return end
     if n.n == G.UIT.T then out[#out + 1] = n.config.text .. '@' .. tostring(n.config.colour) end
     if n.n == G.UIT.R and n.nodes[1] and n.nodes[1].n == G.UIT.B then
       out[#out + 1] = '->@' .. tostring(n.nodes[1].config.colour)
@@ -50,11 +52,76 @@ def panel_texts(rt) -> list[str] | None:
     return list(rt.execute(TEXTS)(box.definition).values())
 
 
+_SUIT_SYMBOLS = {suit[:-1]: symbol for suit, symbol in SUIT_SHORT.items()}
+
+
+def label_for(query: CardQuery | str) -> str:
+    """How the panel names a card query: "Queen: 2+", "♠: 0-1", "Q♠: 1+", "Face card: none"."""
+    q = parse_query(query) if isinstance(query, str) else query
+    name = re.sub(r"\b(" + "|".join(_SUIT_SYMBOLS) + r")\b", lambda m: _SUIT_SYMBOLS[m[1]], q.filter.name)
+    if q.count == 0 and q.op in ("==", "<="):
+        count = "none"
+    else:
+        count = {">=": f"{q.count}+", "<=": f"0-{q.count}", "==": str(q.count)}[q.op]
+    return f"{name}: {count}"
+
+
+def track(lua, targets=(), queries=()):
+    """Set what the run tracks, as the editor would."""
+    rt, _ = lua
+    rt.execute("G.GAME.calculatro = {hands = {}, cards = {}}")
+    tracked = rt.eval("G.GAME.calculatro")
+    for i, t in enumerate(targets, 1):
+        tracked.hands[i] = get_target(t).name
+    for i, q in enumerate(queries, 1):
+        tracked.cards[i] = rt.table_from({"query": q, "label": label_for(q)})
+
+
+def tracked(rt) -> tuple[list[str], list[str]]:
+    t = rt.eval("G.GAME.calculatro")
+    return list(t.hands.values()), [c.query for c in t.cards.values()]
+
+
 def answer(lua, tmp_path, targets=("trips", "pair"), queries=("no face",)):
-    """What the app does: read the mod's state, write its odds."""
+    """Track these, then do what the app does: read the mod's state, write its odds."""
+    _, mod = lua
+    track(lua, targets, queries)
+    mod.write_snapshot()
+    reply(tmp_path)
+
+
+def reply(tmp_path):
+    """The app's odds for the mod's latest state."""
     state = read_state(tmp_path)
-    _, payload = cli.calculate(state, [get_target(t) for t in targets], [parse_query(q) for q in queries])
+    _, payload = cli.calculate(state, *cli.tracked(state))
     assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+
+
+FIND = r"""
+return function(node, id)  -- the node with this id
+  local function walk(n)
+    if n.config and n.config.id == id then return n end
+    for _, c in ipairs(n.nodes or {}) do local found = walk(c); if found then return found end end
+  end
+  return walk(node)
+end
+"""
+
+
+def find(rt, id: str):
+    return rt.execute(FIND)(rt.eval("BOXES[#BOXES]").definition, id)
+
+
+def click(lua, id: str, dt: float = 0.01) -> bool:
+    """Click a button of the live panel, as the game would; False if it's inert."""
+    rt, mod = lua
+    node = find(rt, id)
+    assert node is not None, id
+    if not node.config.button:
+        return False
+    rt.eval("G.FUNCS")[node.config.button](node)
+    mod.update(dt)
+    return True
 
 
 # --- Python side -----------------------------------------------------------
@@ -68,7 +135,7 @@ def test_percent_never_rounds_to_certainty():
 
 
 def test_card_labels_are_short_and_ascii_but_for_suits():
-    labels = {q: overlay.card_label(parse_query(q)) for q in
+    labels = {q: label_for(q) for q in
               ["2+ queens", "at most 1 spade", "no face cards", "exactly 2 hearts", "QS", "at most 0 clubs",
                "foil diamonds", "10 of hearts"]}
     assert labels == {
@@ -81,8 +148,69 @@ def test_card_labels_are_short_and_ascii_but_for_suits():
         "foil diamonds": "Foil ♦: 1+",
         "10 of hearts": "T♥: 1+",
     }
-    for label in labels.values():  # the mod draws these four as icons
+
+
+BUILDER_QUERIES = r"""
+return function(mod, counts)  -- every query the builder makes, with its label, for these {cmp, count} pairs
+  local out = {}
+  local O = mod.OPTIONS
+  for _, cc in ipairs(counts) do
+    for rank = 1, #O.rank do for suit = 1, #O.suit do for special = 1, #O.special do
+      mod.builder = {cmp = cc[1], count = cc[2], rank = rank, suit = suit, special = special}
+      local query, label = mod.builder_query()
+      out[#out + 1] = {query or false, label or false, O.rank[rank].text, O.suit[suit].text, O.special[special].text}
+    end end end
+  end
+  return out
+end
+"""
+
+
+def builder_queries(lua, counts):
+    rt, mod = lua
+    rows = rt.execute(BUILDER_QUERIES)(mod, rt.table_from([rt.table_from(c) for c in counts]))
+    return [tuple(r.values()) for r in rows.values()]
+
+
+def test_builder_queries_parse_as_labelled(lua):
+    # Every rank, suit and special with a few counts, and every count with one of them.
+    counts = [(1, 2), (2, 0), (3, 3), (2, 8)]
+    rows = builder_queries(lua, counts)
+    assert len(rows) == len(counts) * 15 * 5 * 20
+    for query, label, rank, suit, special in rows:
+        if (rank, suit, special) == ("Any", "Any", "Any"):
+            assert query is False and label is False  # every card matches: nothing to add
+            continue
+        q = parse_query(query)
+        assert label_for(q) == label, query
         assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
+        if rank != "Any":
+            assert re.search(rf"\b{rank.lower()}\b", query), query
+        if rank == "Face":
+            assert not any(s in query for s in ("spade", "heart", "club", "diamond")), query  # no suit for faces
+    _, mod = lua
+    for cmp, (lo, hi) in [(1, (1, 8)), (2, (0, 8)), (3, (0, 7))]:
+        for n in range(lo, hi + 1):
+            query, label = builder_queries(lua, [(cmp, n)])[5 * 20][:2]  # rank 2, any suit and special
+            q = parse_query(query)
+            assert (q.op, q.count, label) == ({1: ">=", 2: "==", 3: "<="}[cmp], n, label_for(q))
+
+
+def test_builder_cycles_wrap_and_keep_counts_in_range(lua):
+    _, mod = lua
+    mod.cycle("rank", -1)
+    assert mod.OPTIONS.rank[mod.builder.rank].text == "Face"
+    mod.cycle("rank", 1)
+    assert mod.builder.rank == 1
+    mod.cycle("count", -1)  # at least 1 -> at least 8
+    assert (mod.builder.cmp, mod.builder.count) == (1, 8)
+    mod.cycle("cmp", -1)  # at most: 0..7
+    assert (mod.builder.cmp, mod.builder.count) == (3, 7)
+    mod.cycle("count", 1)
+    assert mod.builder.count == 0
+    mod.cycle("cmp", -1)  # exactly 0
+    mod.cycle("cmp", -1)  # at least: 1..8
+    assert (mod.builder.cmp, mod.builder.count) == (1, 1)
 
 
 def test_panel_draws_suits_as_icons(lua, tmp_path):
@@ -91,7 +219,7 @@ def test_panel_draws_suits_as_icons(lua, tmp_path):
     answer(lua, tmp_path, targets=(), queries=("QS", "at most 1 heart", "foil diamonds", "clubs", "queen"))
     mod.update(0.1)
     texts = panel_texts(rt)
-    rows = [t for t in texts[texts.index("Discard@muted") + 1:] if "%" not in t]  # without the odds
+    rows = [t for t in texts[texts.index("Discard@muted") + 1:] if "%" not in t and t != "[x]"]  # names only
     assert rows == ["Q@light", "[ui_1 3,1]", ": 1+@light",
                     "[ui_1 0,1]", ": 0-1@light",
                     "Foil @light", "[ui_1 1,1]", ": 1+@light",
@@ -125,11 +253,11 @@ def test_payloads(lua, tmp_path):
     assert payload == {
         "schema": overlay.SCHEMA, "id": state.id,
         "targets": [
-            {"name": "Any target", "keep": "100%", "discard": "100%", "trend": 0},
-            {"name": "Trips", "keep": "80.0%", "discard": "100%", "trend": 1},
-            {"name": "Pair", "keep": "100%", "discard": "100%", "trend": 0},
+            {"key": "Any target", "keep": "100%", "discard": "100%", "trend": 0},
+            {"key": "Three of a Kind", "keep": "80.0%", "discard": "100%", "trend": 1},
+            {"key": "Pair", "keep": "100%", "discard": "100%", "trend": 0},
         ],
-        "cards": [{"name": "Face card: none", "discard": "20.0%"}],
+        "cards": [{"key": "no face", "discard": "20.0%"}],
     }
     assert overlay.pending(state) == {"schema": overlay.SCHEMA, "id": state.id, "pending": True}
 
@@ -140,22 +268,22 @@ def test_payloads(lua, tmp_path):
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
     assert "message" not in payload
-    assert payload["targets"] == [{"name": "Trips", "keep": "80.0%"}]
-    assert overlay.odds(state, None, configured=False)["message"] == overlay.NO_TARGETS
-    assert "message" not in overlay.odds(GameState(in_run=False, id="x"), None, configured=False)
+    assert payload["targets"] == [{"key": "Three of a Kind", "keep": "80.0%"}]
+    assert overlay.odds(state, None) == {"schema": overlay.SCHEMA, "id": state.id, "targets": [], "cards": []}
 
 
 def test_watch_sends_pending_then_odds():
-    state = GameState(in_run=True, id="s:1", hand_size=1)
+    state = GameState(in_run=True, id="s:1", hand_size=1, tracked_hands=["Pair"])
     sent: list[dict] = []
-    cli.run_watch(FakeSource(state), [get_target("pair")], [], lambda text: None, sent.append,
+    cli.run_watch(FakeSource(state), lambda text: None, sent.append,
                   poll_interval=0.005, stop=lambda: len(sent) >= 2)
     assert sent == [overlay.pending(state), overlay.odds(state, None)]
 
     sent.clear()
-    cli.run_watch(FakeSource(state), [], [], lambda text: None, sent.append,
+    untracked = GameState(in_run=True, id="s:2", hand_size=1)
+    cli.run_watch(FakeSource(untracked), lambda text: None, sent.append,
                   poll_interval=0.005, stop=lambda: bool(sent))
-    assert sent == [overlay.odds(state, None, configured=False)]
+    assert sent == [overlay.odds(untracked, None)]
 
 
 # --- Lua side --------------------------------------------------------------
@@ -205,17 +333,17 @@ def test_in_blind(lua):
 def test_panel_shows_current_odds(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
-    assert panel_texts(rt) is None  # no odds yet
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Nothing tracked@muted"]
     answer(lua, tmp_path)
     mod.update(0.1)
     assert panel_texts(rt) == [
-        "CALCULATRO@light",
+        "CALCULATRO@light", "+@light",
         "Hands@muted", "Keep@muted", "Discard@muted",
-        "Any target@light", "100%@light", "->@muted", "100%@light",
-        "Trips@light", "80.0%@light", "->@muted", "100%@green",
-        "Pair@light", "100%@light", "->@muted", "100%@light",
+        "Any target@light", "100%@light", "->@muted", "100%@light",  # can't be removed
+        "Trips@light", "80.0%@light", "->@muted", "100%@green", "[x]",
+        "Pair@light", "100%@light", "->@muted", "100%@light", "[x]",
         "Drawn cards@muted", "Discard@muted",  # a column of their own
-        "Face card: none@light", "20.0%@light",
+        "Face card: none@light", "20.0%@light", "[x]",
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
@@ -268,6 +396,7 @@ def test_panel_spills_into_columns(lua, tmp_path):
     targets = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
                "straight flush", "royal", "five of a kind", "flush house")
     answer(lua, tmp_path, targets=targets, queries=("queen",))
+    before = rt.eval("#BOXES")
     mod.update(0.1)
     box = rt.eval("BOXES[#BOXES]")
     # 12 hand rows (11 targets and "Any target") and a query: columns of 6
@@ -280,7 +409,7 @@ def test_panel_spills_into_columns(lua, tmp_path):
     ]
     assert box.T.h <= mod.max_panel_height()
     assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
-    assert sum(1 for b in rt.eval("BOXES").values() if b.REMOVED) == 6  # 12 to 7 rows per column
+    assert rt.eval("#BOXES") - before == 7  # tried 12 rows per column, then 11, ... 6
 
 
 def test_panel_fills_a_column_before_starting_another(lua, tmp_path):
@@ -302,7 +431,7 @@ def test_message_does_not_change_the_panel(lua, tmp_path, targets):
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=())
     mod.update(0.1)
-    assert panel_texts(rt)[1] == "Hands@muted"  # no message
+    assert panel_texts(rt)[2] == "Hands@muted"  # no message
     box = rt.eval("BOXES[#BOXES]")
     layout = [len(c) for c in columns(rt, box.definition)]
     assert layout == ([7] if len(targets) == 5 else [7, 7, 2])
@@ -310,7 +439,7 @@ def test_message_does_not_change_the_panel(lua, tmp_path, targets):
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # new snapshot
     mod.update(0.4)  # no answer yet: "Calculating..." beside the title
-    assert panel_texts(rt)[1] == "Calculating...@muted"
+    assert panel_texts(rt)[2] == "Calculating...@muted"
     calculating = rt.eval("BOXES[#BOXES]")
     assert [len(c) for c in columns(rt, calculating.definition)] == layout
     assert (calculating.T.w, calculating.T.h) == (box.T.w, box.T.h)
@@ -357,11 +486,12 @@ def test_columns_needed():
     assert overlay.columns_needed(2, 13) == 4
 
 
-def test_tracking_limit(capsys):
-    queries = ["-c", "queen"] * 13
-    with pytest.raises(SystemExit):
-        cli.main(["watch", "-t", "pair", "-t", "flush", *queries])
-    assert "these need 4" in capsys.readouterr().err
+def test_mod_and_app_agree_on_columns_needed(lua):
+    _, mod = lua
+    for hands in range(13):
+        for cards in range(20):
+            assert mod.columns_needed(hands, cards) == overlay.columns_needed(hands, cards), (hands, cards)
+    assert mod.max_columns == overlay.MAX_COLUMNS
 
 
 def test_panel_never_wider_than_three_columns(lua, tmp_path):
@@ -398,9 +528,9 @@ def test_panel_without_selection(lua, tmp_path):
     answer(lua, tmp_path, targets=("trips",))
     mod.update(0.1)
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "Hands@muted", "Keep@muted", "Discard@muted",
-        "Trips@light", "80.0%@light", "-@light",
-        "Drawn cards@muted", "Discard@muted", "Face card: none@light", "-@light",
+        "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
+        "Trips@light", "80.0%@light", "-@light", "[x]",
+        "Drawn cards@muted", "Discard@muted", "Face card: none@light", "-@light", "[x]",
     ]
 
 
@@ -412,14 +542,14 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     mod.update(0.1)
     # Listed without a selection too, so the panel doesn't vanish between discards.
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "Drawn cards@muted", "Discard@muted",
-        "Face card: none@light", "-@light",
+        "CALCULATRO@light", "+@light", "Drawn cards@muted", "Discard@muted",
+        "Face card: none@light", "-@light", "[x]",
     ]
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)
     answer(lua, tmp_path, targets=(), queries=("no face",))
     mod.update(0.1)
-    assert panel_texts(rt)[-2:] == ["Face card: none@light", "20.0%@light"]
+    assert panel_texts(rt)[-3:] == ["Face card: none@light", "20.0%@light", "[x]"]
 
 
 CELL_WIDTHS = r"""
@@ -505,7 +635,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert "80.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert "80.0%@stale" in texts and texts[1] == "Calculating...@muted"  # beside the title
+    assert "80.0%@stale" in texts and texts[2] == "Calculating...@muted"  # beside the title
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
@@ -515,13 +645,23 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
 def test_panel_without_the_app(lua, tmp_path):
     rt, mod = lua
     (tmp_path / "calculatro_odds.json").write_text(json.dumps(
-        {"schema": overlay.SCHEMA, "id": "an-earlier-session:4", "targets": [{"name": "Pair", "keep": "1%"}]}))
+        {"schema": overlay.SCHEMA, "id": "an-earlier-session:4", "targets": [{"key": "Pair", "keep": "1%"}]}))
+    track(lua, targets=("pair",))
     mod.update(0.5)
-    assert panel_texts(rt) is None
+    # What's tracked shows at once, without odds until the app answers.
+    rows = ["Hands@muted", "Keep@muted", "Discard@muted", "Pair@light", "-@light", "-@light", "[x]"]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", *rows]
     mod.update(0.5)
-    assert panel_texts(rt) == ["CALCULATRO@light", "Calculating...@muted"]
+    stale = [r.replace("-@light", "-@stale") for r in rows]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Calculating...@muted", *stale]
     mod.update(2.0)
-    assert panel_texts(rt) == ["CALCULATRO@light", "Waiting for the Calculatro app...@muted"]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Waiting for app@muted", *stale]
+
+
+def test_nothing_tracked_needs_no_app(lua):
+    rt, mod = lua
+    mod.update(5.0)
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Nothing tracked@muted"]
 
 
 def test_panel_hidden_outside_blinds_and_by_hotkey(lua, tmp_path):
@@ -563,3 +703,187 @@ def test_panel_rebuilt_after_the_game_removes_it(lua, tmp_path):
     rt.execute("G.deck = {cards = G.deck.cards, T = {w = 2.25, y = 8.9}}")  # a new run's deck
     mod.update(0.1)
     assert rt.eval("#BOXES") == boxes + 1 and rt.eval("BOXES[#BOXES].config.major == G.deck")
+
+
+# --- Buttons and the target editor ----------------------------------------
+
+ALL_HANDS = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+             "straight flush", "royal", "five of a kind", "flush house", "flush five")
+
+
+def test_x_stops_tracking_a_row(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=("trips", "pair"), queries=("no face", "queen"))
+    mod.update(0.1)
+    assert find(rt, "calculatro_remove_Any target") is None  # the combined row can't be removed
+    assert click(lua, "calculatro_remove_Three of a Kind")
+    # Gone at once, with "Any target" too, before the app has answered.
+    assert tracked(rt) == (["Pair"], ["no face", "queen"])
+    assert [c[1:] for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [
+        ["Pair"], ["Face card: none", "Queen: 1+"]]
+    assert click(lua, "calculatro_remove_no face")
+    assert tracked(rt) == (["Pair"], ["queen"])
+    mod.update(0.2)
+    assert read_state(tmp_path).tracked_cards == ["queen"]  # sent to the app
+
+
+def test_plus_inert_once_nothing_more_fits(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    # 12 hand rows in 2 columns and 6 queries in a 3rd: another of either needs a 4th.
+    queries = ("queen", "king", "ace", "jack", "spade", "heart")
+    answer(lua, tmp_path, targets=ALL_HANDS[:11], queries=queries)
+    mod.update(0.1)
+    assert panel_texts(rt)[:2] == ["CALCULATRO@light", "+@muted"]
+    assert not click(lua, "calculatro_open")
+    assert mod.editor is None
+    # Removing one makes room again.
+    assert click(lua, "calculatro_remove_heart")
+    assert panel_texts(rt)[1] == "+@light"
+
+
+def open_editor(lua, tmp_path, targets=("pair",), queries=()):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=targets, queries=queries)
+    mod.update(0.1)
+    assert click(lua, "calculatro_open")
+    return rt, mod
+
+
+def test_editor_replaces_the_odds_until_done(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    texts = panel_texts(rt)
+    assert texts[:4] == ["CALCULATRO@light", "Done@light", "Hands@light", "Cards@light"]
+    assert "Hands@muted" not in texts  # no odds
+    box = rt.eval("BOXES[#BOXES]")
+    assert box.config.can_collide and rt.eval("BOXES[#BOXES].config.major == G.deck")
+    # Opens on the Hands tab: the chosen tab is inert and outlined.
+    assert find(rt, "calculatro_tab_hands").config.button is None
+    assert find(rt, "calculatro_tab_hands").config.outline
+    # New odds and snapshots don't rebuild it under the cursor.
+    boxes = rt.eval("#BOXES")
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.2)
+    reply(tmp_path)
+    mod.update(3.0)
+    assert rt.eval("#BOXES") == boxes
+    assert click(lua, "calculatro_done")
+    assert mod.editor is None and "Hands@muted" in panel_texts(rt)
+
+
+def test_hands_tab_toggles_hands(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    assert find(rt, "calculatro_hand_Pair").config.colour == "blue"
+    assert find(rt, "calculatro_hand_Flush").config.colour == "l_black"
+    assert panel_texts(rt)[4:] == [f"{n}@light" for n in [
+        "Pair", "Two Pair", "Trips", "Straight", "Flush", "Full House",
+        "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House", "Flush Five"]]
+    assert click(lua, "calculatro_hand_Flush")
+    assert click(lua, "calculatro_hand_Three of a Kind")
+    assert tracked(rt)[0] == ["Pair", "Three of a Kind", "Flush"]  # in the game's order
+    assert click(lua, "calculatro_hand_Pair")
+    assert tracked(rt)[0] == ["Three of a Kind", "Flush"]
+    assert click(lua, "calculatro_done")
+    assert [c[1:] for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [["Any target", "Trips", "Flush"]]
+
+
+def test_hands_that_would_not_fit_are_greyed(lua, tmp_path):
+    queries = ("queen", "king", "ace", "jack", "spade", "heart")
+    rt, mod = open_editor(lua, tmp_path, targets=ALL_HANDS[:10], queries=queries)
+    assert find(rt, "calculatro_hand_Flush Five").config.button  # an 11th hand still fits
+    assert click(lua, "calculatro_hand_Flush Five")
+    assert find(rt, "calculatro_hand_Flush House").config.button is None  # a 12th doesn't
+    assert "Flush House@stale" in panel_texts(rt)
+    assert click(lua, "calculatro_hand_Pair")  # tracked ones can still be removed
+    assert find(rt, "calculatro_hand_Flush House").config.button
+
+
+def cards_tab(lua, tmp_path, **kwargs):
+    rt, mod = open_editor(lua, tmp_path, **kwargs)
+    assert click(lua, "calculatro_tab_cards")
+    return rt, mod
+
+
+def option(rt, field) -> str:
+    return find(rt, f"calculatro_{field}").nodes[1].config.text
+
+
+def set_builder(lua, field, text):
+    rt, _ = lua
+    for _ in range(25):
+        if option(rt, field) == text:
+            return
+        assert click(lua, f"calculatro_{field}_next")
+    raise AssertionError(f"{field} has no option {text!r}")
+
+
+def test_cards_tab_adds_queries(lua, tmp_path):
+    rt, mod = cards_tab(lua, tmp_path)
+    assert find(rt, "calculatro_add").config.button is None  # Any, Any, Any: always true
+    assert "Nothing tracked@muted" in panel_texts(rt)
+    set_builder(lua, "count", "2")
+    set_builder(lua, "rank", "Queen")
+    assert "Add  Queen: 2+@light" in panel_texts(rt)
+    assert click(lua, "calculatro_add")
+    assert tracked(rt) == (["Pair"], ["at least 2 queen"])
+    assert find(rt, "calculatro_add").config.button is None  # already tracked
+    set_builder(lua, "suit", "Spades")
+    set_builder(lua, "special", "Lucky")
+    texts = panel_texts(rt)
+    assert texts[texts.index("Add  Lucky Q@light"):][:3] == ["Add  Lucky Q@light", "[ui_1 3,1]", ": 2+@light"]
+    assert click(lua, "calculatro_add")
+    assert tracked(rt)[1] == ["at least 2 queen", "at least 2 lucky queen of spades"]
+    # The tracked list, each with its x.
+    texts = panel_texts(rt)
+    assert texts[texts.index("Queen: 2+@light"):][:6] == [
+        "Queen: 2+@light", "[x]", "Lucky Q@light", "[ui_1 3,1]", ": 2+@light", "[x]"]
+    assert click(lua, "calculatro_remove_at least 2 queen")
+    assert tracked(rt)[1] == ["at least 2 lucky queen of spades"]
+    # The app gets them as queries it can parse.
+    assert click(lua, "calculatro_done", dt=0.3)
+    _, queries = cli.tracked(read_state(tmp_path))
+    assert [q.text for q in queries] == ["at least 2 lucky queen of spades"]
+
+
+def test_face_cards_take_no_suit(lua, tmp_path):
+    rt, mod = cards_tab(lua, tmp_path)
+    set_builder(lua, "suit", "Hearts")
+    set_builder(lua, "rank", "Face")
+    assert option(rt, "suit") == "Any" and find(rt, "calculatro_suit_next").config.button is None
+    assert "Add  Face card: 1+@light" in panel_texts(rt)
+    set_builder(lua, "rank", "Any")  # the suit comes back
+    assert option(rt, "suit") == "Hearts"
+
+
+def test_tracked_cards_page_five_at_a_time(lua, tmp_path):
+    rt, mod = cards_tab(lua, tmp_path, queries=("queen", "king", "ace", "jack", "spade"))
+    assert find(rt, "calculatro_page") is None  # one page: no page cycle
+    set_builder(lua, "rank", "10")
+    assert click(lua, "calculatro_add")  # shows the new query's page
+    assert option(rt, "page") == "Page 2/2"
+    assert find(rt, "calculatro_remove_at least 1 10") and find(rt, "calculatro_remove_queen") is None
+    assert click(lua, "calculatro_page_next")  # wraps around
+    assert option(rt, "page") == "Page 1/2"
+    assert click(lua, "calculatro_page_prev")
+    assert click(lua, "calculatro_remove_at least 1 10")  # back to one page
+    assert find(rt, "calculatro_page") is None and find(rt, "calculatro_remove_queen")
+
+
+def test_editor_closes_with_the_panel(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    rt.execute("G.STATE = G.STATES.HAND_PLAYED")
+    mod.update(0.1)
+    assert panel_texts(rt) is None and mod.editor is None
+    rt.execute("G.STATE = G.STATES.SELECTING_HAND")
+    mod.update(0.1)
+    assert "Hands@muted" in panel_texts(rt)
+
+
+def test_targets_reset_with_a_new_run(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    assert click(lua, "calculatro_hand_Flush")
+    rt.execute("G.GAME = {current_round = {hands_left = 4, discards_left = 3}, blind = {name = 'Small Blind'}}")
+    mod.update(0.3)
+    assert read_state(tmp_path).tracked_hands == []

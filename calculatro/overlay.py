@@ -4,29 +4,29 @@ Each payload echoes the id of the snapshot it answers, so the mod can tell
 current odds from ones for an older state. A snapshot is answered first with
 a `pending` payload, then with the odds once they're calculated.
 
-Text is plain ASCII, except for the suit symbols (♠♥♣♦): Balatro's font has
-none, so the mod draws those as the game's own suit icons.
+The mod owns the list of what's tracked and names its rows itself, so each
+row here is keyed by what the mod sent: a hand's name ("Three of a Kind", or
+"Any target" for the combined row) or a card query's text. Text is ASCII.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .cards import CardQuery
 from .report import Report
-from .state import SUIT_SHORT, GameState
+from .state import GameState
 
-SCHEMA = 2  # `odds_schema` in calculatro.lua
+SCHEMA = 3  # `odds_schema` in calculatro.lua
 
 # The panel fits 3 columns (`max_columns` in calculatro.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
-# queries each fill columns of their own.
+# queries each fill columns of their own. The mod won't track more than fits
+# (`Calculatro.columns_needed`).
 ROWS_PER_COLUMN = 6
 MAX_COLUMNS = 3
 
@@ -37,19 +37,6 @@ def columns_needed(targets: int, queries: int) -> int:
     return -(-hand_rows // ROWS_PER_COLUMN) - (-queries // ROWS_PER_COLUMN)
 
 NO_DISCARDS = "No discards left"  # short: it sits beside the panel's title
-NO_TARGETS = "No targets set: run with -t or -c"
-
-# Suit words in query names ("Spade", "Foil Heart") and their symbols.
-_SUIT_SYMBOLS = {suit[:-1]: symbol for suit, symbol in SUIT_SHORT.items()}
-_SUIT_WORD = re.compile(r"\b(" + "|".join(_SUIT_SYMBOLS) + r")\b")
-
-# Hand names too long for the panel's name column at full size.
-SHORT_NAMES = {
-    "Three of a Kind": "Trips",
-    "Four of a Kind": "Quads",
-    "Five of a Kind": "5 of a Kind",
-    "Straight Flush": "Str. Flush",
-}
 
 
 def odds_path(state_path: Path) -> Path:
@@ -71,39 +58,23 @@ def percent(p: Fraction) -> str:
     return f"{value:.1f}%"
 
 
-def card_label(query: CardQuery) -> str:
-    """Short label for a card query: "Queen: 2+", "♠: 0-1", "Q♠: 1+", "Face card: none"."""
-    name = _SUIT_WORD.sub(lambda m: _SUIT_SYMBOLS[m[1]], query.filter.name)
-    if query.count == 0 and query.op in ("==", "<="):
-        count = "none"
-    elif query.op == ">=":
-        count = f"{query.count}+"
-    elif query.op == "<=":
-        count = f"0-{query.count}"
-    else:
-        count = str(query.count)
-    return f"{name}: {count}"
-
-
 def pending(state: GameState) -> dict[str, Any]:
     return {"schema": SCHEMA, "id": state.id, "pending": True}
 
 
-def odds(state: GameState, report: Report | None, configured: bool = True) -> dict[str, Any]:
-    """The panel's contents for `state`; `configured` is whether any targets or queries are set."""
+def odds(state: GameState, report: Report | None) -> dict[str, Any]:
+    """The panel's odds for `state`: none without a report (nothing tracked)."""
     payload: dict[str, Any] = {"schema": SCHEMA, "id": state.id, "targets": [], "cards": []}
     if report is None:
-        if not configured and state.in_run and state.hand:
-            payload["message"] = NO_TARGETS
         return payload
     for row in report.targets:
-        target: dict[str, Any] = {"name": SHORT_NAMES.get(row.name, row.name), "keep": percent(row.keep)}
+        target: dict[str, Any] = {"key": row.name, "keep": percent(row.keep)}
         if row.discard is not None:
             target["discard"] = percent(row.discard)
             target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
         payload["targets"].append(target)
     for q, p in report.cards:
-        card: dict[str, Any] = {"name": card_label(q)}
+        card: dict[str, Any] = {"key": q.text}
         if p is not None:
             card["discard"] = percent(p)
         payload["cards"].append(card)

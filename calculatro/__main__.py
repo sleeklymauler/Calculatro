@@ -1,5 +1,5 @@
-"""CLI: `python -m calculatro watch -t trips -c "2+ queens"` prints live game state and odds,
-and writes them for the mod's in-game panel."""
+"""CLI: `python -m calculatro watch` prints live game state and the odds of what's tracked
+in game, and writes the odds for the mod's in-game panel."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from threading import Event
 
 from . import overlay
 from .cards import CardQuery, parse_query
-from .hands import TARGETS, Target, get_target
+from .hands import Target, get_target
 from .report import Report, build_report
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
@@ -86,6 +86,31 @@ def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
     return format_report(report) if report else ""
 
 
+def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
+    """The targets and card queries set in game. Any the app doesn't know, repeats, and
+    any past what the panel fits (`overlay.columns_needed`) are left out."""
+    def fits(targets: int, queries: int) -> bool:
+        return overlay.columns_needed(targets, queries) <= overlay.MAX_COLUMNS
+
+    targets: list[Target] = []
+    for name in state.tracked_hands:
+        try:
+            target = get_target(name)
+        except KeyError:
+            continue
+        if target not in targets and fits(len(targets) + 1, 0):
+            targets.append(target)
+    queries: list[CardQuery] = []
+    for text in state.tracked_cards:
+        try:
+            query = parse_query(text)
+        except ValueError:
+            continue
+        if text not in [q.text for q in queries] and fits(len(targets), len(queries) + 1):
+            queries.append(query)
+    return targets, queries
+
+
 def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
               cancel: Event | None = None) -> tuple[str, dict]:
     """The odds as text, and as the payload for the mod's panel."""
@@ -94,13 +119,15 @@ def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
 
 
 CALCULATING = "Calculating odds..."
+NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
 
 
-def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuery],
-              write: Callable[[str], None], panel: Callable[[dict], object] = lambda payload: None, *,
+def run_watch(source: StateSource, write: Callable[[str], None],
+              panel: Callable[[dict], object] = lambda payload: None, *,
               patience: float = 0.25, poll_interval: float = 0.05,
               stop: Callable[[], bool] = lambda: False) -> None:
-    """Print each new state and its odds, calculating the odds in the background.
+    """Print each new state and the odds of what it tracks (`tracked`), calculating
+    them in the background.
 
     A new state cancels the running calculation, so the view keeps up with the
     game however slow the odds are. Odds ready within `patience` seconds print
@@ -119,13 +146,15 @@ def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuer
             if job is not None:
                 job.cancel()
             job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
+            targets, queries = tracked(state)
             if targets or queries:
                 panel(overlay.pending(state))
-                job = Job(lambda cancel, state=state: calculate(state, targets, queries, cancel))
+                job = Job(lambda cancel, state=state, targets=targets, queries=queries:
+                          calculate(state, targets, queries, cancel))
                 deadline = time.monotonic() + patience
             else:
-                write(pending)
-                panel(overlay.odds(state, None, configured=False))
+                write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
+                panel(overlay.odds(state, None))
                 pending = ""
         if job is None:
             time.sleep(poll_interval)
@@ -146,39 +175,12 @@ def run_watch(source: StateSource, targets: list[Target], queries: list[CardQuer
             pending = ""
 
 
-def _target(name: str) -> Target:
-    try:
-        return get_target(name)
-    except KeyError as e:
-        raise argparse.ArgumentTypeError(str(e.args[0])) from None
-
-
-def _query(text: str) -> CardQuery:
-    try:
-        return parse_query(text)
-    except ValueError as e:
-        raise argparse.ArgumentTypeError(str(e)) from None
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="calculatro")
     sub = parser.add_subparsers(dest="cmd", required=True)
     watch = sub.add_parser("watch", help="print the game state whenever it changes")
     watch.add_argument("--file", type=Path, help="state file (default: %%APPDATA%%/Balatro/calculatro_state.json)")
-    watch.add_argument("-t", "--target", type=_target, action="append", default=[],
-                       help=f"hand type to aim for; repeat for several ({', '.join(TARGETS)}, "
-                            "or trips, quads, royal)")
-    watch.add_argument("-c", "--cards", type=_query, action="append", default=[],
-                       help='odds for the drawn cards, e.g. "queen", "2+ queens", "no face cards", '
-                            '"exactly 1 spade", "2 of clubs"; repeat for several')
     args = parser.parse_args(argv)
-    if args.cmd == "watch":
-        columns = overlay.columns_needed(len(args.target), len(args.cards))
-        if columns > overlay.MAX_COLUMNS:
-            parser.error(f"too many targets and card queries for the in-game panel: it fits "
-                         f"{overlay.MAX_COLUMNS} columns of {overlay.ROWS_PER_COLUMN} rows, with targets "
-                         f"(plus \"Any target\" when there are several) and card queries in columns "
-                         f"of their own, and these need {columns}")
     # Suit symbols: Windows pipes/redirects default to cp1252.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -188,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         odds_file = overlay.odds_path(source.path)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
-            run_watch(source, args.target, args.cards, lambda text: print(text, flush=True),
+            run_watch(source, lambda text: print(text, flush=True),
                       lambda payload: overlay.write(odds_file, payload))
         except KeyboardInterrupt:
             pass

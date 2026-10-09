@@ -1,7 +1,8 @@
-# In-game target editor (planned)
+# In-game target editor
 
-Status: designed, not implemented. This replaces setting targets with the
-CLI's `-t`/`-c` flags by setting them in the game's odds panel.
+Status: implemented (`Calculatro.editor_model`/`editor_definition` in
+`mod/Calculatro/calculatro.lua`). It replaced setting targets with the CLI's
+`-t`/`-c` flags, which were removed.
 
 Mockups: <https://claude.ai/artifact/DdWZgJLCNgFB9ygGgqkea7> (a design canvas;
 private to the owner). Copies of its boards are in [`mockups/`](mockups/).
@@ -15,6 +16,9 @@ thing from the panel's existing sizes and colours (`mod/Calculatro/calculatro.lu
   ([`Main.dc.html`](mockups/Main.dc.html)). It's greyed out and inert once
   the panel is at its 3-column limit (`overlay.columns_needed`, `max_columns`)
   ([`States.dc.html`](mockups/States.dc.html)).
+- **Removing from the odds**: every odds row but "Any target" ends with a red
+  `x` that stops tracking it, so targets can be removed even when the `+` is
+  inert. Not in the mockups.
 - **In place**: the editor replaces the panel's contents in the same frame and
   position. It isn't drawn on top of the panel. A Done button (orange, like the
   game's Back) returns to the odds. While editing, the panel must not be rebuilt
@@ -38,6 +42,8 @@ thing from the panel's existing sizes and colours (`mod/Calculatro/calculatro.lu
     seal queen") get only one Special. Add stays greyed while Rank, Suit and
     Special are all Any, since that's always true. "No X" is "exactly 0".
   - The tracked list shows 5 queries per page, each with a red `x` to remove it.
+    It has no "Tracked" header (unlike the mockup), so the tab is no taller
+    than the odds panel.
     The 6th row is a `< Page 1/2 >` cycle, shown only when there's a second
     page. Pages instead of scrolling, because Balatro's UI can't clip a
     scrolling container (the Collection screens page the same way). Pages
@@ -56,16 +62,15 @@ thing from the panel's existing sizes and colours (`mod/Calculatro/calculatro.lu
   (`SHADOW_DEPTH`). The cycles' `<`/`>` and the `x` could be drawn the same
   way as the arrow.
 
-## Open questions
+## Resolved questions
 
-- Should the CLI's `-t`/`-c` flags be removed, or only seed the list of a run
-  that has none?
-- Count range: probably 0..8, with "at least 0" and "at most" over the draw
-  count ruled out.
+- The CLI's `-t`/`-c` flags were removed rather than kept to seed a new run.
+- Count range: at least 1..8, exactly 0..8, at most 0..7.
 
 ## Implementation notes
 
-- The panel is built with `can_collide = false` and rebuilt as a whole UIBox
-  whenever its model changes. Buttons need collision, and need a box that isn't
-  replaced up to ~20 times a second, so they don't lose hover and click state.
+- The panel was built with `can_collide = false`; it now collides, for its
+  buttons. Buttons also need a box that isn't replaced up to ~20 times a
+  second, so the panel is still rebuilt only when its model changes, and the
+  editor only by its own buttons.
 - Panel resize animation is a separate TODO, left until after the editor.

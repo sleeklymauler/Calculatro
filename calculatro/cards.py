@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 from .rules import Rules
 from .state import RANK_SHORT, SUIT_SHORT, SUITS, Card
@@ -80,6 +80,7 @@ class CardQuery:
     filter: CardFilter
     op: str  # ">=", "<=" or "=="
     count: int
+    text: str = field(default="", compare=False)  # as written, e.g. "at least 2 queen"
 
     @property
     def label(self) -> str:
@@ -193,6 +194,10 @@ _COUNT_PATTERNS = [
 
 
 def parse_query(text: str) -> CardQuery:
+    return replace(_parse_query(text), text=text.strip())
+
+
+def _parse_query(text: str) -> CardQuery:
     t = text.strip().lower()
     try:  # a bare filter, e.g. "queen" or "2 of clubs" (whose "2" isn't a count)
         return CardQuery(parse_filter(t), ">=", 1)
