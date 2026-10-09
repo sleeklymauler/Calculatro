@@ -145,6 +145,11 @@ class GameState:
         return self.blind == "The Serpent" and not self.blind_disabled
 
     @property
+    def mark(self) -> bool:
+        """Whether The Mark is in play: face cards are drawn face down, so face-down cards are face cards."""
+        return self.blind == "The Mark" and not self.blind_disabled
+
+    @property
     def rules(self) -> Rules:
         """Hand and card rules from the active (non-debuffed) jokers."""
         return Rules.from_jokers(self.jokers)

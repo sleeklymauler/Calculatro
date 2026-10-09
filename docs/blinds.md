@@ -12,9 +12,9 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 
 | Effect on the odds | Blinds |
 |---|---|
-| Modelled by the engine | The Serpent |
+| Modelled by the engine | The Serpent, The Mark |
 | Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
-| **Not modelled, odds are wrong** | The Mark, Cerulean Bell |
+| **Not modelled, odds are wrong** | Cerulean Bell |
 | Not modelled, odds are right but the hand may not score | The Psychic (only with fewer than 5 cards in hand), The Eye, The Mouth |
 | No effect | Small Blind, Big Blind, The Hook, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
 
@@ -30,7 +30,7 @@ A boss is disabled by **Chicot** (when the blind is selected, or when Chicot is 
 - The Wall's chips are halved and Violet Vessel's divided by 3, back to 2x base. The Needle stays at 1x.
 - Every card's debuff is recomputed, which clears the boss's debuffs.
 
-Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent` already checks `blind_disabled`; any new boss rule must do the same.
+Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent` and `GameState.mark` check `blind_disabled`; any new boss rule must do the same.
 
 ### Face-down cards (`Blind:stay_flipped`)
 
@@ -45,9 +45,9 @@ When a card is drawn to the hand, `draw_card` asks `Blind:stay_flipped(area, car
 
 The mod exports face-down hand cards as `{hidden: true}` and their identities, sorted, in `hidden_pool`; the engine treats them as part of the unseen pool (`_discard`: `pool = deck + hidden_pool`, and the kept face-down cards are drawn from it along with the new cards). The game agrees that face-down cards count as unseen: its View Deck screen counts `wheel_flipped` cards with the undrawn deck (`UI_definitions.lua`, "unplayed only").
 
-This is exact only when **whether a card is face down doesn't depend on what it is**:
+This is exact only when **whether a card is face down doesn't depend on what it is**, so The Mark is modelled apart:
 - **The Wheel, The House and The Fish:** correct. A card is face down because of a coin flip or the moment it was drawn, never its identity, so from the player's view the face-down cards are a uniform sample of the unseen pool.
-- **The Mark: not correct.** A face-down card is known to be a face card, and a face-up card is known not to be. The face-down cards are a uniform sample of the unseen *face cards* (by `is_face(true)`), and the deck is what's left. The engine instead draws them from the whole unseen pool, which is wrong in both directions: a target that wants the face-down cards to be Kings is underestimated, and a "Drawn cards" query for face cards is overestimated (the face cards held face down are counted as still drawable). Modelling it needs a two-stage draw: the `hidden_kept` cards from the unseen face cards, then `draws` from the rest of the pool. With Pareidolia (as long as it isn't debuffed) every card is a face card, so the face-down cards are again uniform and the current model is exact. Edge cases, all rare: a face-down card whose rank was changed afterwards (Strength, Death), or Pareidolia gained or lost mid-round.
+- **The Mark: modelled.** A face-down card is known to be a face card, and a face-up card is known not to be. The face-down cards are a uniform sample of the unseen *face cards* (by `is_face(true)`), and the deck is what's left. Drawing them from the whole unseen pool would be wrong in both directions: a target that wants the face-down cards to be Kings would be underestimated, and a "Drawn cards" query for face cards overestimated (the face cards held face down counted as still drawable). `GameState.mark` (the boss, not disabled) makes `engine._discard` pass the number of face-down cards (`marked`, discarded ones included, since they leave the deck too) to `probability` and `count_probability`, which draw the face-down cards from the unseen face cards (`engine.flipped_by_mark`) and the new cards from the rest of the pool (`_mark_split`). No extra export is needed: the face cards are found in `deck + hidden_pool`. With Pareidolia (as long as it isn't debuffed) every card is a face card, so the face-down cards are again uniform and the plain model is used. Edge cases, all rare and not modelled: a face-down card whose rank was changed afterwards (Strength, Death; if that leaves fewer unseen face cards than face-down cards, the plain model is used), or Pareidolia gained or lost mid-round.
 
 ### Card debuffs (`Blind:debuff_card`)
 
@@ -183,7 +183,7 @@ Columns:
 | 22 | The Head | `bl_head` | Any | 2x | $5 | All Heart cards are debuffed | Y | debuff | Handled (debuff flags) |
 | 23 | The Tooth | `bl_tooth` | 3 | 2x | $5 | Lose $1 per card played | N |  | No effect |
 | 24 | The Flint | `bl_flint` | 2 | 2x | $5 | Base chips and mult are halved | Y |  | No effect |
-| 25 | The Mark | `bl_mark` | 2 | 2x | $5 | All face cards are drawn face down | N | hidden | **Wrong** (face-down cards are known face cards) |
+| 25 | The Mark | `bl_mark` | 2 | 2x | $5 | All face cards are drawn face down | N | hidden | **Modelled** (face-down cards are face cards, `GameState.mark`) |
 | 26 | Amber Acorn | `bl_final_acorn` | Showdown | 2x | $8 | Flips and shuffles all Joker cards | N | joker | No effect (export leaks joker order) |
 | 27 | Verdant Leaf | `bl_final_leaf` | Showdown | 2x | $8 | All cards debuffed until 1 Joker sold | Y | debuff | Handled (debuff flags) |
 | 28 | Violet Vessel | `bl_final_vessel` | Showdown | 6x | $8 | Very large blind | N |  | No effect |

@@ -72,6 +72,7 @@ class Situation:
     kept: int  # known hand cards kept; the other known cards are discarded
     hidden: int  # face-down hand cards (kept: they can't be told apart)
     cold: bool = False  # clear the caches before each run (see the module docstring)
+    blind: str | None = None  # with "The Mark", the face-down cards are the hand's face cards
 
     @property
     def unknown(self) -> int:
@@ -83,6 +84,9 @@ UNKNOWN_6 = Situation("6 unknown: 1 face-down, draw 5", kept=2, hidden=1)
 UNKNOWN_7 = Situation("7 unknown: 2 face-down, draw 5", kept=1, hidden=2)
 THE_HOUSE = Situation("8 unknown: The House (all face-down)", kept=0, hidden=8)
 COLD_KEEP_3 = Situation("Keep 3, draw 5, nothing cached", kept=3, hidden=0, cold=True)
+# The Mark draws face cards face down, so they're HAND's 3 face cards, known to be face cards.
+MARK_KEEP_2 = Situation("6 unknown: The Mark, 3 face-down, draw 3", kept=2, hidden=3, blind="The Mark")
+MARK_ALL = Situation("8 unknown: The Mark, 3 face-down, draw 5", kept=0, hidden=3, blind="The Mark")
 
 
 def clear_caches() -> None:
@@ -112,12 +116,15 @@ class Scenario:
         """The game state and the hand indices selected for discarding."""
         cards = {(c.rank_id, c.suit): c for c in deck(self.deck)}
         hand_cards = [cards.pop(_parse(t)) for t in HAND]
+        if self.situation.blind == "The Mark":
+            hand_cards.sort(key=lambda c: c.rank_id in (11, 12, 13))
         known = len(HAND) - self.situation.hidden
         hand = hand_cards[:known] + [Card(hidden=True)] * self.situation.hidden
         state = GameState(
             in_run=True, hand_size=len(HAND), hands_left=4, discards_left=3,
             hand=hand, deck=sorted(cards.values(), key=lambda c: (c.suit, c.rank_id)),
             hidden_pool=hand_cards[known:], jokers=[Joker(k) for k in JOKERS[self.jokers]],
+            blind=self.situation.blind,
         )
         return state, list(range(self.situation.kept, known))
 
@@ -164,6 +171,9 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(THE_HOUSE, t, jokers, "wild")
                 for t in (("Flush House",), ("Full House", "Straight Flush"), ("Pair", "Flush"))]
         out += [Scenario(COLD_KEEP_3, c, jokers) for c in COLD_COMBINED]
+        # The Mark: one search per number of face cards among the unknown cards.
+        out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
+                for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",), ("Full House", "Straight Flush"))]
     return out
 
 
