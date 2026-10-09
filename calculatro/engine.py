@@ -97,8 +97,8 @@ def _gc_paused() -> Iterator[None]:
 
     A big search creates millions of tuples and frozensets, and the collector
     keeps traversing them, which costs 5-8% of the time (docs/performance).
-    The searches make no garbage cycles that outlive them (_favourable clears
-    its memo), so nothing piles up. The collector is process-wide and a
+    The searches make no garbage cycles that outlive them (_favourable breaks
+    its recursive closure's), so nothing piles up. The collector is process-wide and a
     cancelled search can still be unwinding when the next one starts, so the
     searches are counted, and the last one to finish restores it.
     """
@@ -636,13 +636,11 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     try:
         return ways(0, draws, todo, [], None)
     finally:
-        # `ways` refers to itself, so this frame's tables are only freed by the
-        # garbage collector, which is paused (see _gc_paused); free the big ones.
-        memo.clear()
-        transitions.clear()
-        part_ids.clear()
-        joined.clear()
-        joining.clear()
+        # `ways` refers to itself through its closure, which would keep this whole
+        # frame alive until the garbage collector runs (it's paused, see
+        # _gc_paused, so cycles pile up and are freed in one long pause later).
+        # Breaking the cycle frees everything as soon as the search returns.
+        del ways
 
 
 DEAD = -1  # a part that can no longer be satisfied
