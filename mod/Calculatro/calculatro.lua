@@ -689,6 +689,9 @@ end
 -- A text "->" is 13 pixels wide, too wide for GAP_W, so it would be shrunk;
 -- this fits with room either side and is shorter than the digits beside it.
 local FONT_PX = 200 * 64 / 1024 * SCALE * 0.1 / 20
+-- A text node's height at SCALE: the game makes it the font's line height
+-- (m6x11's em, 200 px) times its TEXT_HEIGHT_SCALE, 0.83.
+local TEXT_H = 200 * 0.83 * SCALE * 0.1 / 20
 local ARROW = { 2, 2, 2, 2, 2, 8, 6, 4, 2 }  -- column heights, in font pixels
 
 -- Discard values are right-aligned, so the arrow takes the left of the
@@ -761,11 +764,13 @@ local function blank(w)
     return { n = G.UIT.C, config = { minw = w }, nodes = {} }
 end
 
+local ROW_PAD = 0.03  -- around and between a row's cells
+
 local function row(nodes, config)
     local copy = {}
     for k, v in pairs(config or {}) do copy[k] = v end
     config = copy
-    config.align, config.padding = config.align or 'cl', 0.03
+    config.align, config.padding = config.align or 'cl', ROW_PAD
     return { n = G.UIT.R, config = config, nodes = nodes }
 end
 
@@ -789,12 +794,25 @@ end
 
 local CROSS = { '#...#', '.#.#.', '..#..', '.#.#.', '#...#' }
 
+-- Room above and below text in the editor's boxes: m6x11's descenders (g,
+-- p, y) hang below a text node's box, so they'd poke out of a box only as
+-- tall as its text.
+local TEXT_PAD = 0.05
+
+-- `nodes` as a row with TEXT_PAD above and below it, for a box's contents.
+local function padded(nodes, align)
+    local function space() return { n = G.UIT.R, config = { minh = TEXT_PAD, padding = 0 }, nodes = {} } end
+    return { space(), { n = G.UIT.R, config = { align = align or 'cm', padding = 0 }, nodes = nodes }, space() }
+end
+
 -- A button in the game's style. Clicking it runs Calculatro.act(action);
 -- without an action it's inert and drawn in `off_colour` (default: dark).
 -- opts: id, w and h (its least size; also its widest, so wider text shrinks),
--- align, colour, off_colour, outline (white, for the chosen tab).
+-- align, colour, off_colour, outline (white, for the chosen tab), padded
+-- (room for descenders, see TEXT_PAD).
 local function button(nodes, action, opts)
     local enabled = action ~= nil
+    if opts.padded then nodes = padded(nodes, opts.align) end
     return { n = G.UIT.C, config = {
         id = opts.id, align = opts.align or 'cm', minw = opts.w, maxw = opts.w, minh = opts.h, r = 0.06,
         colour = enabled and opts.colour or opts.off_colour or G.C.BLACK,
@@ -904,8 +922,10 @@ end
 
 -- The dark inset behind the odds or the editor's contents (inset_colour,
 -- whatever the blind).
+local INSET_PAD = 0.06
+
 local function inset(nodes, minw)
-    return { n = G.UIT.R, config = { align = 'cm', padding = 0.06, r = 0.1, colour = inset_colour(), emboss = 0.05,
+    return { n = G.UIT.R, config = { align = 'cm', padding = INSET_PAD, r = 0.1, colour = inset_colour(), emboss = 0.05,
                                      minw = minw, id = 'calculatro_inset', calculatro_anim = 'inset' }, nodes = nodes }
 end
 
@@ -983,15 +1003,33 @@ end
 -- CARDS_PER_PAGE to a page (Balatro's UI can't clip a scrolling list).
 ---------------------------------------------------------------------------
 local CARDS_PER_PAGE = 5
-local EDITOR_W = 6.4                       -- the inset's width, the same on both tabs
 local TAB_W, DONE_W = 1.2, 0.8
 local TOGGLE_W, TOGGLE_GAP = 1.9, 0.25     -- the Hands tab's hand toggles
 local FIELD_W = 0.8                        -- the builder's row names ("Special")
 local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
 local OPTION_W = 1.6                       -- a cycle's value ("Holographic")
-local CMP_W, COUNT_W, COUNT_GAP = 0.95, 0.25, 0.05
+local CMP_W, COUNT_W, COUNT_GAP = 1.2, 0.25, 0.05  -- CMP_W leaves room around "at least"
 local BUILDER_GAP = 0.3                    -- between the builder and the tracked list
-local PAGE_W = 1.0
+local PAGE_W = 1.25                        -- fits "Page 2/2"
+-- Fits the longest label, "Add  Purple Seal Face card: none" (4.24): the game
+-- shrinks wider text, but not the suit icons beside it.
+local ADD_W = 4.4
+local ADD_GAP = 0.1                        -- between the builder and Add
+
+local function cycle_w(w) return w + 2 * (CYCLE_ARROW_W + CYCLE_GAP) end
+-- The Cards tab: the builder (its widest row is Count's) beside the tracked
+-- list, with the rows' padding around and between their cells; under them,
+-- Add and the page cycle, which stays put as pages change.
+local BUILDER_W = FIELD_W + cycle_w(CMP_W) + COUNT_GAP + cycle_w(COUNT_W) + 5 * ROW_PAD
+local CARDS_TAB_W = BUILDER_W + BUILDER_GAP + (CARD_NAME_W + REMOVE_W + 3 * ROW_PAD)
+local PAGE_CELL_W = CARDS_TAB_W - ADD_W - 3 * ROW_PAD
+-- The inset's width, the same on both tabs: the Hands tab is narrower, and
+-- centred in it.
+local EDITOR_W = CARDS_TAB_W + 2 * INSET_PAD
+-- Both tabs are as tall as the Hands tab's columns of toggles, rows of
+-- padded buttons.
+local EDITOR_ROW_H = TEXT_H + 2 * TEXT_PAD + 2 * ROW_PAD
+local EDITOR_H = #HANDS / 2 * EDITOR_ROW_H
 
 -- What the editor shows; like the odds panel's model, it's rebuilt only
 -- when this changes.
@@ -1028,14 +1066,14 @@ local function cycle(id, text, w, prev, next)
     local C = G.C
     local text_colour = prev and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE
     local function step(symbol, action, suffix)
-        return button({ plain(symbol, text_colour) }, action, { id = id .. suffix, w = CYCLE_ARROW_W, colour = C.RED })
+        return button({ plain(symbol, text_colour) }, action,
+                      { id = id .. suffix, w = CYCLE_ARROW_W, colour = C.RED, padded = true })
     end
     return { n = G.UIT.C, config = { align = 'cm', padding = 0 }, nodes = {
         step('<', prev, '_prev'),
         blank(CYCLE_GAP),
-        { n = G.UIT.C, config = { id = id, align = 'cm', minw = w, maxw = w, r = 0.06, colour = C.L_BLACK }, nodes = {
-            plain(text, text_colour),
-        } },
+        { n = G.UIT.C, config = { id = id, align = 'cm', minw = w, maxw = w, r = 0.06, colour = C.L_BLACK },
+          nodes = padded({ plain(text, text_colour) }) },
         blank(CYCLE_GAP),
         step('>', next, '_next'),
     } }
@@ -1057,7 +1095,7 @@ local function hands_tab(model)
             rows[r] = row({ button(
                 { blank(0.1), plain(h.name, full and C.UI.BACKGROUND_INACTIVE or C.UI.TEXT_LIGHT) },
                 not full and { 'toggle_hand', h.key } or nil,
-                { id = 'calculatro_hand_' .. h.key, w = TOGGLE_W, align = 'cl',
+                { id = 'calculatro_hand_' .. h.key, w = TOGGLE_W, align = 'cl', padded = true,
                   colour = h.state == 'on' and C.BLUE or C.L_BLACK }) }, { calculatro_anim = 'toggle:' .. h.key })
         end
         if c > 0 then columns[#columns + 1] = blank(TOGGLE_GAP) end
@@ -1080,13 +1118,11 @@ local function cards_tab(model)
         field('Rank', { builder_cycle('rank', b.rank, OPTION_W, true) }),
         field('Suit', { builder_cycle('suit', b.suit, OPTION_W, not b.suit_off) }),
         field('Special', { builder_cycle('special', b.special, OPTION_W, true) }),
-        -- The whole row's width: labels like "Add  Holographic Q♠: 0-7" are long.
-        row({ button(
-            { name_label(b.add and 'Add  ' .. b.add or 'Add', function(text) return plain(text, add_text) end) },
-            b.can_add and { 'add_card' } or nil,
-            { id = 'calculatro_add', w = FIELD_W + OPTION_W + 2 * (CYCLE_ARROW_W + CYCLE_GAP) + 0.03,
-              colour = C.GREEN }) }, { calculatro_anim = 'field:Add' }),
     }
+    local add = button(
+        { name_label(b.add and 'Add  ' .. b.add or 'Add', function(text) return plain(text, add_text) end) },
+        b.can_add and { 'add_card' } or nil,
+        { id = 'calculatro_add', w = ADD_W, colour = C.GREEN, padded = true })
 
     local list = {}
     for _, c in ipairs(model.cards) do
@@ -1094,21 +1130,27 @@ local function cards_tab(model)
                               { calculatro_anim = 'listed:' .. c.key })
     end
     if #list == 0 then list[1] = row({ label('Nothing tracked', C.JOKER_GREY) }, { calculatro_anim = 'listed:none' }) end
-    if model.pages > 1 then
-        list[#list + 1] = row({ cycle('calculatro_page', 'Page ' .. model.page .. '/' .. model.pages, PAGE_W,
-                                      { 'page', -1 }, { 'page', 1 }) }, { align = 'cm', calculatro_anim = 'pages' })
-    end
+    local page = model.pages > 1
+        and cycle('calculatro_page', 'Page ' .. model.page .. '/' .. model.pages, PAGE_W, { 'page', -1 }, { 'page', 1 })
     return {
-        { n = G.UIT.C, config = { align = 'tl' }, nodes = builder },
-        blank(BUILDER_GAP),
-        { n = G.UIT.C, config = { align = 'tl' }, nodes = list },
+        { n = G.UIT.C, config = { align = 'tl', minh = EDITOR_H }, nodes = {
+            { n = G.UIT.R, config = { align = 'tl', padding = 0 }, nodes = {
+                { n = G.UIT.C, config = { align = 'tl' }, nodes = builder },
+                blank(BUILDER_GAP),
+                { n = G.UIT.C, config = { align = 'tl' }, nodes = list },
+            } },
+            { n = G.UIT.R, config = { minh = ADD_GAP, padding = 0 }, nodes = {} },
+            row({ add, { n = G.UIT.C, config = { align = 'cm', minw = PAGE_CELL_W, calculatro_anim = 'pages' },
+                         nodes = { page or nil } } }, { calculatro_anim = 'field:Add' }),
+        } },
     }
 end
 
 -- The editor, in the same frame as the odds: the title with Done, the
--- Hands | Cards tabs, and the tab's contents in the inset. It's no taller
--- than the odds panel with full columns: the tabs take the column headers'
--- place, and its rows are as tall as the odds rows.
+-- Hands | Cards tabs, and the tab's contents in the inset. The tabs take the
+-- column headers' place, but its rows are taller than odds rows (TEXT_PAD),
+-- so it's taller than the odds panel with full columns: refresh_panel moves
+-- it down to fit.
 function Calculatro.editor_definition(model)
     local C = G.C
     local function tab(text, name)
@@ -1456,6 +1498,15 @@ function Calculatro.refresh_panel()
 
     if model.editor then
         panel = build_panel(Calculatro.editor_definition(model))
+        -- Too tall to fit under the consumables at the odds' place, it grows
+        -- downwards instead, into the room kept for raised cards: there's no
+        -- need to select cards while choosing what to track.
+        local max_h = Calculatro.max_panel_height()
+        if max_h and panel.T.h > max_h then
+            panel.alignment.offset.y = panel.alignment.offset.y + panel.T.h - max_h
+            panel:align_to_major()
+            panel:hard_set_VT()
+        end
         Calculatro.animate(panel, from)
         Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = panel, key, G.deck
         return
