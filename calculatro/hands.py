@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cache
 from itertools import combinations, permutations
+from threading import Lock
 
 from .rules import Rules
 from .state import SUITS, Card
@@ -45,6 +46,8 @@ class Requirement:
 
 Pattern = tuple[Requirement, ...]
 
+_building = Lock()  # see Target.patterns
+
 
 @dataclass(frozen=True)
 class Target:
@@ -54,7 +57,11 @@ class Target:
 
     def patterns(self, rules: Rules = Rules()) -> tuple[Pattern, ...]:
         # Pareidolia doesn't change any hand, so it shares the patterns built without it.
-        return _patterns(self.hands, replace(rules, pareidolia=False))
+        # One build at a time: a calculation that needs patterns another one is
+        # building (often one just cancelled for a newer state) waits for them
+        # instead of building them again beside it.
+        with _building:
+            return _patterns(self.hands, replace(rules, pareidolia=False))
 
 
 def flush_suits(rules: Rules) -> tuple[str, ...]:
@@ -240,14 +247,47 @@ def _minimal(patterns: tuple[Pattern, ...]) -> tuple[Pattern, ...]:
     """Drop patterns that imply another one; they never change an OR's outcome.
 
     Of several equivalent patterns, the first is kept.
+
+    With Four Fingers and Shortcut, flush-type hands have thousands of
+    patterns, too many to compare every pair. A pattern can only imply one
+    whose every requirement has one of its own requirements within it
+    (`_at_least` counts no others), so only those pairs are compared: the
+    patterns with a requirement within each set of classes are kept as a
+    bitmask, and a pattern's candidates are those common to all of its
+    requirements.
     """
     unique = list(dict.fromkeys(patterns))
     need = [sum(r.need for r in p) for p in unique]
-    return tuple(
-        a for i, a in enumerate(unique)
-        if not any(j != i and need[j] <= need[i] and _implies(a, b) and (j < i or not _implies(b, a))
-                   for j, b in enumerate(unique))
-    )
+    having: dict[frozenset[ClassKey], int] = {}  # patterns with a requirement on exactly these classes
+    for i, p in enumerate(unique):
+        for r in p:
+            having[r.keys] = having.get(r.keys, 0) | 1 << i
+    within: dict[frozenset[ClassKey], int] = {}  # patterns with a requirement within these classes
+
+    def inside(keys: frozenset[ClassKey]) -> int:
+        if keys not in within:
+            bits = 0
+            for k, mask in having.items():
+                if k <= keys:
+                    bits |= mask
+            within[keys] = bits
+        return within[keys]
+
+    everyone = (1 << len(unique)) - 1
+    dropped = 0
+    for j, b in enumerate(unique):
+        candidates = everyone & ~dropped & ~(1 << j)
+        for rb in b:
+            if rb.need > 0:
+                candidates &= inside(rb.keys)
+        while candidates:
+            bit = candidates & -candidates
+            candidates ^= bit
+            i = bit.bit_length() - 1
+            a = unique[i]
+            if need[j] <= need[i] and _implies(a, b) and (j < i or not _implies(b, a)):
+                dropped |= bit
+    return tuple(a for i, a in enumerate(unique) if not dropped >> i & 1)
 
 
 def combine(targets: list[Target]) -> Target:

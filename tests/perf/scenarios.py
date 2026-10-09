@@ -9,6 +9,11 @@ timings include everything `evaluate_discard` does.
 "Unknown cards" are the cards the engine treats as drawn: kept face-down cards
 plus the cards drawn after the discard.
 
+"Nothing cached" scenarios time the first odds for a target, as when it's first
+tracked or a joker changes the rules: every cache in `calculatro.hands` and
+`calculatro.engine` is cleared before each run, so building the target's
+patterns is timed too. Their situation keeps the search itself small.
+
 Only APIs that also exist in older versions are used here, so benchmark.py can
 time an older checkout (see docs/performance/README.md).
 """
@@ -19,6 +24,8 @@ from dataclasses import dataclass
 from fractions import Fraction
 from threading import Event
 
+import calculatro.engine
+import calculatro.hands
 from calculatro.engine import evaluate_discard
 from calculatro.hands import Target, combine, get_target
 from calculatro.state import SUITS, Card, GameState, Joker
@@ -64,6 +71,7 @@ class Situation:
     label: str
     kept: int  # known hand cards kept; the other known cards are discarded
     hidden: int  # face-down hand cards (kept: they can't be told apart)
+    cold: bool = False  # clear the caches before each run (see the module docstring)
 
     @property
     def unknown(self) -> int:
@@ -74,6 +82,15 @@ KEEP_3 = Situation("Keep 3, draw 5", kept=3, hidden=0)
 UNKNOWN_6 = Situation("6 unknown: 1 face-down, draw 5", kept=2, hidden=1)
 UNKNOWN_7 = Situation("7 unknown: 2 face-down, draw 5", kept=1, hidden=2)
 THE_HOUSE = Situation("8 unknown: The House (all face-down)", kept=0, hidden=8)
+COLD_KEEP_3 = Situation("Keep 3, draw 5, nothing cached", kept=3, hidden=0, cold=True)
+
+
+def clear_caches() -> None:
+    """Empty every functools cache in the hands and engine modules."""
+    for module in (calculatro.hands, calculatro.engine):
+        for value in vars(module).values():
+            if hasattr(value, "cache_clear"):
+                value.cache_clear()
 
 
 @dataclass(frozen=True)
@@ -109,11 +126,15 @@ class Scenario:
 
     def prepare(self) -> None:
         """Build and cache the target's patterns, a one-off cost per process."""
+        if self.situation.cold:
+            return
         state, _ = self.state()
         self.target().patterns(state.rules)
 
     def run(self, cancel: Event | None = None) -> Fraction:
         state, discard = self.state()
+        if self.situation.cold:
+            clear_caches()
         return evaluate_discard(state, self.target(), discard, cancel).probability
 
 
@@ -122,6 +143,10 @@ SINGLE_HANDS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Ful
                 "Flush House", "Flush Five"]
 COMBINED = [("Full House", "Straight Flush"), ("Flush", "Straight Flush"),
             ("Two Pair", "Flush"), ("Straight", "Flush")]
+# "Any target" rows timed with nothing cached: building them compares patterns
+# across hands, which with Four Fingers and Shortcut are many.
+COLD_COMBINED = [("Full House", "Straight Flush"), ("Straight Flush", "Royal Flush"),
+                 ("Straight Flush", "Flush House"), tuple(SINGLE_HANDS)]
 
 
 def _scenarios() -> list[Scenario]:
@@ -138,6 +163,7 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(s, ("Straight Flush",), jokers, "wild") for s in (KEEP_3, UNKNOWN_6, UNKNOWN_7, THE_HOUSE)]
         out += [Scenario(THE_HOUSE, t, jokers, "wild")
                 for t in (("Flush House",), ("Full House", "Straight Flush"), ("Pair", "Flush"))]
+        out += [Scenario(COLD_KEEP_3, c, jokers) for c in COLD_COMBINED]
     return out
 
 

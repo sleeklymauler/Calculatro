@@ -42,7 +42,9 @@ the same call the app makes for one odds row.
   runs add up to `--budget` seconds (default 20). Use `--budget 120` for 5
   runs of every scenario. The output is mean ± standard deviation.
 - One-off costs are kept out of the timings: building a target's patterns,
-  and a first run that fills caches when it's quick.
+  and a first run that fills caches when it's quick. The "nothing cached"
+  scenarios are the exception: they clear every cache before each run, to
+  time the first odds for a newly tracked target or a new joker.
 - A run is cancelled after `--timeout` seconds (default 120) and shown as
   "> 120 s".
 - `--save FILE` writes the results as JSON: each run's time, the mean,

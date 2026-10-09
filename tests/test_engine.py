@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import threading
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import replace
@@ -14,6 +15,7 @@ import pytest
 
 from calculatro.engine import _favourable, _split_by_suit, evaluate_cards, evaluate_discard, probability
 from calculatro.cards import parse_query
+from calculatro import hands
 from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState
@@ -263,6 +265,44 @@ def dense_card(rng: random.Random, low_rank: int, suits: Sequence[str] = ("Heart
     if roll < 0.2:
         return card(r, s, "m_stone")
     return card(r, s)
+
+
+def _minimal_all_pairs(patterns):
+    """hands._minimal as first written, comparing every pair of patterns."""
+    unique = list(dict.fromkeys(patterns))
+    need = [sum(r.need for r in p) for p in unique]
+    return tuple(a for i, a in enumerate(unique)
+                 if not any(j != i and need[j] <= need[i] and hands._implies(a, b)
+                            and (j < i or not hands._implies(b, a))
+                            for j, b in enumerate(unique)))
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+def test_minimal_skips_only_pairs_that_cant_imply(rules):
+    combos = [tuple(TARGETS), ("Straight", "Flush", "Straight Flush"),
+              ("Two Pair", "Full House", "Flush House", "Flush Five")]
+    if not (rules.four_fingers and rules.shortcut):  # too slow for every pair there
+        combos.append(("Straight Flush", "Royal Flush"))
+    by_hand = hands._hand_patterns(rules)
+    for names in combos:
+        patterns = tuple(p for n in names for p in by_hand[n])
+        assert hands._minimal(patterns) == _minimal_all_pairs(patterns), names
+
+
+def test_patterns_built_once_by_concurrent_calculations(monkeypatch):
+    """Calculations that need the same new patterns (one cancelled for the next) share one build."""
+    builds = []
+    minimal = hands._minimal
+    monkeypatch.setattr(hands, "_minimal", lambda patterns: builds.append(1) or minimal(patterns))
+    hands._patterns.cache_clear()
+    target = combine([get_target("Straight Flush"), get_target("Flush House")])
+    rules = Rules(four_fingers=True, shortcut=True)
+    threads = [threading.Thread(target=target.patterns, args=(rules,)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(builds) == 1
 
 
 FOUR_FINGERS_RULESETS = {k: v for k, v in RULESETS.items() if v.four_fingers}

@@ -283,6 +283,23 @@ suited cards of any shape make a Four Fingers Flush. Among equivalent
 patterns the first is kept. Results are cached per (hands, rules), so this
 cost is paid once per process.
 
+That once still matters: it's paid when a target is first tracked or a joker
+changes the rules, and with Four Fingers and Shortcut the flush-type hands
+have thousands of patterns (Straight Flush 1856, Flush House 1872).
+Comparing every pair took up to 6 s (Straight Flush + Flush House). Since
+`_at_least` only counts a's requirements within b's keys, a can only imply
+b if every requirement of b has one of a's within it. `_minimal` keeps a
+bitmask of the patterns with a requirement within each set of keys, and
+compares b only with the patterns common to all of its requirements. The
+result is the same, and the worst combination now takes about 40 ms. The
+"nothing cached" benchmark scenarios time this.
+
+The build isn't cancellable. Instead, `Target.patterns` builds one at a time
+behind a lock: a calculation that needs patterns another is building (often
+one just cancelled for a newer state) waits for them rather than building
+them again in parallel. Without that, each new selection during a slow
+build started another copy, and the copies shared the GIL.
+
 ## Approaches that didn't pay off
 
 Recorded so they aren't retried blindly:
