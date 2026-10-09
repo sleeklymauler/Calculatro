@@ -362,6 +362,11 @@ function Calculatro.panel_model()
 end
 
 local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fits "Discard 5"
+-- Card query rows have no Keep value, so their names also take its place:
+-- labels like "Lucky card: 1+" are too long for NAME_W, and text wider than
+-- its cell is shrunk. Card-only columns are as wide as target columns too.
+local CARD_NAME_W = NAME_W + VALUE_W + GAP_W
+local COLUMN_W = CARD_NAME_W + DISCARD_W
 local TITLE_W, COLUMN_GAP = 1.6, 0.2
 local MESSAGE_W = 1.5  -- fits "No discards left" and "Calculating..." beside the title
 local SCALE = 0.32
@@ -450,10 +455,10 @@ local function entries(model, colours)
     end
     for _, c in ipairs(model.cards) do
         out[#out + 1] = { build = function()
-            local r = { cell(NAME_W, 'cl', name_label(c.name)) }
-            if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
-            r[#r + 1] = cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
-            return row(r)
+            return row({
+                cell(CARD_NAME_W, 'cl', name_label(c.name)),
+                cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT)),
+            })
         end }
     end
     return out
@@ -512,7 +517,7 @@ function Calculatro.definition(model, per)
     local spans = split(list, math.max(1, per or #list))
 
     local function header()
-        local nodes = { blank(NAME_W) }
+        local nodes = { blank(has_keep and NAME_W or CARD_NAME_W) }
         if has_keep then
             nodes[#nodes + 1] = cell(VALUE_W, 'cr', label('Keep', colours.muted))
             nodes[#nodes + 1] = blank(GAP_W)
@@ -537,8 +542,7 @@ function Calculatro.definition(model, per)
     end
 
     local count = math.max(1, (#column_nodes + 1) / 2)
-    local column_w = NAME_W + (has_keep and VALUE_W + GAP_W or 0) + DISCARD_W
-    local width = column_w * count + COLUMN_GAP * (count - 1)
+    local width = COLUMN_W * count + COLUMN_GAP * (count - 1)
     local title = label('CALCULATRO', C.UI.TEXT_LIGHT, 0.36)
     local message = model.message and label(model.message, colours.muted, SCALE * 0.85)
     local body = {}
