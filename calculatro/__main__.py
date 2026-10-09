@@ -31,7 +31,8 @@ def summarize(state: GameState) -> str:
     special = len(state.deck) - sum(ranks.values())
     jokers = ", ".join(j.key + (" (debuffed)" if j.debuff else "") for j in state.jokers)
     lines = [
-        f"State: {state.state}   Blind: {state.blind or '-'}",
+        f"State: {state.state}   Blind: {state.blind or '-'}"
+        f"{' (disabled)' if state.blind_disabled else ''}",
         f"Hand size: {state.hand_size}   Hands left: {state.hands_left}   Discards left: {state.discards_left}",
         f"Hand ({len(state.hand)}): {' '.join(c.short() for c in state.hand)}",
         f"Deck ({len(state.deck)} cards remaining)",

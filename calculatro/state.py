@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 4
+SCHEMA = 5
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -87,6 +87,9 @@ class GameState:
     hands_left: int = 0
     discards_left: int = 0
     blind: str | None = None
+    blind_disabled: bool = False  # by Chicot or Luchador
+    hands_played: int = 0  # this round
+    discards_used: int = 0  # this round
     hand: list[Card] = field(default_factory=list)
     played: list[Card] = field(default_factory=list)
     deck: list[Card] = field(default_factory=list)
@@ -114,6 +117,9 @@ class GameState:
             hands_left=d.get("hands_left") or 0,
             discards_left=d.get("discards_left") or 0,
             blind=d.get("blind") or None,
+            blind_disabled=bool(d.get("blind_disabled")),
+            hands_played=d.get("hands_played") or 0,
+            discards_used=d.get("discards_used") or 0,
             hand=_cards(d.get("hand")),
             played=_cards(d.get("played")),
             deck=_cards(d.get("deck")),
@@ -124,6 +130,11 @@ class GameState:
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
         )
+
+    @property
+    def serpent(self) -> bool:
+        """Whether The Serpent is in play: after a play or discard, it draws 3 cards."""
+        return self.blind == "The Serpent" and not self.blind_disabled
 
     @property
     def rules(self) -> Rules:

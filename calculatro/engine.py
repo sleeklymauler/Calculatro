@@ -698,7 +698,15 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
     discard_set = set(discard)
     kept = [c for i, c in enumerate(state.hand) if i not in discard_set]
     kept_known = [c for c in kept if not c.hidden]
-    draws = max(0, min(state.hand_size - len(kept), len(state.deck)))
+    if state.serpent and discard:
+        draws = 3  # however many were discarded, and even past the hand size
+    elif state.serpent and (state.hands_played or state.discards_used):
+        # Its draw after the last play or discard was the last until the next one.
+        # (Mid-draw, the rest of those 3 are missed.)
+        draws = 0
+    else:
+        draws = state.hand_size - len(kept)
+    draws = max(0, min(draws, len(state.deck)))
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
                     len(kept) - len(kept_known), draws, state.deck + state.hidden_pool)
 

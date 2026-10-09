@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 4,
+    schema = 5,
     odds_schema = 3,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -451,6 +451,9 @@ function Calculatro.snapshot()
         hands_left = round.hands_left,
         discards_left = round.discards_left,
         blind = G.GAME.blind and G.GAME.blind.name or nil,
+        blind_disabled = G.GAME.blind and G.GAME.blind.disabled and true or false,
+        hands_played = round.hands_played or 0,
+        discards_used = round.discards_used or 0,
         hand = area_cards(G.hand, true),
         played = area_cards(G.play, true),
         deck = sorted_deck(G.deck),

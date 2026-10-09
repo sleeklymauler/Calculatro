@@ -141,6 +141,23 @@ def test_snapshot_sends_what_is_tracked(lua):
     assert state.tracked_hands == ["Pair", "Flush"] and state.tracked_cards == ["at least 2 queen"]
 
 
+
+def test_snapshot_sends_the_serpents_state(lua):
+    rt, _ = lua
+    state = GameState.from_json(snapshot_json(lua))
+    assert (state.blind_disabled, state.hands_played, state.discards_used) == (False, 0, 0)
+    assert not state.serpent
+    rt.execute("""G.GAME.blind = {name = 'The Serpent'}
+                  G.GAME.current_round.hands_played = 1
+                  G.GAME.current_round.discards_used = 2""")
+    state = GameState.from_json(snapshot_json(lua))
+    assert (state.blind, state.hands_played, state.discards_used) == ("The Serpent", 1, 2)
+    assert state.serpent
+    rt.execute("G.GAME.blind.disabled = true")  # by Chicot or Luchador
+    state = GameState.from_json(snapshot_json(lua))
+    assert state.blind_disabled and not state.serpent
+
+
 def test_rules_from_jokers():
     assert Rules.from_jokers([]) == Rules()
     # Copies change nothing; Splash and other jokers don't change the odds.
