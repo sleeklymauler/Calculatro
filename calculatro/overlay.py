@@ -4,13 +4,15 @@ Each payload echoes the id of the snapshot it answers, so the mod can tell
 current odds from ones for an older state. A snapshot is answered first with
 a `pending` payload, then with the odds once they're calculated.
 
-Text is plain ASCII where it matters: Balatro's font has no suit symbols.
+Text is plain ASCII, except for the suit symbols (♠♥♣♦): Balatro's font has
+none, so the mod draws those as the game's own suit icons.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -20,7 +22,7 @@ from .cards import CardQuery
 from .report import Report
 from .state import SUIT_SHORT, GameState
 
-SCHEMA = 1  # `odds_schema` in calculatro.lua
+SCHEMA = 2  # `odds_schema` in calculatro.lua
 
 # Most targets and card queries together. The panel fits 3 columns
 # (`max_columns` in calculatro.lua; a 4th reaches the HUD sidebar) of 6 rows
@@ -31,7 +33,9 @@ MAX_TRACKED = 16
 NO_DISCARDS = "No discards left"  # short: it sits beside the panel's title
 NO_TARGETS = "No targets set: run with -t or -c"
 
-_SUIT_WORDS = {symbol: f" of {suit}" for suit, symbol in SUIT_SHORT.items()}
+# Suit words in query names ("Spade", "Foil Heart") and their symbols.
+_SUIT_SYMBOLS = {suit[:-1]: symbol for suit, symbol in SUIT_SHORT.items()}
+_SUIT_WORD = re.compile(r"\b(" + "|".join(_SUIT_SYMBOLS) + r")\b")
 
 # Hand names too long for the panel's name column at full size.
 SHORT_NAMES = {
@@ -62,10 +66,8 @@ def percent(p: Fraction) -> str:
 
 
 def card_label(query: CardQuery) -> str:
-    """Short label for a card query: "Queen: 2+", "Spade: 0-1", "Q of Spades: 1+", "Face card: none"."""
-    name = query.filter.name
-    for symbol, words in _SUIT_WORDS.items():
-        name = name.replace(symbol, words)
+    """Short label for a card query: "Queen: 2+", "♠: 0-1", "Q♠: 1+", "Face card: none"."""
+    name = _SUIT_WORD.sub(lambda m: _SUIT_SYMBOLS[m[1]], query.filter.name)
     if query.count == 0 and query.op in ("==", "<="):
         count = "none"
     elif query.op == ">=":

@@ -13,7 +13,7 @@ local Calculatro = {
     clock = 0,
     last_json = nil,
     schema = 3,
-    odds_schema = 1,
+    odds_schema = 2,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
     seq = 0,
@@ -370,6 +370,49 @@ local function label(text, colour, scale)
     return { n = G.UIT.T, config = { text = text, scale = scale or SCALE, colour = colour or G.C.UI.TEXT_LIGHT, shadow = true } }
 end
 
+-- The game's suit icons, in the atlas row the View Deck screen uses
+-- (G.UIDEF.view_deck), keyed by the UTF-8 symbols the app sends for them:
+-- the font has no suit symbols.
+local SUIT_ICONS = {
+    ['\226\153\165'] = 0,  -- U+2665 Hearts
+    ['\226\153\166'] = 1,  -- U+2666 Diamonds
+    ['\226\153\163'] = 2,  -- U+2663 Clubs
+    ['\226\153\160'] = 3,  -- U+2660 Spades
+}
+local SUIT_PATTERN = '\226\153[\160-\166]'
+-- Each icon sits on a small white tile, like a pip on a card: the black
+-- suits vanish against the dark inset otherwise. Tile and icon together are
+-- no taller than the text, so rows don't grow. ICON_GAP keeps it off the
+-- letters either side: a wider transparent cell rather than padding on the
+-- row, which would make the row taller too.
+local ICON_SIZE, ICON_PAD, ICON_GAP = 0.18, 0.015, 0.035
+
+local function suit_icon(x)
+    local atlas = G.ASSET_ATLAS['ui_' .. (G.SETTINGS.colourblind_option and 2 or 1)]
+    local sprite = Sprite(0, 0, ICON_SIZE, ICON_SIZE, atlas, { x = x, y = 1 })
+    sprite.states.drag.can, sprite.states.hover.can, sprite.states.collide.can = false, false, false
+    local tile = { n = G.UIT.C, config = { align = 'cm', padding = ICON_PAD, r = 0.03, colour = G.C.WHITE }, nodes = {
+        { n = G.UIT.O, config = { object = sprite, can_collide = false } },
+    } }
+    return { n = G.UIT.C, config = { align = 'cm', padding = 0, minw = ICON_SIZE + 2 * (ICON_PAD + ICON_GAP) }, nodes = { tile } }
+end
+
+-- A label whose suit symbols are drawn as the game's suit icons ("Q♠: 1+").
+local function name_label(text)
+    local nodes, pos = {}, 1
+    while true do
+        local i, j = text:find(SUIT_PATTERN, pos)
+        while i and not SUIT_ICONS[text:sub(i, j)] do i, j = text:find(SUIT_PATTERN, j + 1) end
+        if not i then break end
+        if i > pos then nodes[#nodes + 1] = label(text:sub(pos, i - 1)) end
+        nodes[#nodes + 1] = suit_icon(SUIT_ICONS[text:sub(i, j)])
+        pos = j + 1
+    end
+    if #nodes == 0 then return label(text) end
+    if pos <= #text then nodes[#nodes + 1] = label(text:sub(pos)) end
+    return { n = G.UIT.R, config = { align = 'cm', padding = 0 }, nodes = nodes }
+end
+
 local function cell(w, align, node)
     return { n = G.UIT.C, config = { align = align, minw = w, maxw = w }, nodes = { node } }
 end
@@ -407,7 +450,7 @@ local function entries(model, colours)
     end
     for _, c in ipairs(model.cards) do
         out[#out + 1] = { build = function()
-            local r = { cell(NAME_W, 'cl', label(c.name)) }
+            local r = { cell(NAME_W, 'cl', name_label(c.name)) }
             if has_keep then r[#r + 1] = blank(VALUE_W + GAP_W) end
             r[#r + 1] = cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT))
             return row(r)

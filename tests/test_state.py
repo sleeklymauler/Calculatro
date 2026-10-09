@@ -57,8 +57,10 @@ G = {
   CONTROLLER = {},
   HIGHLIGHT_H = 0.5,
   -- UI, for the odds panel
-  UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T'},
-  C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
+  UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T', O = 'O'},
+  ASSET_ATLAS = {ui_1 = 'ui_1', ui_2 = 'ui_2'},
+  SETTINGS = {colourblind_option = false},
+  C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted', WHITE = 'white',
        GREEN = 'green', RED = 'red', BLACK = {0.2, 0.4, 0.6, 1}, DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
   -- Panel space: from 3.35 (under the consumables' label) to 6.2 (above the raised hand).
   consumeables = {T = {y = 0, h = 2.75}},
@@ -79,6 +81,10 @@ local function panel_size(node)
   local body = node.nodes[1].nodes[1].nodes  -- title, odds, footer
   local footer = (columns > 0 and #body > 2) and 0.3 or 0
   return 3.25 * math.max(columns, 1), 0.5 + 0.3 * rows + footer
+end
+function Sprite(x, y, w, h, atlas, pos)
+  return {T = {x = x, y = y, w = w, h = h}, atlas = atlas, pos = pos,
+          states = {drag = {}, hover = {}, collide = {}}}
 end
 function UIBox(args)
   local w, h = panel_size(args.definition)
