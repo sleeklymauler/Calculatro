@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor cards tab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#bfc7d5}a:hover{color:#fff}
+</style>
+</helmet>
+<div style="width: 1100px; height: 520px; box-sizing: border-box; background: radial-gradient(circle at 30% 40%, #7a2614 0%, #4a160c 55%, #2a0b06 100%); font-family: 'Jersey 10', monospace; color: #ffffff; display: flex; align-items: center; justify-content: center; padding: 40px">
+<div style="display: flex; flex-direction: column; background: #c2452b; padding: 6px; border-radius: 12px; box-shadow: 0 6px 0 rgba(0,0,0,0.3)">
+<div style="display: flex; flex-direction: column; gap: 8px; background: #5b2418; padding: 10px 12px 12px; border-radius: 9px">
+<div style="display: flex; align-items: center; gap: 10px; height: 30px">
+<span style="font-size: 27px; letter-spacing: 0.5px; text-shadow: 0 2px 0 rgba(0,0,0,0.45)">CALCULATRO</span>
+<span style="flex-grow: 1"></span>
+<button type="button" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #fda200; border: 0; border-radius: 6px; height: 26px; padding: 0 12px; box-shadow: 0 3px 0 #b06f00; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Done</button>
+</div>
+<div style="display: flex; gap: 6px; justify-content: center" role="tablist" aria-label="Target kind">
+<button type="button" role="tab" aria-selected="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #5f7377; border: 2px solid transparent; border-radius: 6px; height: 28px; width: 110px; padding: 0; box-shadow: 0 3px 0 #3c4a4d; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Hands</button>
+<button type="button" role="tab" aria-selected="true" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #fe5f55; border: 2px solid #ffffff; border-radius: 6px; height: 28px; width: 110px; padding: 0; box-shadow: 0 3px 0 #a8342c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Cards</button>
+</div>
+<div style="display: flex; gap: 22px; background: #1d2628; border-radius: 9px; padding: 10px 14px 12px; box-shadow: 0 4px 0 #120d0c; font-size: 21px; text-shadow: 0 2px 0 rgba(0,0,0,0.6)">
+<div style="display: grid; grid-template-columns: 70px auto; grid-template-rows: repeat(5, 30px); column-gap: 10px; row-gap: 6px; align-items: center">
+<span style="color: #bfc7d5">Count</span>
+<div style="display: flex; gap: 8px">
+<div style="display: flex; align-items: center; gap: 3px"><button type="button" aria-label="Previous comparison" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 86px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 26px">at least</span><button type="button" aria-label="Next comparison" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+<div style="display: flex; align-items: center; gap: 3px"><button type="button" aria-label="Fewer" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 34px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 26px">2</span><button type="button" aria-label="More" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+</div>
+<span style="color: #bfc7d5">Rank</span>
+<div style="display: flex; align-items: center; gap: 3px"><button type="button" aria-label="Previous rank" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 166px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 26px">Queen</span><button type="button" aria-label="Next rank" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+<span style="color: #bfc7d5">Suit</span>
+<div style="display: flex; align-items: center; gap: 3px"><button type="button" aria-label="Previous suit" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 166px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 26px">Any</span><button type="button" aria-label="Next suit" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+<span style="color: #bfc7d5">Special</span>
+<div style="display: flex; align-items: center; gap: 3px"><button type="button" aria-label="Previous modifier" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 166px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 26px">Any</span><button type="button" aria-label="Next modifier" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 26px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+<span></span>
+<button type="button" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #4bc292; border: 0; border-radius: 6px; height: 28px; padding: 0 12px; box-shadow: 0 3px 0 #2e8061; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Add  Queen: 2+</button>
+</div>
+<div style="width: 2px; background: #2f3b3d; border-radius: 1px"></div>
+<div style="display: grid; grid-template-columns: 200px 24px; grid-template-rows: repeat(6, 26px); column-gap: 8px; row-gap: 6px; align-items: center">
+<span style="color: #bfc7d5">Tracked</span><span></span>
+<span>K<span style="display: inline-block; background: #ffffff; color: #1d2628; border-radius: 3px; font-size: 14px; line-height: 15px; padding: 0 2px; margin: 0 2px; text-shadow: none">&#9824;</span>: 1+</span><button type="button" aria-label="Remove K spades" style="font-family: inherit; font-size: 18px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 24px; height: 22px; padding: 0; box-shadow: 0 2px 0 #a8342c; cursor: pointer">x</button>
+<span>Q<span style="display: inline-block; background: #ffffff; color: #e0393e; border-radius: 3px; font-size: 14px; line-height: 15px; padding: 0 2px; margin: 0 2px; text-shadow: none">&#9829;</span>: 1+</span><button type="button" aria-label="Remove Q hearts" style="font-family: inherit; font-size: 18px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 24px; height: 22px; padding: 0; box-shadow: 0 2px 0 #a8342c; cursor: pointer">x</button>
+<span>Mult card: 1+</span><button type="button" aria-label="Remove Mult card" style="font-family: inherit; font-size: 18px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 24px; height: 22px; padding: 0; box-shadow: 0 2px 0 #a8342c; cursor: pointer">x</button>
+<span>Face card: none</span><button type="button" aria-label="Remove Face card" style="font-family: inherit; font-size: 18px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 24px; height: 22px; padding: 0; box-shadow: 0 2px 0 #a8342c; cursor: pointer">x</button>
+<span>Lucky card: 1+</span><button type="button" aria-label="Remove Lucky card" style="font-family: inherit; font-size: 18px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 24px; height: 22px; padding: 0; box-shadow: 0 2px 0 #a8342c; cursor: pointer">x</button>
+<div style="grid-column: 1 / span 2; display: flex; align-items: center; justify-content: center; gap: 3px"><button type="button" aria-label="Previous page" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 24px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&lt;</button><span style="display: inline-block; width: 110px; text-align: center; background: #2f3b3d; border-radius: 5px; line-height: 24px">Page 1/2</span><button type="button" aria-label="Next page" style="font-family: inherit; font-size: 20px; color: #ffffff; background: #fe5f55; border: 0; border-radius: 5px; width: 22px; height: 24px; padding: 0; box-shadow: 0 3px 0 #a8342c; cursor: pointer">&gt;</button></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":520}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

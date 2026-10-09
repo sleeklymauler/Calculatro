@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor hands tab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#bfc7d5}a:hover{color:#fff}
+</style>
+</helmet>
+<div style="width: 900px; height: 520px; box-sizing: border-box; background: radial-gradient(circle at 30% 40%, #7a2614 0%, #4a160c 55%, #2a0b06 100%); font-family: 'Jersey 10', monospace; color: #ffffff; display: flex; align-items: center; justify-content: center; padding: 40px">
+<div style="display: flex; flex-direction: column; background: #c2452b; padding: 6px; border-radius: 12px; box-shadow: 0 6px 0 rgba(0,0,0,0.3)">
+<div style="display: flex; flex-direction: column; gap: 8px; background: #5b2418; padding: 10px 12px 12px; border-radius: 9px">
+<div style="display: flex; align-items: center; gap: 10px; height: 30px">
+<span style="font-size: 27px; letter-spacing: 0.5px; text-shadow: 0 2px 0 rgba(0,0,0,0.45)">CALCULATRO</span>
+<span style="flex-grow: 1"></span>
+<button type="button" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #fda200; border: 0; border-radius: 6px; height: 26px; padding: 0 12px; box-shadow: 0 3px 0 #b06f00; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Done</button>
+</div>
+<div style="display: flex; gap: 6px; justify-content: center" role="tablist" aria-label="Target kind">
+<button type="button" role="tab" aria-selected="true" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #fe5f55; border: 2px solid #ffffff; border-radius: 6px; height: 28px; width: 110px; padding: 0; box-shadow: 0 3px 0 #a8342c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Hands</button>
+<button type="button" role="tab" aria-selected="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #5f7377; border: 2px solid transparent; border-radius: 6px; height: 28px; width: 110px; padding: 0; box-shadow: 0 3px 0 #3c4a4d; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Cards</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: column; grid-template-rows: repeat(6, 28px); column-gap: 10px; row-gap: 6px; background: #1d2628; border-radius: 9px; padding: 10px 12px 12px; box-shadow: 0 4px 0 #120d0c; font-size: 21px">
+<button type="button" aria-pressed="true" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #009dff; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #0068a8; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Pair</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Two Pair</button>
+<button type="button" aria-pressed="true" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #009dff; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #0068a8; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Trips</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Straight</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Flush</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Full House</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Quads</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Str. Flush</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Royal Flush</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">5 of a Kind</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Flush House</button>
+<button type="button" aria-pressed="false" style="font-family: inherit; font-size: 21px; color: #ffffff; background: #3a4547; border: 0; border-radius: 6px; width: 160px; padding: 0 10px; text-align: left; box-shadow: 0 3px 0 #232b2c; text-shadow: 0 2px 0 rgba(0,0,0,0.35); cursor: pointer">Flush Five</button>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":900,"height":520}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
