@@ -4742,6 +4742,518 @@
     0.005083
    ],
    "probability": "1"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.023049440000613687,
+   "stdev": 0.00036905103118695847,
+   "median": 0.023234600001160288,
+   "min": 0.022499499998957617,
+   "max": 0.02339879999999539,
+   "times": [
+    0.02285,
+    0.023399,
+    0.023264,
+    0.022499,
+    0.023235
+   ],
+   "probability": "60953/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.00508658000107971,
+   "stdev": 0.0005345627311184896,
+   "median": 0.005072899999504443,
+   "min": 0.004274499999155523,
+   "max": 0.005744100002630148,
+   "times": [
+    0.005307,
+    0.005744,
+    0.004274,
+    0.005035,
+    0.005073
+   ],
+   "probability": "2587/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.016029599998728373,
+   "stdev": 0.0004214260025521336,
+   "median": 0.015991000000212807,
+   "min": 0.015452599996933714,
+   "max": 0.016562199998588767,
+   "times": [
+    0.016562,
+    0.016282,
+    0.01586,
+    0.015453,
+    0.015991
+   ],
+   "probability": "2587/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | No jokers": {
+   "runs": 5,
+   "mean": 0.014685299999109702,
+   "stdev": 0.0004534156090791697,
+   "median": 0.014700499999889871,
+   "min": 0.014015199998539174,
+   "max": 0.015183299998170696,
+   "times": [
+    0.015183,
+    0.0147,
+    0.014526,
+    0.015001,
+    0.014015
+   ],
+   "probability": "1033047/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.07666162000023177,
+   "stdev": 0.0013318595318984666,
+   "median": 0.07625059999918449,
+   "min": 0.07515079999939189,
+   "max": 0.07818620000034571,
+   "times": [
+    0.075151,
+    0.075802,
+    0.077919,
+    0.076251,
+    0.078186
+   ],
+   "probability": "262663/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.04672446000040509,
+   "stdev": 0.0010206278795942677,
+   "median": 0.046559300000808435,
+   "min": 0.0458254000004672,
+   "max": 0.048462800001289,
+   "times": [
+    0.048463,
+    0.046185,
+    0.046559,
+    0.04659,
+    0.045825
+   ],
+   "probability": "5149/26488"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.09457668000031845,
+   "stdev": 0.002173349381895191,
+   "median": 0.09458900000026915,
+   "min": 0.0916149000004225,
+   "max": 0.09710749999794643,
+   "times": [
+    0.094589,
+    0.091615,
+    0.093439,
+    0.097107,
+    0.096133
+   ],
+   "probability": "5149/26488"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Four Fingers": {
+   "runs": 5,
+   "mean": 0.03124889999962761,
+   "stdev": 0.0008612998780532916,
+   "median": 0.03157419999843114,
+   "min": 0.030288599999039434,
+   "max": 0.032042200000432786,
+   "times": [
+    0.030289,
+    0.032042,
+    0.031975,
+    0.030364,
+    0.031574
+   ],
+   "probability": "1076909/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.05084141999905114,
+   "stdev": 0.0004711158097286049,
+   "median": 0.050723299998935545,
+   "min": 0.05040960000042105,
+   "max": 0.051589699996839045,
+   "times": [
+    0.05159,
+    0.05041,
+    0.050723,
+    0.05051,
+    0.050974
+   ],
+   "probability": "9613/135751"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.024784139999974288,
+   "stdev": 0.0005976859905812256,
+   "median": 0.024777099999482743,
+   "min": 0.02390939999895636,
+   "max": 0.025567900000169175,
+   "times": [
+    0.024982,
+    0.024777,
+    0.025568,
+    0.023909,
+    0.024684
+   ],
+   "probability": "9365/543004"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.042103119999956105,
+   "stdev": 0.0004318739832803345,
+   "median": 0.0420799999992596,
+   "min": 0.0414770999996108,
+   "max": 0.04255689999990864,
+   "times": [
+    0.042557,
+    0.041947,
+    0.04208,
+    0.042454,
+    0.041477
+   ],
+   "probability": "9365/543004"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Shortcut": {
+   "runs": 5,
+   "mean": 0.04649071999956504,
+   "stdev": 0.0038403449549663936,
+   "median": 0.04480939999848488,
+   "min": 0.04439199999978882,
+   "max": 0.05331819999992149,
+   "times": [
+    0.044465,
+    0.045469,
+    0.053318,
+    0.044809,
+    0.044392
+   ],
+   "probability": "153943/155144"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.1912923600008071,
+   "stdev": 0.002573718161553227,
+   "median": 0.1903643000005104,
+   "min": 0.18945580000217888,
+   "max": 0.19566199999826495,
+   "times": [
+    0.18952,
+    0.191459,
+    0.189456,
+    0.190364,
+    0.195662
+   ],
+   "probability": "55565/155144"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.15068312000003062,
+   "stdev": 0.0012336235949925822,
+   "median": 0.1508079999985057,
+   "min": 0.14874840000265976,
+   "max": 0.1521506999997655,
+   "times": [
+    0.150808,
+    0.148748,
+    0.152151,
+    0.150613,
+    0.151095
+   ],
+   "probability": "30967/98728"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.20726879999929224,
+   "stdev": 0.003390050436902913,
+   "median": 0.20580909999989672,
+   "min": 0.20444710000083433,
+   "max": 0.212458299996797,
+   "times": [
+    0.212458,
+    0.205809,
+    0.20888,
+    0.204749,
+    0.204447
+   ],
+   "probability": "30967/98728"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Four Fingers + Shortcut": {
+   "runs": 5,
+   "mean": 0.07429702000008546,
+   "stdev": 0.002131719858187176,
+   "median": 0.0743694000011601,
+   "min": 0.07125430000087363,
+   "max": 0.07694889999766019,
+   "times": [
+    0.076949,
+    0.071254,
+    0.074369,
+    0.075413,
+    0.0735
+   ],
+   "probability": "77513/77572"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.007767079999030102,
+   "stdev": 0.0004175079544449945,
+   "median": 0.0076599999993050005,
+   "min": 0.007381799998256611,
+   "max": 0.00844399999914458,
+   "times": [
+    0.008444,
+    0.007499,
+    0.007382,
+    0.00766,
+    0.007851
+   ],
+   "probability": "6803/98728"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.002340360000380315,
+   "stdev": 0.0001900166382394258,
+   "median": 0.0023866000010457356,
+   "min": 0.002092900002025999,
+   "max": 0.002581000000645872,
+   "times": [
+    0.002093,
+    0.002581,
+    0.002387,
+    0.002426,
+    0.002215
+   ],
+   "probability": "16941/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.00583143999974709,
+   "stdev": 0.0005909636483250638,
+   "median": 0.005650200000673067,
+   "min": 0.005292499998176936,
+   "max": 0.0067645999988599215,
+   "times": [
+    0.005425,
+    0.00565,
+    0.006765,
+    0.006025,
+    0.005292
+   ],
+   "probability": "16941/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Smeared": {
+   "runs": 5,
+   "mean": 0.0061896399987745095,
+   "stdev": 0.000247443160450507,
+   "median": 0.006125099997007055,
+   "min": 0.005897300001379335,
+   "max": 0.006461900000431342,
+   "times": [
+    0.006429,
+    0.006035,
+    0.006462,
+    0.005897,
+    0.006125
+   ],
+   "probability": "266589/271502"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.024731039999460337,
+   "stdev": 0.0004206862994605322,
+   "median": 0.024633400000311667,
+   "min": 0.024268599998322316,
+   "max": 0.025408499997865874,
+   "times": [
+    0.024576,
+    0.024269,
+    0.024633,
+    0.024769,
+    0.025408
+   ],
+   "probability": "55921/98728"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.017718479999894045,
+   "stdev": 0.0005431769975971471,
+   "median": 0.017712400000164052,
+   "min": 0.017133400000602705,
+   "max": 0.018428199997288175,
+   "times": [
+    0.018064,
+    0.017712,
+    0.018428,
+    0.017255,
+    0.017133
+   ],
+   "probability": "72507/135751"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.031702860000223154,
+   "stdev": 0.0005856264277148322,
+   "median": 0.03160099999877275,
+   "min": 0.031038299999636365,
+   "max": 0.032565299999987474,
+   "times": [
+    0.031362,
+    0.031038,
+    0.032565,
+    0.031601,
+    0.031948
+   ],
+   "probability": "587143/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Four Fingers + Smeared": {
+   "runs": 5,
+   "mean": 0.010984679999091895,
+   "stdev": 0.00030500007733141535,
+   "median": 0.010824799999682,
+   "min": 0.010729999998147832,
+   "max": 0.011359499996615341,
+   "times": [
+    0.011359,
+    0.010825,
+    0.01073,
+    0.01074,
+    0.01127
+   ],
+   "probability": "1"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.018920999999681953,
+   "stdev": 0.00041445571466072176,
+   "median": 0.018810500001563923,
+   "min": 0.0186080999992555,
+   "max": 0.019627599998784717,
+   "times": [
+    0.018811,
+    0.018916,
+    0.018608,
+    0.019628,
+    0.018642
+   ],
+   "probability": "172499/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.009350140001333784,
+   "stdev": 0.0003486559962534664,
+   "median": 0.009435500000108732,
+   "min": 0.008764199999859557,
+   "max": 0.009702500003186287,
+   "times": [
+    0.009436,
+    0.009409,
+    0.00944,
+    0.008764,
+    0.009703
+   ],
+   "probability": "57965/543004"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.01517869999879622,
+   "stdev": 0.0003954289237701772,
+   "median": 0.015097100000275532,
+   "min": 0.014810500000749016,
+   "max": 0.0157993999964674,
+   "times": [
+    0.014889,
+    0.015097,
+    0.014811,
+    0.015799,
+    0.015297
+   ],
+   "probability": "57965/543004"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.018961899999703748,
+   "stdev": 0.0005560516304281646,
+   "median": 0.019011600001249462,
+   "min": 0.018156499998440268,
+   "max": 0.01969430000099237,
+   "times": [
+    0.01913,
+    0.019012,
+    0.018156,
+    0.019694,
+    0.018817
+   ],
+   "probability": "270741/271502"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Full House + Straight Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.06542566000061925,
+   "stdev": 0.0010251166082105633,
+   "median": 0.06579879999844707,
+   "min": 0.06365370000276016,
+   "max": 0.06619710000086343,
+   "times": [
+    0.065482,
+    0.063654,
+    0.065997,
+    0.065799,
+    0.066197
+   ],
+   "probability": "226643/271502"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Royal Flush (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.05450380000038422,
+   "stdev": 0.0008948871576277822,
+   "median": 0.05464879999999539,
+   "min": 0.05335470000136411,
+   "max": 0.05575260000114213,
+   "times": [
+    0.054649,
+    0.053355,
+    0.055753,
+    0.05475,
+    0.054012
+   ],
+   "probability": "31567/38786"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Straight Flush + Flush House (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.07418563999963226,
+   "stdev": 0.0024426592602553284,
+   "median": 0.07298319999972591,
+   "min": 0.07254159999865806,
+   "max": 0.0783832999986771,
+   "times": [
+    0.072542,
+    0.078383,
+    0.07274,
+    0.07428,
+    0.072983
+   ],
+   "probability": "889037/1086008"
+  },
+  "standard | Keep 3, draw 5, nothing cached | Pair + Two Pair + Three of a Kind + Straight + Flush + Full House + Four of a Kind + Straight Flush + Royal Flush + Five of a Kind + Flush House + Flush Five (any) | Four Fingers + Shortcut + Smeared": {
+   "runs": 5,
+   "mean": 0.026038539999717614,
+   "stdev": 0.0010575729998323548,
+   "median": 0.025901299999532057,
+   "min": 0.0248864000022877,
+   "max": 0.027340999997250037,
+   "times": [
+    0.024886,
+    0.026878,
+    0.027341,
+    0.025901,
+    0.025186
+   ],
+   "probability": "1"
   }
  }
 }
