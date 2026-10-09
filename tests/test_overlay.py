@@ -112,6 +112,24 @@ def find(rt, id: str):
     return rt.execute(FIND)(rt.eval("BOXES[#BOXES]").definition, id)
 
 
+PATH = r"""
+return function(node, id)  -- child indexes down to the node with this id
+  local function walk(n, path)
+    if n.config and n.config.id == id then return path end
+    for i, c in ipairs(n.nodes or {}) do
+      local found = walk(c, path .. '/' .. i); if found then return found end
+    end
+  end
+  return walk(node, '')
+end
+"""
+
+
+def path(rt, id: str) -> str | None:
+    """Where a node of the live panel sits in its definition, as child indexes."""
+    return rt.execute(PATH)(rt.eval("BOXES[#BOXES]").definition, id)
+
+
 def click(lua, id: str, dt: float = 0.01) -> bool:
     """Click a button of the live panel, as the game would; False if it's inert."""
     rt, mod = lua
@@ -807,7 +825,7 @@ def cards_tab(lua, tmp_path, **kwargs):
 
 
 def option(rt, field) -> str:
-    return find(rt, f"calculatro_{field}").nodes[1].config.text
+    return find(rt, f"calculatro_{field}").nodes[2].nodes[1].config.text  # in its padded row
 
 
 def set_builder(lua, field, text):
@@ -864,11 +882,26 @@ def test_tracked_cards_page_five_at_a_time(lua, tmp_path):
     assert click(lua, "calculatro_add")  # shows the new query's page
     assert option(rt, "page") == "Page 2/2"
     assert find(rt, "calculatro_remove_at least 1 10") and find(rt, "calculatro_remove_queen") is None
+    on_page_2 = path(rt, "calculatro_page")
     assert click(lua, "calculatro_page_next")  # wraps around
     assert option(rt, "page") == "Page 1/2"
+    # It stays put as pages change, beside Add rather than under the list.
+    assert path(rt, "calculatro_page") == on_page_2
+    assert path(rt, "calculatro_page").rsplit("/", 3)[0] == path(rt, "calculatro_add").rsplit("/", 1)[0]
     assert click(lua, "calculatro_page_prev")
     assert click(lua, "calculatro_remove_at least 1 10")  # back to one page
     assert find(rt, "calculatro_page") is None and find(rt, "calculatro_remove_queen")
+
+
+def test_editor_grows_downwards_when_too_tall(lua, tmp_path):
+    lift = 1.9 + 0.2 + 0.5 + 0.1
+    rt, mod = open_editor(lua, tmp_path)
+    assert rt.eval("BOXES[#BOXES]").alignment.offset.y == pytest.approx(-lift)  # fits
+    assert click(lua, "calculatro_done")
+    rt.execute("G.consumeables.T.h = 5.3")  # leaves 0.3 for the editor's 0.5
+    assert click(lua, "calculatro_open")
+    box = rt.eval("BOXES[#BOXES]")
+    assert box.alignment.offset.y == pytest.approx(-lift + 0.2)  # its top where it would fit
 
 
 def test_editor_closes_with_the_panel(lua, tmp_path):
