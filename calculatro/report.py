@@ -23,7 +23,7 @@ class TargetOdds:
 @dataclass(frozen=True)
 class Report:
     targets: list[TargetOdds]  # "Any target" first when there are several
-    cards: list[tuple[CardQuery, Fraction]]  # drawn-card odds; only with a selection
+    cards: list[tuple[CardQuery, Fraction | None]]  # drawn-card odds; None if nothing is selected
     keep_draws: int  # cards drawn when keeping the hand
     discarded: list[Card]  # the selection; empty if nothing is selected
     discard_draws: int  # cards drawn after discarding it
@@ -36,8 +36,8 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     plus card-query odds for the cards drawn after that discard.
 
     Keeping the hand draws nothing (unless it isn't full), so card queries are
-    only calculated for a selection. None outside a run, with an empty hand, or
-    with nothing to calculate.
+    only calculated for a selection (without one, their odds are None). None
+    outside a run, with an empty hand, or with nothing to calculate.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
@@ -50,7 +50,7 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     selected = state.selected
     if not selected:
         rows = [TargetOdds(name, k.probability, None) for (name, _), k in zip(named, keep)]
-        return Report(rows, [], keep_draws, [], 0, state.discards_left)
+        return Report(rows, [(q, None) for q in queries], keep_draws, [], 0, state.discards_left)
 
     after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
     card_odds = [(q, evaluate_cards(state, q, selected)) for q in queries]
