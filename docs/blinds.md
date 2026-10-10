@@ -72,7 +72,7 @@ Nothing here needs special handling in the engine: the debuff flags arrive with 
 ### Jokers debuffed or flipped
 
 - **Crimson Heart** debuffs one random joker in `drawn_to_hand` when `prepped`: on the opening draw and after every hand played, **not** after discards. It picks from the jokers that weren't debuffed (unless there's only one), so the same joker is never hit twice in a row. A debuffed rule joker (Four Fingers, Shortcut, Smeared, Pareidolia) has no effect, and a debuffed hand-size joker loses its bonus (`remove_from_deck`). Both arrive in the exported state (`Joker.debuff`, skipped by `Rules.from_jokers`; `hand_size`). Since the debuffed joker only changes on a play, the odds of a discard's draw are computed under the right rules.
-- **Amber Acorn** flips every joker face down and shuffles them. `find_joker` doesn't check `facing`, so the jokers keep working and the rules are unchanged, and the player knows which jokers they own. However, the mod exports jokers in `G.jokers.cards` order, which reveals the shuffled positions the player can't see. Nothing uses joker order today; if anything ever does (Blueprint, Brainstorm), sort the export while jokers are face down.
+- **Amber Acorn** flips every joker face down and shuffles them. `find_joker` doesn't check `facing`, so the jokers keep working and the rules are unchanged, and the player knows which jokers they own. The mod exports the jokers sorted (like the deck), never in `G.jokers.cards` order, so the shuffled positions the player can't see don't leak. Nothing in the engine uses joker order; anything that ever needs it (Blueprint, Brainstorm) can't get it from the export.
 
 ### Draws
 
@@ -185,7 +185,7 @@ Columns:
 | 23 | The Tooth | `bl_tooth` | 3 | 2x | $5 | Lose $1 per card played | N |  | No effect |
 | 24 | The Flint | `bl_flint` | 2 | 2x | $5 | Base chips and mult are halved | Y |  | No effect |
 | 25 | The Mark | `bl_mark` | 2 | 2x | $5 | All face cards are drawn face down | N | hidden | **Modelled** (face-down cards are face cards, `GameState.mark`) |
-| 26 | Amber Acorn | `bl_final_acorn` | Showdown | 2x | $8 | Flips and shuffles all Joker cards | N | joker | No effect (export leaks joker order) |
+| 26 | Amber Acorn | `bl_final_acorn` | Showdown | 2x | $8 | Flips and shuffles all Joker cards | N | joker | No effect (jokers exported sorted) |
 | 27 | Verdant Leaf | `bl_final_leaf` | Showdown | 2x | $8 | All cards debuffed until 1 Joker sold | Y | debuff | Handled (debuff flags) |
 | 28 | Violet Vessel | `bl_final_vessel` | Showdown | 6x | $8 | Very large blind | N |  | No effect |
 | 29 | Crimson Heart | `bl_final_heart` | Showdown | 2x | $8 | One random Joker disabled every hand | N | joker | Handled (`Joker.debuff`) |
