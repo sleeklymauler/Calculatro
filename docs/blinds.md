@@ -83,7 +83,7 @@ Nothing here needs special handling in the engine: the debuff flags arrive with 
 
 These are already reflected in the exported `hand_size` (`G.hand.config.card_limit`), `hands_left` and `discards_left`, so the engine doesn't model them:
 - **The Manacle:** `G.hand:change_size(-1)` when the blind is set, given back when it's defeated or disabled.
-- **The Water:** sets the round's discards to 0 (`discards_sub`), so the panel says "No discards left" (`overlay.NO_DISCARDS`).
+- **The Water:** sets the round's discards to 0 (`discards_sub`), so the panel has no discard odds to show; it doesn't say so, since the game already makes it clear.
 - **The Needle:** sets the round's hands to 1 (`hands_sub`). Hands left don't affect the odds of the next draw.
 
 ### Hands that don't score (`Blind:debuff_hand`)
