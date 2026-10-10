@@ -582,10 +582,31 @@ function Calculatro.in_blind()
     return state == S.SELECTING_HAND or state == S.DRAW_TO_HAND
 end
 
+-- Hand types the boss won't let score this round, as a set of HANDS names:
+-- The Eye bans those already played, The Mouth all but the first one played
+-- (Blind:debuff_hand). A Royal Flush is played as a Straight Flush; only its
+-- displayed name differs. The player sees both: The Mouth names its hand, and
+-- they know what they've played.
+function Calculatro.banned_hands()
+    local blind, banned = G.GAME and G.GAME.blind, {}
+    if not blind or blind.disabled then return banned end
+    for _, h in ipairs(HANDS) do
+        local played = h == 'Royal Flush' and 'Straight Flush' or h
+        if blind.name == 'The Eye' and blind.hands then
+            banned[h] = blind.hands[played] or nil
+        elseif blind.name == 'The Mouth' and blind.only_hand then
+            banned[h] = blind.only_hand ~= played or nil
+        end
+    end
+    return banned
+end
+
 -- What the odds panel shows: a row for each tracked target hand ("Any
 -- target" first when there are several) and card query, with the odds the
 -- app keyed by them ('-' until it has). Odds for an older state stay up until
 -- the new ones arrive, greyed out if that takes longer than `patience`.
+-- Hands the boss won't let score are `banned` (struck out, odds still shown);
+-- "Any target" is too when all of them are.
 function Calculatro.panel_model()
     local t = Calculatro.tracked()
     local model = { targets = array(), cards = array(),
@@ -610,13 +631,15 @@ function Calculatro.panel_model()
         for _, o in ipairs(odds.targets or {}) do hand_odds[o.key] = o end
         for _, o in ipairs(odds.cards or {}) do card_odds[o.key] = o end
     end
-    local function hand(key, name, removable)
+    local banned, all_banned = Calculatro.banned_hands(), true
+    for _, h in ipairs(t.hands) do all_banned = all_banned and banned[h] ~= nil end
+    local function hand(key, name, removable, is_banned)
         local o = hand_odds[key] or {}
         model.targets[#model.targets + 1] = { key = key, name = name, keep = o.keep, discard = o.discard,
-                                              trend = o.trend, removable = removable }
+                                              trend = o.trend, removable = removable, banned = is_banned or nil }
     end
-    if #t.hands > 1 then hand('Any target', 'Any target', nil) end
-    for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true) end
+    if #t.hands > 1 then hand('Any target', 'Any target', nil, all_banned) end
+    for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true, banned[h]) end
     for _, c in ipairs(t.cards) do
         model.cards[#model.cards + 1] = { key = c.query, name = c.label, discard = (card_odds[c.query] or {}).discard }
     end
@@ -763,6 +786,39 @@ local function deepen_shadows(e)
     end
 end
 
+-- A line through text (config.calculatro_strike), for hands the boss won't
+-- let score: one font pixel thick, through the middle of m6x11's lowercase
+-- letters (its baseline is 12 of the em's 16 pixels down, x-height 6, and the
+-- game draws text TEXT_OFFSET.y above its box), with a shadow like the text's.
+local function strike_through(e)
+    if e.UIT == G.UIT.T and e.config.calculatro_strike then
+        local draw_self = e.draw_self
+        function e:draw_self()
+            local c = self.config
+            local shown = self.states.visible and c.colour and c.text_drawable
+            local font = shown and c.lang.font
+            local k = shown and c.scale * font.FONTSCALE / G.TILESIZE
+            local em = shown and font.FONT:getHeight()
+            local function line(colour, dx, dy)
+                prep_draw(self, 1)
+                love.graphics.setColor(colour)
+                love.graphics.rectangle('fill', dx, (font.TEXT_OFFSET.y + em / 2) * k + dy, self.VT.w, em / 16 * k)
+                love.graphics.pop()
+            end
+            if shown and G.SETTINGS.GRAPHICS.shadows == 'On' then
+                line({ 0, 0, 0, 0.3 * c.colour[4] }, -self.shadow_parrallax.x * SHADOW_DEPTH / G.TILESIZE,
+                     -self.shadow_parrallax.y * SHADOW_DEPTH / G.TILESIZE)
+            end
+            draw_self(self)
+            if shown then line(c.colour, 0, 0) end
+        end
+    end
+    for _, child in pairs(e.children or {}) do
+        if type(child) == 'table' and child.UIT then strike_through(child) end
+    end
+end
+Calculatro.strike_through = strike_through
+
 local function cell(w, align, node)
     return { n = G.UIT.C, config = { align = align, minw = w, maxw = w }, nodes = { node } }
 end
@@ -847,8 +903,10 @@ local function sections(model, colours)
     for _, t in ipairs(model.targets) do
         local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
         hands[#hands + 1] = function()
+            local name = label(t.name, t.banned and colours.muted)
+            name.config.calculatro_strike = t.banned
             return row({
-                cell(NAME_W, 'cl', label(t.name)),
+                cell(NAME_W, 'cl', name),
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
                 t.discard and arrow(colours.muted) or blank(ARROW_CELL_W),
                 cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour)),
@@ -1477,6 +1535,7 @@ local function build_panel(definition)
     panel:hard_set_VT()
     if panel.UIRoot then
         deepen_shadows(panel.UIRoot)
+        strike_through(panel.UIRoot)
         steady_buttons(panel.UIRoot)
     end
     return panel
