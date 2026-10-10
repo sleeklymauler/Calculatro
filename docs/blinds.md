@@ -15,7 +15,8 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 | Modelled by the engine | The Serpent, The Mark, Cerulean Bell |
 | Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
 | **Not modelled, odds are wrong** | None |
-| Not modelled, odds are right but the hand may not score | The Psychic (only with fewer than 5 cards in hand), The Eye, The Mouth |
+| Odds are right; the panel strikes out the hands that can't score | The Eye, The Mouth |
+| Not modelled, odds are right but the hand may not score | The Psychic (only with fewer than 5 cards in hand) |
 | No effect | Small Blind, Big Blind, The Hook, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
 
 ## Rules that matter to Calculatro
@@ -92,7 +93,7 @@ Calculatro's targets mean "the final hand *contains* this hand type" (`hands.py`
 - **The Eye:** a hand type already played this round (`G.GAME.blind.hands[name]`).
 - **The Mouth:** any hand type other than the first one played this round (`G.GAME.blind.only_hand`). The comparison is on the hand's exact type, so after a Pair, Two Pair doesn't score.
 
-For The Eye and The Mouth the odds are right, but a target the boss has banned can't score. Both lists are visible to the player (The Mouth names its hand in the blind's text), so the mod could export them and grey out the banned targets; it doesn't today.
+For The Eye and The Mouth the odds are right, but a target the boss has banned can't score. **The panel strikes it out:** the mod reads the bans from `G.GAME.blind` (`Calculatro.banned_hands`; nothing is exported, so the app is unchanged) and draws a banned target's name greyed with a line through it, still with its odds. A Royal Flush is played as a Straight Flush (only its displayed name differs), so the two are banned together by The Eye and both allowed by a Mouth on Straight Flush. "Any target" is struck out only when every tracked hand is. The player sees both lists: The Mouth names its hand in the blind's text, and they know what they've played. A banned target can still be part of a hand that scores: after a Pair under The Eye, Three of a Kind still scores, though it contains a Pair.
 
 ### Forced selection (Cerulean Bell)
 
@@ -174,8 +175,8 @@ Columns:
 | 13 | The Water | `bl_water` | 2 | 2x | $5 | Start with 0 discards | N | size | Handled (`discards_left`) |
 | 14 | The Window | `bl_window` | Any | 2x | $5 | All Diamond cards are debuffed | Y | debuff | Handled (debuff flags) |
 | 15 | The Manacle | `bl_manacle` | Any | 2x | $5 | −1 hand size | N | size | Handled (`hand_size`) |
-| 16 | The Eye | `bl_eye` | 3 | 2x | $5 | No repeat hand types this round | Y | play | Not modelled; banned hands still counted |
-| 17 | The Mouth | `bl_mouth` | 2 | 2x | $5 | Play only 1 hand type this round | Y | play | Not modelled; banned hands still counted |
+| 16 | The Eye | `bl_eye` | 3 | 2x | $5 | No repeat hand types this round | Y | play | Banned hands struck out in the panel |
+| 17 | The Mouth | `bl_mouth` | 2 | 2x | $5 | Play only 1 hand type this round | Y | play | Banned hands struck out in the panel |
 | 18 | The Plant | `bl_plant` | 4 | 2x | $5 | All face cards are debuffed | Y | debuff | Handled (debuff flags) |
 | 19 | The Serpent | `bl_serpent` | 5 | 2x | $5 | After a play or discard, always draw 3 cards | N | draw | **Modelled** (`GameState.serpent`) |
 | 20 | The Pillar | `bl_pillar` | Any | 2x | $5 | Cards played previously this ante are debuffed | Y | debuff | Handled (debuff flags) |

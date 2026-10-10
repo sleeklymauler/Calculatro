@@ -724,6 +724,97 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert not any(t.endswith("@stale") for t in texts) and "Calculating...@muted" not in texts
 
 
+STRUCK = r"""
+return function(node)  -- text struck through (hands the boss won't let score), in order
+  local out = {}
+  local function walk(n)
+    if n.n == G.UIT.T and n.config.calculatro_strike then out[#out + 1] = n.config.text end
+    for _, child in ipairs(n.nodes or {}) do walk(child) end
+  end
+  walk(node)
+  return out
+end
+"""
+
+
+def struck(rt) -> list[str]:
+    return list(rt.execute(STRUCK)(rt.eval("BOXES[#BOXES]").definition).values())
+
+
+def hand_rows(rt) -> list[str]:
+    """The target rows' names and values, from the live panel."""
+    texts = panel_texts(rt)
+    return texts[texts.index("Discard@muted") + 1:]
+
+
+@pytest.mark.parametrize("blind, banned", [
+    ("{name = 'Big Blind'}", []),
+    # The Eye: hand types already played. A Royal Flush is played as a Straight Flush.
+    ("{name = 'The Eye', hands = {['Pair'] = true, ['Straight Flush'] = true, ['Flush'] = false}}",
+     ["Pair", "Str. Flush", "Royal Flush"]),
+    ("{name = 'The Eye', hands = {['Pair'] = true}, disabled = true}", []),
+    # The Mouth: every hand type but the first played, nothing before then.
+    ("{name = 'The Mouth', only_hand = false}", []),
+    ("{name = 'The Mouth', only_hand = 'Straight Flush'}", ["Trips", "Pair"]),
+    ("{name = 'The Mouth', only_hand = 'Flush'}", ["Any target", "Trips", "Pair", "Str. Flush", "Royal Flush"]),
+])
+def test_panel_strikes_out_hands_the_boss_bans(lua, tmp_path, blind, banned):
+    rt, mod = lua
+    rt.execute(f"G.GAME.blind = {blind}")
+    answer(lua, tmp_path, targets=("trips", "pair", "straight flush", "royal flush"), queries=())
+    mod.update(0.1)
+    assert struck(rt) == banned
+    rows = hand_rows(rt)
+    names = ["Any target", "Trips", "Pair", "Str. Flush", "Royal Flush"]
+    assert [r for r in rows if r.split("@")[0] in names] == [
+        f"{name}@{'muted' if name in banned else 'light'}" for name in names]
+    # The odds are still shown, as usual.
+    assert "80.0%@light" in rows and not any(r.endswith("@stale") or r.startswith("-@") for r in rows)
+
+
+def test_panel_strikes_out_hands_once_played(lua, tmp_path):
+    rt, mod = lua
+    rt.execute("G.GAME.blind = {name = 'The Eye', hands = {['Pair'] = false}}")
+    answer(lua, tmp_path, targets=("pair",), queries=())
+    mod.update(0.1)
+    assert struck(rt) == []
+    rt.execute("G.GAME.blind.hands['Pair'] = true")
+    mod.update(0.1)
+    assert struck(rt) == ["Pair"]
+
+
+def test_strike_runs_through_the_lowercase_letters(lua):
+    rt, mod = lua
+    drawn = rt.execute(r"""
+      local Calculatro = ...
+      local drawn = {}
+      prep_draw = function() end
+      love = {graphics = {
+        setColor = function(c) drawn[#drawn + 1] = {colour = c} end,
+        rectangle = function(_, x, y, w, h) local d = drawn[#drawn]; d.x, d.y, d.w, d.h = x, y, w, h end,
+        pop = function() end,
+      }}
+      G.TILESIZE, G.SETTINGS.GRAPHICS = 20, {shadows = 'On'}
+      local font = {FONTSCALE = 0.1, TEXT_OFFSET = {x = 10, y = -20}, FONT = {getHeight = function() return 200 end}}
+      local e = {UIT = G.UIT.T, VT = {w = 1.2}, states = {visible = true}, shadow_parrallax = {x = -2, y = -4},
+                 config = {calculatro_strike = true, scale = 0.32, colour = {1, 1, 1, 1}, text_drawable = {},
+                           lang = {font = font}},
+                 draw_self = function() drawn[#drawn + 1] = 'text' end}
+      Calculatro.strike_through(e)
+      e:draw_self()
+      return drawn
+    """, mod)
+    shadow, text, line = drawn[1], drawn[2], drawn[3]
+    assert text == "text"  # between the line's shadow and the line
+    px = 0.02  # a font pixel at the panel's text scale
+    assert (line.x, line.w) == (0, 1.2) and line.h == pytest.approx(px)
+    # m6x11's baseline is 12 of its 16 pixels down the em, drawn 1.6 pixels
+    # (TEXT_OFFSET.y) above the box; its lowercase letters are 6 pixels tall.
+    baseline = (12 - 1.6) * px
+    assert line.y == pytest.approx(baseline - 4 * px)  # their middle pixel row (of 0-5 from the top, the 2nd)
+    assert shadow.colour[4] == pytest.approx(0.3) and shadow.x > 0 and shadow.y > line.y
+
+
 def test_panel_without_the_app(lua, tmp_path):
     rt, mod = lua
     (tmp_path / "calculatro_odds.json").write_text(json.dumps(
