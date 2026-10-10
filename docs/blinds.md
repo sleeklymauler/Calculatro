@@ -16,7 +16,7 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 | Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
 | **Not modelled, odds are wrong** | None |
 | Odds are right; the panel strikes out the hands that can't score | The Eye, The Mouth |
-| Not modelled, odds are right but the hand may not score | The Psychic (only with fewer than 5 cards in hand) |
+| Odds are right but the hand may not score (by design) | The Psychic (only with fewer than 5 cards in hand) |
 | No effect | Small Blind, Big Blind, The Hook, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
 
 ## Rules that matter to Calculatro
@@ -89,7 +89,7 @@ These are already reflected in the exported `hand_size` (`G.hand.config.card_lim
 ### Hands that don't score (`Blind:debuff_hand`)
 
 Calculatro's targets mean "the final hand *contains* this hand type" (`hands.py`). These bosses don't stop a hand from being formed or played; they make it score nothing (the hand still counts as played):
-- **The Psychic** (`h_size_ge = 5`): fewer than 5 cards played. Adding cards to a selection of at most 5 never loses a hand type it contains (a Pair padded with a matching card becomes Three of a Kind, which contains a Pair), so any target found in a hand of 5 or more cards can be played as 5 cards. **No effect** unless the final hand has fewer than 5 cards (hand size below 5, or the deck running out); the target can't score then, but the odds still count it.
+- **The Psychic** (`h_size_ge = 5`): fewer than 5 cards played. Adding cards to a selection of at most 5 never loses a hand type it contains (a Pair padded with a matching card becomes Three of a Kind, which contains a Pair), so any target found in a hand of 5 or more cards can be played as 5 cards. **No effect** unless the final hand has fewer than 5 cards (hand size below 5, or the deck running out); the target can't score then, but the odds still count it. **Left as is by design:** the odds still answer what they claim (the final hand contains the target), the player can see when they hold fewer than 5 cards, and it only happens near the end of a round. The panel's alternatives (a per-column message, greyed or 0% values) weren't worth the extra UI.
 - **The Eye:** a hand type already played this round (`G.GAME.blind.hands[name]`).
 - **The Mouth:** any hand type other than the first one played this round (`G.GAME.blind.only_hand`). The comparison is on the hand's exact type, so after a Pair, Two Pair doesn't score.
 
@@ -170,7 +170,7 @@ Columns:
 | 8 | The Arm | `bl_arm` | 2 | 2x | $5 | Decrease level of played poker hand | Y |  | No effect |
 | 9 | The Club | `bl_club` | Any | 2x | $5 | All Club cards are debuffed | Y | debuff | Handled (debuff flags) |
 | 10 | The Fish | `bl_fish` | 2 | 2x | $5 | Cards drawn face down after each hand played | N | hidden | Handled (hidden pool) |
-| 11 | The Psychic | `bl_psychic` | Any | 2x | $5 | Must play 5 cards | Y | play | No effect with 5+ cards in hand |
+| 11 | The Psychic | `bl_psychic` | Any | 2x | $5 | Must play 5 cards | Y | play | No effect with 5+ cards in hand; under 5, odds still count (by design) |
 | 12 | The Goad | `bl_goad` | Any | 2x | $5 | All Spade cards are debuffed | Y | debuff | Handled (debuff flags) |
 | 13 | The Water | `bl_water` | 2 | 2x | $5 | Start with 0 discards | N | size | Handled (`discards_left`) |
 | 14 | The Window | `bl_window` | Any | 2x | $5 | All Diamond cards are debuffed | Y | debuff | Handled (debuff flags) |
