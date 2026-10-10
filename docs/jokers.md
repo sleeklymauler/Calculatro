@@ -72,7 +72,7 @@ In other words, a straight exists when there is a chain of `5 - FF` distinct pre
 
 For flushes, the suits collapse to Red (♥/♦) and Black (♠/♣). For suit-based jokers, a ♥ card counts as both ♥ and ♦, and so on. Rank is unaffected.
 
-In engine terms, a card's flush class becomes its colour, and Wild stays Wild. A debuffed Wild card loses its wildness but still counts as its base colour. The colour is named by the suit that stands for it (`hands.SMEARED`): ♦ cards are classed as `(rank, "Hearts")` and ♣ cards as `(rank, "Spades")`, and the flush-type patterns are built for those two suits only (`hands.flush_suits`). Splitting by suit then splits by colour. `-c` suit queries also follow Smeared, so under it "diamond" matches every red card.
+In engine terms, a card's flush class becomes its colour, and Wild stays Wild. A debuffed Wild card loses its wildness but still counts as its base colour. The colour is named by the suit that stands for it (`hands.SMEARED`): ♦ cards are classed as `(rank, "Hearts")` and ♣ cards as `(rank, "Spades")`, and the flush-type patterns are built for those two suits only (`hands.flush_suits`). Splitting by suit then splits by colour. Suit queries ("Drawn cards" rows) also follow Smeared, so under it "diamond" matches every red card.
 
 Edge case: Flower Pot assigns each card to the first suit that hasn't been claimed yet, so under Smeared two red cards plus two black cards satisfy it.
 
@@ -80,7 +80,7 @@ Edge case: Flower Pot assigns each card to the first suit that hasn't been claim
 
 `Card:is_face()` returns true for **every non-debuffed card**, Stone cards included. Debuffed cards are never face cards, whether or not Pareidolia is present. This affects every joker or query that checks for face cards (Scary Face, Smiley Face, Sock and Buskin, Business Card, Photograph, Ride the Bus, Faceless Joker, Reserved Parking, Midas Mask, Canio), as well as boss blinds such as The Plant.
 
-In Calculatro it only changes `-c` face-card queries (`cards._is_face`). No hand type checks for face cards, so targets are unaffected, and `Target.patterns` builds the same patterns with or without it.
+In Calculatro it only changes face-card queries ("Drawn cards" rows) (`cards._is_face`). No hand type checks for face cards, so targets are unaffected, and `Target.patterns` builds the same patterns with or without it.
 
 ### Splash (`j_splash`)
 

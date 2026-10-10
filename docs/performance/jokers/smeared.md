@@ -17,7 +17,7 @@ groups of suited patterns instead of four.
 Mostly this makes things faster. Half as many suited patterns means less
 work, and with Wild Cards unseen (when the split by suit is off anyway), the
 search follows two colours instead of four suits: the wild deck's The House
-with Four Fingers + Shortcut takes 0.7 s for Straight Flush, against 14 s
+with Four Fingers + Shortcut takes 0.55 s for Straight Flush, against 10.5 s
 without Smeared.
 
 The cost shows with Four Fingers, whose Straight Flush patterns have
@@ -60,7 +60,7 @@ Each position recomputed the parts of every pattern joining at its class:
 about 23 calls to `join` per position, 22% of the profile. Those parts follow
 from the deferred counts, capped the way the memo key caps them, so they are
 cached by `(class, todo, free, deferred counts)`. This had been tried before
-with no measurable gain (see [../engine.md](../engine.md)), but with Four
+with no measurable gain, but with Four
 Fingers + Shortcut many patterns join at each rank. It made every slow
 scenario 1.2–1.5× faster, with or without Smeared (the wild deck's The House
 with Four Fingers + Shortcut: 19.2 s → 13.8 s).
