@@ -630,7 +630,6 @@ function Calculatro.panel_model()
     end
     local hand_odds, card_odds = {}, {}
     if odds then
-        model.message = model.message or odds.message
         for _, o in ipairs(odds.targets or {}) do hand_odds[o.key] = o end
         for _, o in ipairs(odds.cards or {}) do card_odds[o.key] = o end
     end
@@ -657,7 +656,7 @@ local CARD_NAME_W = NAME_W + VALUE_W + GAP_W
 local REMOVE_W = 0.3  -- each row ends with an x button that stops tracking it
 local COLUMN_W = CARD_NAME_W + DISCARD_W + REMOVE_W
 local TITLE_W, PLUS_W, COLUMN_GAP = 1.6, 0.35, 0.2
--- Fits "No discards left", "Calculating..." and "Waiting for app" beside the
+-- Fits "Calculating..." and "Waiting for app" beside the
 -- title and its + button.
 local MESSAGE_W = 1.5
 local SCALE = 0.32
@@ -1071,7 +1070,7 @@ end
 -- CARDS_PER_PAGE to a page (Balatro's UI can't clip a scrolling list).
 ---------------------------------------------------------------------------
 local CARDS_PER_PAGE = 5
-local TAB_W, DONE_W = 1.2, 0.8
+local TAB_W, DONE_W = 1.3, 0.95
 local TOGGLE_W, TOGGLE_GAP = 1.9, 0.25     -- the Hands tab's hand toggles
 local FIELD_W = 0.8                        -- the builder's row names ("Special")
 local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
@@ -1224,14 +1223,14 @@ function Calculatro.editor_definition(model)
     local function tab(text, name)
         local chosen = model.tab == name
         return button({ plain(text) }, not chosen and { 'tab', name } or nil,
-                      { id = 'calculatro_tab_' .. name, w = TAB_W, colour = C.GREY, off_colour = C.RED,
+                      { id = 'calculatro_tab_' .. name, w = TAB_W, colour = C.GREY, off_colour = C.RED, padded = true,
                         outline = chosen and 1 or nil })
     end
     return frame({
         row({
             title(),
             { n = G.UIT.C, config = { align = 'cr', minw = EDITOR_W - TITLE_W }, nodes = {
-                button({ plain('Done') }, { 'done' }, { id = 'calculatro_done', w = DONE_W, colour = C.ORANGE }),
+                button({ plain('Done') }, { 'done' }, { id = 'calculatro_done', w = DONE_W, colour = C.ORANGE, padded = true }),
             } },
         }, TITLE_ROW),
         row({ tab('Hands', 'hands'), blank(0.1), tab('Cards', 'cards') }, { align = 'cm', calculatro_anim = 'tabs' }),

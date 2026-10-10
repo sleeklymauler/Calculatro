@@ -36,8 +36,6 @@ def columns_needed(targets: int, queries: int) -> int:
     hand_rows = targets + (targets > 1)  # with "Any target" above several
     return -(-hand_rows // ROWS_PER_COLUMN) - (-queries // ROWS_PER_COLUMN)
 
-NO_DISCARDS = "No discards left"  # short: it sits beside the panel's title
-
 
 def odds_path(state_path: Path) -> Path:
     """The odds file sits next to the state file."""
@@ -78,8 +76,6 @@ def odds(state: GameState, report: Report | None) -> dict[str, Any]:
         if p is not None:
             card["discard"] = percent(p)
         payload["cards"].append(card)
-    if report.discarded and report.discards_left <= 0:
-        payload["message"] = NO_DISCARDS
     return payload
 
 

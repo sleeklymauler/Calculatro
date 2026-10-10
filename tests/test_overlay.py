@@ -282,7 +282,7 @@ def test_payloads(lua, tmp_path):
 
     out_of_discards = GameState(**{**state.__dict__, "discards_left": 0})
     payload = overlay.odds(out_of_discards, build_report(out_of_discards, [get_target("trips")]))
-    assert payload["message"] == overlay.NO_DISCARDS
+    assert "message" not in payload
     unselected = GameState(**{**state.__dict__, "hand": [c.__class__(**{**c.__dict__, "highlighted": False})
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
