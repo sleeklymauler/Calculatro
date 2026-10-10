@@ -1,4 +1,4 @@
-"""Sources of live game state. Phase 1 reads the JSON file the mod writes."""
+"""Sources of live game state: the JSON file the mod writes."""
 
 from __future__ import annotations
 

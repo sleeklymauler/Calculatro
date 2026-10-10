@@ -7,10 +7,9 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-This page includes the partial-state reductions added after the Smeared
-Joker work. Joker-specific notes are in [jokers/](jokers/)
-and measured timings in [benchmarks.md](benchmarks.md), which also has a
-step-by-step table for the second pass.
+Joker-specific notes are in [jokers/](jokers/) and measured timings in
+[benchmarks.md](benchmarks.md), which also has a step-by-step table for the
+second pass.
 
 ## The model
 
@@ -189,19 +188,17 @@ table uses a lower bound on the cards it needs (its deferred requirements
 counted as met), so it never prunes wrongly. See
 [jokers/shortcut.md](jokers/shortcut.md).
 
-Deferred counts are now tracked by **class and draws remaining**. Each
-waiting pattern has a lower bound on what it will need when it joins,
-optimistically treating all its deferred requirements as satisfied. If
-even that bound exceeds the draws left, its history cannot affect any
-continuation, so it contributes no deferred count or cap to the memo key.
-Patterns sharing the same earlier classes still share one count, capped at
-the maximum needed by the patterns that remain reachable.
+Which deferred counts the memo key holds depends on the **draws left**
+as well as the class. A waiting pattern whose lower bound already exceeds
+the draws left can never be satisfied, so its deferred counts can't affect
+anything that follows: they're left out of the memo key, and each shared
+count is capped at the most needed by the waiting patterns still in reach.
 
-The joining-parts cache also includes draws remaining. It excludes those
-unreachable patterns before reading their omitted counts, then checks the
-actual joined part's bound before moving it. This both preserves the cache
-key's meaning and avoids transitions for parts that would die at the next
-position anyway.
+The cache of joining parts (see "Cheap per-position work") is keyed by the
+draws left too. It leaves out the out-of-reach patterns before reading
+their counts, which the key no longer holds, and checks each joined part's
+bound before moving it, so parts that would die at the next position are
+never moved.
 
 ### Cheap per-position work
 
@@ -224,7 +221,9 @@ where the second pass gained the most after the class order (about 2×).
   counts (`join`, cached). The list of parts joining at a class is cached
   too, by the class, draws left, the groups to cover and the deferred counts as the
   memo key caps them; with Four Fingers + Shortcut a couple of dozen
-  patterns join per position, and this saved 20–30%.
+  patterns join per position, and this saved 20–30%. (Tried early on, it
+  gained nothing measurable; it paid off once that many patterns joined, see
+  [jokers/smeared.md](jokers/smeared.md).)
 - With one group (no split by suit), a part is live just when it needs no
   more cards than are left, so live, moving and still parts are built with
   comprehensions, and one-card parts are found by set intersection.
@@ -278,7 +277,7 @@ keyed by the sorted ranks of their suits and of the other suits, and each is
 computed once. With a full deck and nothing known, as in The House's first
 hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush
 (0.27 s instead of 1.34 s with Shortcut as well, measured with the check
-turned off; see [benchmarks.md](benchmarks.md#current-numbers)). It does
+turned off; see [benchmarks.md](benchmarks.md#after-smeared-joker-2026-10-07)). It does
 nothing once the suits differ, which is most of the time.
 
 **It's skipped with only two suits.** That only happens with Smeared Joker,
@@ -333,7 +332,8 @@ Recorded so they aren't retried blindly:
 - **Constraint state in the memo key:** splits positions by exact suit
   counts for no benefit.
 - **Splitting by suit with unseen Wild Cards:** 3–10× slower than one search
-  in the benchmarks.
+  in the benchmarks, and still about 3× slower when re-tested after the
+  second pass.
 - **Trying one search first, with a size budget, before splitting:** once
   the split's setup was cheap, it was never meaningfully slower than one
   search, so the budget only added complexity.
@@ -362,15 +362,10 @@ Recorded so they aren't retried blindly:
   twice as long. A looser test for one-card parts (a requirement for d cards
   of which fewer than d can lie outside the one-card part's classes) gained
   nothing either.
-- **Splitting by suit with unseen Wild Cards**, re-tested after the second
-  pass: still about 3× slower than one search.
 - **Closed forms at the end of the search**: when every live part needs one
   card, count the draws that miss them all; with one card left to draw,
   count the cards that satisfy some part. Waiting patterns almost always
   rule it out, and it saved about 3%.
-- **Caching the parts joining at each class** by what the memo key holds:
-  no measurable gain at first, but it paid off later (20–30% on the slow
-  scenarios) and is now in place; see [jokers/smeared.md](jokers/smeared.md).
 - **Dropping every live part that implies another** (checked per
   requirement, at each memo miss): 7% fewer positions, 4× slower.
 

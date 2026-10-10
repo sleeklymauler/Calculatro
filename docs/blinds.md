@@ -3,7 +3,7 @@
 Reference for all 30 blinds in Balatro **1.0.1o-FULL** (2 regular blinds, 23 Boss Blinds and 5 Showdown Blinds), written for Calculatro work. It is the companion to [jokers.md](jokers.md).
 
 Sources:
-- Balatro Wiki "Blinds and Antes" page (revision `oldid=30018`, saved as `docs/Blinds and Antes - Balatro Wiki.pdf`), for effect text, minimum antes, rewards and Matador compatibility.
+- Balatro Wiki "Blinds and Antes" page (revision `oldid=30018`), for effect text, minimum antes, rewards and Matador compatibility.
 - The game's own Lua (`Balatro.exe` is a LÖVE zip; `game.lua` `P_BLINDS`, `blind.lua`, `functions/state_events.lua`, `functions/common_events.lua`, `cardarea.lua`, `card.lua`), for the internal keys, score multipliers and the exact rules in [Rules that matter to Calculatro](#rules-that-matter-to-calculatro). Where the two disagree, the game code wins.
 
 The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name** column below, from `P_BLINDS`: always English, not localised) and `blind_disabled` = `G.GAME.blind.disabled`. `state.py` keeps them as `GameState.blind` / `GameState.blind_disabled`. The internal keys (`bl_hook`, ...) are not exported.
@@ -31,7 +31,7 @@ A boss is disabled by **Chicot** (when the blind is selected, or when Chicot is 
 - The Wall's chips are halved and Violet Vessel's divided by 3, back to 2x base. The Needle stays at 1x.
 - Every card's debuff is recomputed, which clears the boss's debuffs.
 
-Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent` and `GameState.mark` check `blind_disabled`; any new boss rule must do the same.
+Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent`, `GameState.mark` and `GameState.bell` check `blind_disabled`; any new boss rule must do the same.
 
 ### Face-down cards (`Blind:stay_flipped`)
 
@@ -64,7 +64,7 @@ This is exact only when **whether a card is face down doesn't depend on what it 
 What a debuff changes, per [jokers.md](jokers.md#how-hands-are-evaluated-evaluate_poker_hand):
 - **Ranks:** nothing. `get_id` ignores debuff, so pairs, straights and so on form as usual.
 - **Flushes:** a debuffed non-Wild card still counts toward flushes in its base suit (`is_suit` with `flush_calc`). A debuffed Wild Card loses its wildness and counts as its base suit only. So the suit bosses never stop a flush from forming; they only turn Wild Cards back into ordinary cards. `hands.card_key` and `cards._has_suit` already follow this.
-- **Face cards:** a debuffed card is never a face card (`Card:is_face`), Pareidolia or not, so `-c` face-card queries count none of them (`cards._is_face`). Under The Plant and Verdant Leaf, "1+ face card" is therefore always 0%, as the game's face-card jokers see it, even though Kings ("1+ king") are still counted. Rank and enhancement queries ignore debuffs.
+- **Face cards:** a debuffed card is never a face card (`Card:is_face`), Pareidolia or not, so face-card queries ("Drawn cards" rows) count none of them (`cards._is_face`). Under The Plant and Verdant Leaf, "1+ face card" is therefore always 0%, as the game's face-card jokers see it, even though Kings ("1+ king") are still counted. Rank and enhancement queries ignore debuffs.
 - **Scoring:** debuffed cards score no chips and trigger nothing. Calculatro computes whether a hand type can be formed, not its score, so this doesn't matter.
 
 Nothing here needs special handling in the engine: the debuff flags arrive with the cards.

@@ -8,8 +8,9 @@ for "Any target" when there are several targets. Anything slower than
 ## Setup
 
 - **Machine:** AMD Ryzen 7 7700X, 32 GB, Windows 11, Python 3.14.3.
-  The partial-state pass was measured on 2026-10-08, every earlier table on
-  2026-10-07; each section says at which point.
+  The Mark and Cerulean Bell were measured on 2026-10-09, the
+  partial-state pass on 2026-10-08, and every earlier table on 2026-10-07;
+  each section says at which point.
 - **Method:** `tests/perf/benchmark.py --repeat 5 --budget 120`. Each
   scenario ran 5 times after an untimed warm-up run, and rows with a
   standard deviation over 25% of the mean were re-measured once
@@ -40,7 +41,13 @@ Scenarios (`tests/perf/scenarios.py`):
   - *The Mark*: Q♣ K♦ J♥ are face-down, known to be face cards. *6
     unknown* keeps 7♥ 8♥ and discards 3; *8 unknown* discards all 5 known
     cards.
+  - *Cerulean Bell*: nothing face-down. *Keep 3, draw 5* keeps 7♥ 8♥ 9♠;
+    *Keep 6, draw 2* keeps the first 6. The first card discarded is the
+    forced one.
 - **"Any":** several targets combined, as in the "Any target" row.
+- **Nothing cached:** every cache is cleared before each run, so building
+  the target's patterns is timed too, as when a target is first tracked or a
+  joker changes the rules. Their situation keeps the search itself small.
 
 ## Current numbers
 
@@ -264,6 +271,31 @@ largest search, the wild deck's The House with Four Fingers + Shortcut
 | wild | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | 83 ms ± 0.9 ms | 3.30 s ± 8.8 ms | 572 ms ± 5.8 ms | 17.85 s ± 65 ms | 22 ms ± 1.5 ms | 237 ms ± 2.0 ms | 80 ms ± 0.5 ms | 942 ms ± 16 ms |
 | wild | 8 unknown: The House (all face-down) | Pair + Flush (any) | 42 ms ± 0.7 ms | 45 ms ± 1.5 ms | 44 ms ± 0.5 ms | 44 ms ± 0.4 ms | 5.7 ms ± 0.2 ms | 4.5 ms ± 0.6 ms | 5.4 ms ± 0.3 ms | 4.3 ms ± 0.1 ms |
 
+## Smeared Joker
+
+Measured 2026-10-07 on the same machine with `--repeat 3 --budget 20`; these
+runs were the baseline until [Current numbers](#current-numbers). "Before" is the first
+Smeared implementation (one run each) for the Smeared columns, and the
+previous baseline for the others. Every probability is unchanged. Rows where
+some column took 100 ms or more; see [jokers/smeared.md](jokers/smeared.md)
+for the changes.
+
+| Deck | Situation | Target | Four Fingers | Four Fingers + Shortcut | Four Fingers + Smeared | Four Fingers + Shortcut + Smeared |
+|---|---|---|---|---|---|---|
+| standard | 6 unknown | Straight Flush | 68 ms → 58 ms | 234 ms → 187 ms | 59 ms → 23 ms | 232 ms → 94 ms |
+| standard | 7 unknown | Straight Flush | 93 ms → 88 ms | 354 ms → 278 ms | 110 ms → 43 ms | 522 ms → 200 ms |
+| standard | 8 unknown (The House) | Straight Flush | 85 ms → 75 ms | 315 ms → 254 ms | 240 ms → 96 ms | 1.26 s → 500 ms |
+| standard | 8 unknown (The House) | Full House + Straight Flush (any) | 189 ms → 156 ms | 520 ms → 418 ms | 464 ms → 164 ms | 1.92 s → 680 ms |
+| wild | Keep 3, draw 5 | Straight Flush | 75 ms → 56 ms | 250 ms → 171 ms | — → 55 ms | 73 ms → 59 ms |
+| wild | 6 unknown | Straight Flush | 180 ms → 139 ms | 714 ms → 468 ms | — → 31 ms | 153 ms → 106 ms |
+| wild | 7 unknown | Straight Flush | 468 ms → 363 ms | 3.20 s → 2.20 s | 81 ms → 57 ms | 419 ms → 283 ms |
+| wild | 8 unknown (The House) | Straight Flush | 2.85 s → 2.28 s | 19.25 s → 13.80 s | 196 ms → 141 ms | 1.13 s → 694 ms |
+| wild | 8 unknown (The House) | Full House + Straight Flush (any) | 4.42 s → 3.39 s | 25.48 s → 18.00 s | 335 ms → 231 ms | 1.43 s → 929 ms |
+
+Smeared alone and Shortcut + Smeared stay under 100 ms everywhere; Shortcut
+alone has two rows over 100 ms on the wild deck's The House (Straight Flush
+203 → 161 ms, any of Full House / Straight Flush 772 → 550 ms).
+
 ## The second pass
 
 Every scenario that took over 250 ms before. See [engine.md](engine.md) for
@@ -320,81 +352,6 @@ unknown cards and about 20 s for The House (25 s with Full House as well).
 With Four Fingers alone, The House took about 3–4.5 s. See
 [Current numbers](#current-numbers) for today's times.
 
-## Earlier work
-
-These tables are from before the second pass: "before" is the engine
-before that piece of work, and "after Shortcut work" is commit `62eb51c`,
-measured on 2026-10-07 before the second pass.
-
-### Shortcut's slow cases
-
-Shortcut alone was never slow. With Four Fingers as well, every Straight
-Flush case was (see [jokers/shortcut.md](jokers/shortcut.md)):
-
-| Situation | Before | After Shortcut work |
-|---|---|---|
-| Straight Flush, keep 3, draw 5 | 1.43 s | 182 ms ± 5 ms |
-| Straight Flush, 6 unknown | 3.95 s | 546 ms ± 20 ms |
-| Straight Flush, 7 unknown | 6.09 s | 1.06 s ± 0.01 s |
-| Straight Flush, 8 unknown (The House) | 39.1 s | 7.54 s ± 0.06 s |
-| Any of Full House / Straight Flush, 8 unknown | 48.3 s | 6.68 s ± 0.25 s |
-| Any of Straight / Flush, 8 unknown | 2.12 s | 904 ms ± 15 ms |
-| *Wild deck:* Straight Flush, keep 3, draw 5 | 6.55 s | 991 ms ± 13 ms |
-| *Wild deck:* Straight Flush, 6 unknown | 20.0 s | 3.52 s ± 0.04 s |
-| *Wild deck:* Straight Flush, 7 unknown | 72.1 s | 13.5 s ± 0.1 s |
-| *Wild deck:* Straight Flush, 8 unknown | > 120 s | 84.4 s ± 1.0 s |
-| *Wild deck:* any of Full House / Straight Flush, 8 unknown | > 120 s | 97.1 s ± 1.5 s |
-
-The same changes also halved Four Fingers' own slow cases (below).
-
-### Four Fingers' slow cases
-
-The cases from the original report, plus the related ones. *Before* is the
-engine before the Four Fingers work (commit `7d2af71`), *after* is the end
-of that work.
-
-| Situation | Before | After | After Shortcut work |
-|---|---|---|---|
-| Straight Flush, keep 3, draw 5 | 243 ms | 78 ms | 45 ms ± 5 ms |
-| Straight Flush, 6 unknown | 1.79 s | 239 ms | 123 ms ± 12 ms |
-| Straight Flush, 7 unknown | 7.74 s | 424 ms | 178 ms ± 9 ms |
-| Straight Flush, 8 unknown (The House) | 60.2 s | 2.84 s | 1.04 s ± 0.02 s |
-| Royal Flush, 8 unknown | 93 ms | 16 ms | 16 ms ± 1 ms |
-| Flush House, 8 unknown | 42 ms | 51 ms | 63 ms ± 8 ms |
-| Any of Full House / Straight Flush, 8 unknown | 21.9 s | 3.80 s | 1.81 s ± 0.01 s |
-| Any of Straight / Flush, 8 unknown | 494 ms | 310 ms | 281 ms ± 5 ms |
-| Any of Two Pair / Flush, 8 unknown | 282 ms | 201 ms | 163 ms ± 5 ms |
-| *Wild deck:* Straight Flush, keep 3, draw 5 | 670 ms | 313 ms | 218 ms ± 6 ms |
-| *Wild deck:* Straight Flush, 6 unknown | 3.57 s | 987 ms | 582 ms ± 10 ms |
-| *Wild deck:* Straight Flush, 7 unknown | 14.1 s | 3.53 s | 1.59 s ± 0.01 s |
-| *Wild deck:* Straight Flush, 8 unknown | 107.5 s | 19.7 s | 9.61 s ± 0.09 s |
-| *Wild deck:* any of Full House / Straight Flush, 8 unknown | 43.5 s | 27.2 s | 13.3 s ± 0.5 s |
-
-## Smeared Joker
-
-Measured 2026-10-07 on the same machine with `--repeat 3 --budget 20`; these
-runs were the baseline until [Current numbers](#current-numbers). "Before" is the first
-Smeared implementation (one run each) for the Smeared columns, and the
-previous baseline for the others. Every probability is unchanged. Rows where
-some column took 100 ms or more; see [jokers/smeared.md](jokers/smeared.md)
-for the changes.
-
-| Deck | Situation | Target | Four Fingers | Four Fingers + Shortcut | Four Fingers + Smeared | Four Fingers + Shortcut + Smeared |
-|---|---|---|---|---|---|---|
-| standard | 6 unknown | Straight Flush | 68 ms → 58 ms | 234 ms → 187 ms | 59 ms → 23 ms | 232 ms → 94 ms |
-| standard | 7 unknown | Straight Flush | 93 ms → 88 ms | 354 ms → 278 ms | 110 ms → 43 ms | 522 ms → 200 ms |
-| standard | 8 unknown (The House) | Straight Flush | 85 ms → 75 ms | 315 ms → 254 ms | 240 ms → 96 ms | 1.26 s → 500 ms |
-| standard | 8 unknown (The House) | Full House + Straight Flush (any) | 189 ms → 156 ms | 520 ms → 418 ms | 464 ms → 164 ms | 1.92 s → 680 ms |
-| wild | Keep 3, draw 5 | Straight Flush | 75 ms → 56 ms | 250 ms → 171 ms | — → 55 ms | 73 ms → 59 ms |
-| wild | 6 unknown | Straight Flush | 180 ms → 139 ms | 714 ms → 468 ms | — → 31 ms | 153 ms → 106 ms |
-| wild | 7 unknown | Straight Flush | 468 ms → 363 ms | 3.20 s → 2.20 s | 81 ms → 57 ms | 419 ms → 283 ms |
-| wild | 8 unknown (The House) | Straight Flush | 2.85 s → 2.28 s | 19.25 s → 13.80 s | 196 ms → 141 ms | 1.13 s → 694 ms |
-| wild | 8 unknown (The House) | Full House + Straight Flush (any) | 4.42 s → 3.39 s | 25.48 s → 18.00 s | 335 ms → 231 ms | 1.43 s → 929 ms |
-
-Smeared alone and Shortcut + Smeared stay under 100 ms everywhere; Shortcut
-alone has two rows over 100 ms on the wild deck's The House (Straight Flush
-203 → 161 ms, any of Full House / Straight Flush 772 → 550 ms).
-
 ## All scenarios after the second pass
 
 Before (commit `62eb51c`) → after the second pass (mean ± standard
@@ -447,3 +404,53 @@ A few rows that take 1–5 ms got slower by 0.1–0.9 ms (e.g. Royal Flush with
 Four Fingers, keeping 3: 3.9 ms → 4.8 ms; Flush Five, keeping 3: 1.5 ms →
 2.0 ms). Each search now does a little more setup per pattern (interning
 parts, the bound on cards needed). It wasn't worth chasing at this size.
+
+## Earlier work
+
+These tables are from before the second pass: "before" is the engine
+before that piece of work, and "after Shortcut work" is commit `62eb51c`,
+measured on 2026-10-07 before the second pass.
+
+### Shortcut's slow cases
+
+Shortcut alone was never slow. With Four Fingers as well, every Straight
+Flush case was (see [jokers/shortcut.md](jokers/shortcut.md)):
+
+| Situation | Before | After Shortcut work |
+|---|---|---|
+| Straight Flush, keep 3, draw 5 | 1.43 s | 182 ms ± 5 ms |
+| Straight Flush, 6 unknown | 3.95 s | 546 ms ± 20 ms |
+| Straight Flush, 7 unknown | 6.09 s | 1.06 s ± 0.01 s |
+| Straight Flush, 8 unknown (The House) | 39.1 s | 7.54 s ± 0.06 s |
+| Any of Full House / Straight Flush, 8 unknown | 48.3 s | 6.68 s ± 0.25 s |
+| Any of Straight / Flush, 8 unknown | 2.12 s | 904 ms ± 15 ms |
+| *Wild deck:* Straight Flush, keep 3, draw 5 | 6.55 s | 991 ms ± 13 ms |
+| *Wild deck:* Straight Flush, 6 unknown | 20.0 s | 3.52 s ± 0.04 s |
+| *Wild deck:* Straight Flush, 7 unknown | 72.1 s | 13.5 s ± 0.1 s |
+| *Wild deck:* Straight Flush, 8 unknown | > 120 s | 84.4 s ± 1.0 s |
+| *Wild deck:* any of Full House / Straight Flush, 8 unknown | > 120 s | 97.1 s ± 1.5 s |
+
+The same changes also halved Four Fingers' own slow cases (below).
+
+### Four Fingers' slow cases
+
+The cases from the original report, plus the related ones. *Before* is the
+engine before the Four Fingers work (commit `7d2af71`), *after* is the end
+of that work.
+
+| Situation | Before | After | After Shortcut work |
+|---|---|---|---|
+| Straight Flush, keep 3, draw 5 | 243 ms | 78 ms | 45 ms ± 5 ms |
+| Straight Flush, 6 unknown | 1.79 s | 239 ms | 123 ms ± 12 ms |
+| Straight Flush, 7 unknown | 7.74 s | 424 ms | 178 ms ± 9 ms |
+| Straight Flush, 8 unknown (The House) | 60.2 s | 2.84 s | 1.04 s ± 0.02 s |
+| Royal Flush, 8 unknown | 93 ms | 16 ms | 16 ms ± 1 ms |
+| Flush House, 8 unknown | 42 ms | 51 ms | 63 ms ± 8 ms |
+| Any of Full House / Straight Flush, 8 unknown | 21.9 s | 3.80 s | 1.81 s ± 0.01 s |
+| Any of Straight / Flush, 8 unknown | 494 ms | 310 ms | 281 ms ± 5 ms |
+| Any of Two Pair / Flush, 8 unknown | 282 ms | 201 ms | 163 ms ± 5 ms |
+| *Wild deck:* Straight Flush, keep 3, draw 5 | 670 ms | 313 ms | 218 ms ± 6 ms |
+| *Wild deck:* Straight Flush, 6 unknown | 3.57 s | 987 ms | 582 ms ± 10 ms |
+| *Wild deck:* Straight Flush, 7 unknown | 14.1 s | 3.53 s | 1.59 s ± 0.01 s |
+| *Wild deck:* Straight Flush, 8 unknown | 107.5 s | 19.7 s | 9.61 s ± 0.09 s |
+| *Wild deck:* any of Full House / Straight Flush, 8 unknown | 43.5 s | 27.2 s | 13.3 s ± 0.5 s |

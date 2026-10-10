@@ -12,8 +12,8 @@ Pareidolia only changes which cards are face cards, which no hand type checks.
 Each target is a list of patterns (OR). A pattern is a tuple of requirements
 (AND): "at least `need` cards whose class is in `keys`". Requirements are
 usually disjoint, so each card fills one slot; when they overlap, a card counts
-towards every requirement it matches (e.g. "at least 4 suited cards" alongside
-"a suited card of each of these ranks").
+towards every requirement it matches (e.g. Four Fingers' Straight Flush:
+"any card that completes the run" alongside "a suited card of another rank").
 Card classes are (rank_id, suit) where suit is one of SUITS or "Wild". With
 Smeared Joker a card's suit is its colour, named by the suit that stands for
 it: Diamonds are classed as Hearts and Clubs as Spades (see flush_suits).
