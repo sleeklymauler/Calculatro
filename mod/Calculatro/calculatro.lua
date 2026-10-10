@@ -437,12 +437,15 @@ function Calculatro.snapshot()
         return { schema = Calculatro.schema, in_run = false }
     end
     local round = G.GAME.current_round or {}
+    -- Sorted like the deck: Amber Acorn flips the jokers face down and
+    -- shuffles them, so their order is hidden from the player.
     local jokers = array()
     if G.jokers and G.jokers.cards then
         for i, j in ipairs(G.jokers.cards) do
             jokers[i] = { key = j.config and j.config.center_key, debuff = j.debuff and true or false }
         end
     end
+    jokers = sorted_cards(jokers)
     local t = Calculatro.tracked()
     local tracked = { hands = array(), cards = array() }
     for i, h in ipairs(t.hands) do tracked.hands[i] = h end

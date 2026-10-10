@@ -176,6 +176,19 @@ def test_snapshot_sends_the_bells_forced_card(lua):
     assert not GameState.from_json(snapshot_json(lua)).bell
 
 
+def test_snapshot_hides_joker_order(lua):
+    # Amber Acorn shuffles the jokers face down: their order mustn't leak.
+    rt, _ = lua
+    before = snapshot_json(lua)["jokers"]
+    rt.execute("""local c = G.jokers.cards
+                  table.insert(c, 1, {config = {center_key = 'j_shortcut'}})
+                  c[1], c[3] = c[3], c[1]""")
+    shuffled = snapshot_json(lua)["jokers"]
+    rt.execute("local c = G.jokers.cards; c[1], c[2], c[3] = c[3], c[1], c[2]")
+    assert snapshot_json(lua)["jokers"] == shuffled == sorted(shuffled, key=lambda j: json.dumps(j, sort_keys=True))
+    assert len(shuffled) == 3 and all(j in shuffled for j in before)
+
+
 def test_rules_from_jokers():
     assert Rules.from_jokers([]) == Rules()
     # Copies change nothing; Splash and other jokers don't change the odds.
