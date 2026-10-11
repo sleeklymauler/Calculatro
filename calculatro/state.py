@@ -169,6 +169,11 @@ class GameState:
         return self.blind == "Cerulean Bell" and not self.blind_disabled
 
     @property
+    def hook(self) -> bool:
+        """Whether The Hook is in play: after a hand is played, it discards 2 random cards held in hand."""
+        return self.blind == "The Hook" and not self.blind_disabled
+
+    @property
     def forced(self) -> int | None:
         """Index of the hand card Cerulean Bell forces, if any."""
         return next((i for i, c in enumerate(self.hand) if c.forced), None)

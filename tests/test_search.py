@@ -22,7 +22,7 @@ def brute_force(state: GameState, target) -> tuple[Fraction, set]:
     """The best odds over every discard, and the tied discards as multisets of the cards thrown away."""
     forced = state.forced if state.bell else None
     others = [i for i in range(len(state.hand)) if i != forced]
-    limit = min(state.select_limit, len(state.hand)) if state.discards_left > 0 else 0
+    limit = min(state.select_limit, len(state.hand)) if state.discards_left > 0 or state.hands_left > 1 else 0
     discards = [[]]
     for n in range(limit + 1):
         if forced is not None and n == limit:
@@ -55,8 +55,8 @@ def check(state: GameState, target) -> list[list[int]]:
 def random_state(rng: random.Random, hand=8, deck=14, **kw) -> GameState:
     cards = [card(r, s) for s in SUITS for r in range(2, 15)]
     rng.shuffle(cards)
-    return GameState(in_run=True, hand_size=hand, discards_left=3, hand=cards[:hand],
-                     deck=cards[hand:hand + deck], **kw)
+    return GameState(**{"in_run": True, "hand_size": hand, "discards_left": 3, "hand": cards[:hand],
+                        "deck": cards[hand:hand + deck], **kw})
 
 
 TARGETS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House"]
@@ -174,3 +174,10 @@ def test_cancelled():
     cancel.set()
     with pytest.raises(Cancelled):
         best_discards(random_state(random.Random(0)), get_target("Flush"), cancel)
+
+
+def test_the_hook_when_playing_to_throw_cards_away():
+    rng = random.Random(9)
+    state = random_state(rng, deck=10, blind="The Hook", discards_left=0, hands_left=2)
+    for name in ("Pair", "Flush", "Three of a Kind"):
+        check(state, get_target(name))

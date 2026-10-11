@@ -792,10 +792,20 @@ class _Discard:
     draws: int
     pool: list[Card]  # unseen cards: undrawn deck + face-down hand cards
     marked: int  # face-down hand cards known to be face cards (The Mark), discarded or not
+    hooked: int = 0  # kept cards The Hook throws away at random before the draw
+
+
+def _hooked(state: GameState, discard: list[int]) -> int:
+    """How many kept cards The Hook throws away before the draw: 2 (or all there
+    are) when the selection is played, which it has to be without discards left."""
+    if not (state.hook and discard and state.discards_left <= 0):
+        return 0
+    return min(2, len(state.hand) - len(set(discard)))
 
 
 def _discard(state: GameState, discard: list[int]) -> _Discard:
     discard_set = set(discard)
+    hooked = _hooked(state, discard)
     kept = [c for i, c in enumerate(state.hand) if i not in discard_set]
     kept_known = [c for c in kept if not c.hidden]
     if state.serpent and discard:
@@ -805,18 +815,24 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
         # (Mid-draw, the rest of those 3 are missed.)
         draws = 0
     else:
-        draws = state.hand_size - len(kept)
+        draws = state.hand_size - len(kept) + hooked
     draws = max(0, min(draws, len(state.deck)))
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
                     len(kept) - len(kept_known), draws, state.deck + state.hidden_pool,
-                    len(state.hidden_pool) if state.mark else 0)
+                    len(state.hidden_pool) if state.mark else 0, hooked)
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
                      cancel: Event | None = None) -> DiscardOutcome:
-    """Probability of reaching `target` after discarding hand cards at indices `discard`."""
+    """Probability of reaching `target` after discarding hand cards at indices `discard`.
+
+    Without discards left they'd have to be played instead, which under The
+    Hook also throws away 2 random kept cards (`_after_hook`).
+    """
     d = _discard(state, discard)
     rules = state.rules
+    if d.hooked:
+        return DiscardOutcome(d.discarded, d.draws, _after_hook(target, d, rules, cancel))
     unseen = d.hidden_kept + d.draws
     if state.bell and bell_matters(target, rules):
         forced = state.forced
@@ -829,6 +845,36 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
         return DiscardOutcome(d.discarded, d.draws, p)
     p = probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept)
     return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None) -> Fraction:
+    """P(`target`) when The Hook throws away `d.hooked` of the kept cards, uniformly
+    at random, before the draw (`Blind:press_play`): the average over which ones.
+    Kept cards of the same class give the same odds, so it goes by how many of
+    each class (face-down cards being one) it takes."""
+    groups: dict[object, list[Card]] = {}
+    for c in d.kept_known:
+        groups.setdefault(card_key(c, rules), []).append(c)
+    sizes = [len(g) for g in groups.values()] + [d.hidden_kept]
+    total = Fraction(0)
+
+    def taken(i: int, left: int) -> Iterator[tuple[int, ...]]:
+        if i == len(sizes):
+            if not left:
+                yield ()
+            return
+        for k in range(min(sizes[i], left) + 1):
+            for rest in taken(i + 1, left - k):
+                yield (k, *rest)
+
+    for counts in taken(0, d.hooked):
+        weight = 1
+        for size, k in zip(sizes, counts):
+            weight *= comb(size, k)
+        kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]]
+        hidden = d.hidden_kept - counts[-1]
+        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked, hidden)
+    return total / comb(sum(sizes), d.hooked)
 
 
 def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: int,

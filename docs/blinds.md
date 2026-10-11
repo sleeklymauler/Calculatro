@@ -12,12 +12,12 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 
 | Effect on the odds | Blinds |
 |---|---|
-| Modelled by the engine | The Serpent, The Mark, Cerulean Bell |
+| Modelled by the engine | The Serpent, The Mark, Cerulean Bell, The Hook (when the selection has to be played) |
 | Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
 | **Not modelled, odds are wrong** | None |
 | Odds are right; the panel strikes out the hands that can't score | The Eye, The Mouth |
 | Odds are right but the hand may not score (by design) | The Psychic (only with fewer than 5 cards in hand) |
-| No effect | Small Blind, Big Blind, The Hook, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
+| No effect | Small Blind, Big Blind, The Ox, The Arm, The Flint, The Tooth, The Wall, Violet Vessel, Amber Acorn |
 
 ## Rules that matter to Calculatro
 
@@ -77,7 +77,7 @@ Nothing here needs special handling in the engine: the debuff flags arrive with 
 ### Draws
 
 - **The Serpent** (`G.FUNCS.draw_from_deck_to_hand`): once the round has had a play or a discard (`hands_played > 0 or discards_used > 0`), every draw is `min(#deck, 3)` cards, however many were played or discarded and even past the hand size. The opening hand is drawn as usual. **Modelled:** `GameState.serpent` (the boss, not disabled) makes `engine._discard` draw exactly 3 after any discard, and 0 when keeping the hand after a play or discard (the hand isn't refilled until the next one). `hands_played` and `discards_used` are exported for this.
-- **The Hook** (`Blind:press_play`): when a hand is played, discards 2 random cards from the cards left in hand, before the refill. It's not a real discard (`discards_used` is unchanged, and jokers see `hook = true`). The engine only looks at the next draw from the current hand (keeping it or discarding the selection), never across a play, so **no effect**. It would matter if odds were ever computed past a play.
+- **The Hook** (`Blind:press_play`): when a hand is played, discards 2 random cards from the cards left in hand, before the refill. It's not a real discard (`discards_used` is unchanged, and jokers see `hook = true`). The odds of discarding the selection assume a discard while there are any left; without one, the selection can only be got rid of by playing it (the best-discard search does this when another hand is left after it). **Modelled** then: `GameState.hook` (the boss, not disabled) with `discards_left == 0` makes `engine._discard` draw 2 more (`hooked`, fewer if fewer cards are kept), and `engine._after_hook` averages the odds over which 2 kept cards it takes, uniformly at random, face-down ones included. Keeping the hand plays nothing, so it's unaffected.
 
 ### Hand size, hands and discards
 
@@ -162,7 +162,7 @@ Columns:
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Small Blind | `bl_small` | Any | 1x | $3 | No effect; can be skipped for a Tag | N |  | No effect |
 | 2 | Big Blind | `bl_big` | Any | 1.5x | $4 | No effect; can be skipped for a Tag | N |  | No effect |
-| 3 | The Hook | `bl_hook` | Any | 2x | $5 | Discards 2 random cards per hand played | N | draw | No effect (after a play) |
+| 3 | The Hook | `bl_hook` | Any | 2x | $5 | Discards 2 random cards per hand played | N | draw | Handled (selection played without discards left) |
 | 4 | The Ox | `bl_ox` | 6 | 2x | $5 | Playing your most played hand sets money to $0 | Y |  | No effect |
 | 5 | The House | `bl_house` | 2 | 2x | $5 | First hand is drawn face down | N | hidden | Handled (hidden pool) |
 | 6 | The Wall | `bl_wall` | 2 | 4x | $5 | Extra large blind | N |  | No effect |
