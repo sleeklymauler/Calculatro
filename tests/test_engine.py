@@ -855,3 +855,43 @@ def test_full_deck_flush_five_speed():
     for rules in RULESETS.values():
         for name in ("Flush House", "Straight Flush", "Two Pair", "Full House"):
             probability(get_target(name), kept, pool, 5, rules)
+
+
+# --- The Hook -----------------------------------------------------------------
+
+def hook_state(**kw) -> GameState:
+    hand = [card(2, "Clubs"), card(5, "Diamonds"), card(9, "Hearts"), card(9, "Spades"), card(12, "Hearts"),
+            Card(hidden=True)]
+    deck = [card(r, s) for r, s in ((9, "Clubs"), (12, "Spades"), (12, "Clubs"), (4, "Hearts"),
+                                     (6, "Hearts"), (13, "Hearts"), (3, "Spades"), (14, "Hearts"))]
+    return GameState(**{"in_run": True, "hand_size": 6, "discards_left": 0, "hands_left": 2, "blind": "The Hook",
+                        "hand": hand, "deck": deck, "hidden_pool": [card(7, "Hearts")], **kw})
+
+
+def test_the_hook_takes_two_kept_cards_when_playing():
+    state = hook_state()
+    pool = state.deck + state.hidden_pool
+    kept = [2, 3, 4, 5]  # after playing the 2 and the 5
+    for target in map(get_target, ("Pair", "Three of a Kind", "Two Pair", "Flush", "Full House")):
+        expected = Fraction(0)
+        for taken in combinations(kept, 2):
+            left = [state.hand[i] for i in kept if i not in taken]
+            known = [c for c in left if not c.hidden]
+            expected += probability(target, known, pool, 4 + len(left) - len(known))
+        out = evaluate_discard(state, target, [0, 1])
+        assert out.draws == 4 and out.probability == expected / 6
+    assert evaluate_cards(state, parse_query("at least 1 heart"), [0, 1]).draws == 4
+
+
+def test_the_hook_only_after_a_play():
+    state = hook_state()
+    plain = replace(state, blind="Small Blind")
+    trips = get_target("Three of a Kind")
+    for s in (replace(state, discards_left=1), replace(state, blind_disabled=True)):  # discarded, or no Hook
+        assert evaluate_discard(s, trips, [0, 1]) == evaluate_discard(replace(plain, discards_left=s.discards_left),
+                                                                      trips, [0, 1])
+    assert evaluate_discard(state, trips, []) == evaluate_discard(plain, trips, [])  # nothing played
+    # It takes what's left when that's fewer than 2.
+    out = evaluate_discard(state, trips, [0, 1, 2, 3, 4])
+    assert out.draws == 6
+    assert out.probability == probability(trips, [], state.deck + state.hidden_pool, 6)
