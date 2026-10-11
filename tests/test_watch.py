@@ -161,3 +161,117 @@ def test_tracked_skips_unknown_repeated_and_overflowing():
     assert [t.name for t in targets] == ["Pair", "Three of a Kind"]
     # 3 hand rows (with "Any target") take a column, leaving 2 of 6 for queries.
     assert [q.text for q in queries] == ["2+ queens", *[f"at least {n} spade" for n in range(1, 12)]]
+
+
+# --- Best-discard searches ----------------------------------------------------
+
+from dataclasses import replace  # noqa: E402
+from fractions import Fraction  # noqa: E402
+
+from calculatro.hands import combine  # noqa: E402
+from calculatro.search import Search  # noqa: E402
+
+
+def hand_state(n: int, selected=(), search=("Pair", 1), ranks=(9, 9, 2)) -> GameState:
+    hand = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base", highlighted=i in selected)
+            for i, (r, s) in enumerate(zip(ranks, SUITS))]
+    deck = [Card(rank=str(r), rank_id=r, suit="Hearts", enhancement="c_base") for r in range(3, 7)]
+    return GameState(in_run=True, id=f"s:{n}", hand_size=3, discards_left=1, hand=hand, deck=deck,
+                     tracked_hands=["Pair"], search=search)
+
+
+def wait_for(cond, timeout=5.0):
+    end = time.monotonic() + timeout
+    while not cond():
+        assert time.monotonic() < end
+        time.sleep(0.005)
+
+
+def watch_thread(source, sent, writes=None):
+    stopped = threading.Event()
+    t = threading.Thread(target=cli.run_watch, args=(source, (writes if writes is not None else []).append,
+                                                       sent.append),
+                         kwargs={"poll_interval": 0.005, "stop": stopped.is_set}, daemon=True)
+    t.start()
+    return stopped, t
+
+
+def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
+    release, calls = threading.Event(), []
+
+    def search(state, target, cancel):
+        calls.append(state.id)
+        while not release.is_set():
+            if cancel.is_set():
+                raise Cancelled
+            time.sleep(0.001)
+        return Search([[2]], Fraction(1))
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent, writes = FakeSource(hand_state(1)), [], []
+    stopped, t = watch_thread(source, sent, writes)
+    try:
+        wait_for(lambda: any("targets" in p for p in sent))
+        source.queue.append(hand_state(2, selected=(0,)))  # selecting cards doesn't cancel it
+        wait_for(lambda: any(p["id"] == "s:2" and "targets" in p for p in sent))
+        assert not any("search" in p for p in sent)
+        release.set()
+        wait_for(lambda: "search" in sent[-1])
+        reply = {"nonce": 1, "key": "Pair", "options": [[2]]}
+        assert sent[-1]["search"] == reply and sent[-1]["id"] == "s:2"
+        assert any(w.startswith("Best discard for Pair: discard 2") for w in writes)
+        source.queue.append(hand_state(3, selected=(2,)))  # the search's own selection
+        wait_for(lambda: sent[-1]["id"] == "s:3" and "targets" in sent[-1])
+        assert all(p.get("search") == reply for p in sent if p["id"] == "s:3")
+        source.queue.append(hand_state(4, ranks=(9, 9, 5)))  # a new hand: the result goes
+        wait_for(lambda: sent[-1]["id"] == "s:4" and "targets" in sent[-1])
+        assert not any("search" in p for p in sent if p["id"] == "s:4")
+        assert calls == ["s:1"]  # the same request isn't searched again
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_new_hand_cancels_search(monkeypatch):
+    cancelled = threading.Event()
+
+    def search(state, target, cancel):
+        if state.id == "s:2":
+            return Search([[]], Fraction(1))
+        while not cancel.is_set():
+            time.sleep(0.001)
+        cancelled.set()
+        raise Cancelled
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: any("targets" in p for p in sent))
+        source.queue.append(hand_state(2, ranks=(9, 9, 5), search=("Pair", 2)))
+        wait_for(lambda: "search" in sent[-1])
+        assert cancelled.is_set()
+        assert sent[-1]["search"] == {"nonce": 2, "key": "Pair", "options": [[]]}
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_search_for_an_untracked_row_has_no_options():
+    source, sent = FakeSource(hand_state(1, search=("Flush", 1))), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: sent)
+        assert sent[0]["search"] == {"nonce": 1, "key": "Flush", "options": []}
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_search_target():
+    state = GameState(in_run=True, tracked_hands=["Pair", "Flush"])
+    assert cli.search_target(state, "Flush") == get_target("Flush")
+    assert cli.search_target(state, "Any target").hands == ("Pair", "Flush") or \
+        set(cli.search_target(state, "Any target").hands) == {"Pair", "Flush"}
+    assert cli.search_target(state, "Straight") is None
+    assert cli.search_target(replace(state, tracked_hands=["Pair"]), "Any target") is None

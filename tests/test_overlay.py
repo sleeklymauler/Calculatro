@@ -14,6 +14,7 @@ from calculatro import overlay
 from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
 from calculatro.report import build_report
+from calculatro.search import Search, best_discards
 from calculatro.state import SUIT_SHORT, GameState
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
@@ -421,9 +422,9 @@ def test_panel_shows_current_odds(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light",
         "Hands@muted", "Keep@muted", "Discard@muted",
-        "Any target@light", "100%@light", "->@muted", "100%@light",  # can't be removed
-        "Trips@light", "80.0%@light", "->@muted", "100%@green", "[x]",
-        "Pair@light", "100%@light", "->@muted", "100%@light", "[x]",
+        "Any target@light", "100%@light", "->@muted", "100%@light", "[search]",  # can't be removed
+        "Trips@light", "80.0%@light", "->@muted", "100%@green", "[search]", "[x]",
+        "Pair@light", "100%@light", "->@muted", "100%@light", "[search]", "[x]",
         "Drawn cards@muted", "Discard@muted",  # a column of their own
         "Face card: none@light", "20.0%@light", "[x]",
     ]
@@ -611,7 +612,7 @@ def test_panel_without_selection(lua, tmp_path):
     mod.update(0.1)
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
-        "Trips@light", "80.0%@light", "-@light", "[x]",
+        "Trips@light", "80.0%@light", "-@light", "[search]", "[x]",
         "Drawn cards@muted", "Discard@muted", "Face card: none@light", "-@light", "[x]",
     ]
 
@@ -650,13 +651,14 @@ end
 @pytest.mark.parametrize("targets", [(), ("trips",)])
 def test_card_names_use_the_keep_columns_space(lua, tmp_path, targets):
     # Text wider than its cell is shrunk, and modifier labels are too long for
-    # a hand name's cell; card rows have no Keep value, so they take its space.
+    # a hand name's cell; card rows have no Keep value or search button, so
+    # they take their space.
     rt, mod = lua
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=("lucky", "sealed"))
     mod.update(0.1)
     widths = rt.execute(CELL_WIDTHS)(rt.eval("BOXES[#BOXES]").definition)
-    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25)
+    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25 + 0.3)
     if targets:
         assert widths["Trips"] == pytest.approx(1.4)
 
@@ -822,7 +824,7 @@ def test_panel_without_the_app(lua, tmp_path):
     track(lua, targets=("pair",))
     mod.update(0.5)
     # What's tracked shows at once, without odds until the app answers.
-    rows = ["Hands@muted", "Keep@muted", "Discard@muted", "Pair@light", "-@light", "-@light", "[x]"]
+    rows = ["Hands@muted", "Keep@muted", "Discard@muted", "Pair@light", "-@light", "-@light", "[search]", "[x]"]
     assert panel_texts(rt) == ["CALCULATRO@light", "+@light", *rows]
     mod.update(0.5)
     stale = [r.replace("-@light", "-@stale") for r in rows]
@@ -1075,3 +1077,133 @@ def test_targets_reset_with_a_new_run(lua, tmp_path):
     rt.execute("G.GAME = {current_round = {hands_left = 4, discards_left = 3}, blind = {name = 'Small Blind'}}")
     mod.update(0.3)
     assert read_state(tmp_path).tracked_hands == []
+
+
+# --- Best discard ------------------------------------------------------------
+
+def reply_search(tmp_path, options=None):
+    """The app's odds for the mod's latest state, with its search's result:
+    `options` if given, else what the search finds."""
+    state = read_state(tmp_path)
+    _, payload = cli.calculate(state, *cli.tracked(state))
+    key, nonce = state.search
+    found = Search(options, Fraction(1)) if options is not None else best_discards(state, cli.search_target(state, key))
+    payload["search"] = overlay.search(key, nonce, found)
+    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    return found
+
+
+def selected(rt) -> list[int]:
+    return [i for i, c in enumerate(rt.eval("G.hand.cards").values()) if c.highlighted]
+
+
+def message(rt) -> str | None:
+    texts = panel_texts(rt)
+    return texts[2].split("@")[0] if texts[2] != "Hands@muted" else None
+
+
+def search_ready(lua, tmp_path, targets=("trips", "pair")):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=targets, queries=("no face",))
+    mod.update(0.1)
+
+
+def test_search_buttons_on_target_hands_only(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    for key in ("Any target", "Three of a Kind", "Pair"):
+        assert find(rt, "calculatro_search_" + key).config.button
+    assert find(rt, "calculatro_search_no face") is None
+    # Without discards left, a hand can be played to throw cards away, but not the last one.
+    rt.execute("G.GAME.current_round.discards_left = 0")
+    mod.update(0.01)
+    assert find(rt, "calculatro_search_Pair").config.button
+    rt.execute("G.GAME.current_round.hands_left = 1")
+    mod.update(0.01)
+    assert not click(lua, "calculatro_search_Pair")
+    rt.execute("G.GAME.current_round.hands_left = 4")
+    # And outside selecting cards.
+    rt.execute("G.STATE = G.STATES.DRAW_TO_HAND")
+    mod.update(0.01)
+    assert not click(lua, "calculatro_search_Pair")
+    rt.execute("G.STATE = G.STATES.SELECTING_HAND")
+    mod.update(0.01)
+    assert click(lua, "calculatro_search_Pair")
+
+
+def test_search_selects_the_best_discard(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    assert click(lua, "calculatro_search_Three of a Kind")
+    assert read_state(tmp_path).search == ("Three of a Kind", 1)  # sent at once
+    # Busy until the app answers.
+    assert message(rt) == "Searching..."
+    assert not click(lua, "calculatro_search_Three of a Kind")
+    sounds = rt.eval("SOUNDS")
+    found = reply_search(tmp_path)
+    mod.update(0.1)
+    assert selected(rt) == found.options[0]
+    assert rt.eval("SOUNDS") == sounds + (1 if found.options[0] else 0)
+    assert message(rt) == (f"1/{len(found.options)}" if len(found.options) > 1 else None)
+    assert find(rt, "calculatro_search_Three of a Kind").config.button
+
+
+def test_search_button_cycles_through_options(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0], [1], [0, 1]])
+    mod.update(0.1)
+    assert selected(rt) == [0] and message(rt) == "1/3"
+    for expected, shown in (([1], "2/3"), ([0, 1], "3/3"), ([0], "1/3")):
+        assert click(lua, "calculatro_search_Pair")
+        assert selected(rt) == expected and message(rt) == shown
+    # Selecting something else starts again at the best, without asking the app.
+    rt.execute("G.hand.cards[4].highlighted = true")
+    mod.update(0.1)
+    assert message(rt) is None
+    assert click(lua, "calculatro_search_Pair")
+    assert selected(rt) == [0] and message(rt) == "1/3"
+    assert read_state(tmp_path).search == ("Pair", 1)
+    # Another row's button asks for its own.
+    assert click(lua, "calculatro_search_Three of a Kind")
+    assert read_state(tmp_path).search == ("Three of a Kind", 2) and message(rt) == "Searching..."
+
+
+def test_search_keeping_the_hand(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[]])
+    mod.update(0.1)
+    assert selected(rt) == [] and message(rt) == "Keep hand"
+
+
+def test_search_dropped_for_another_hand(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0]])
+    rt.execute("table.remove(G.hand.cards, 5)")  # the hand changed before the reply arrived
+    mod.update(0.1)
+    assert selected(rt) == [2, 3] and message(rt) is None
+    assert find(rt, "calculatro_search_Pair").config.button  # can search again
+    # And options stop standing once the hand changes.
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0], [1]])
+    mod.update(0.1)
+    assert message(rt) == "1/2"
+    rt.execute("table.remove(G.hand.cards, 4)")
+    mod.update(0.1)
+    assert message(rt) is None and mod.found is None
+
+
+def test_search_keeps_the_bells_forced_card(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    rt.execute("G.hand.cards[3].ability.forced_selection = true")
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0, 2]])
+    mod.update(0.1)
+    assert selected(rt) == [0, 2]

@@ -7,6 +7,11 @@ a `pending` payload, then with the odds once they're calculated.
 The mod owns the list of what's tracked and names its rows itself, so each
 row here is keyed by what the mod sent: a hand's name ("Three of a Kind", or
 "Any target" for the combined row) or a card query's text. Text is ASCII.
+
+Once a best-discard search the mod asked for has finished, every payload
+carries its result (`search`), until the hand changes: the mod selects the
+cards, which sends a new snapshot and so new payloads, and those mustn't lose
+the options it cycles through.
 """
 
 from __future__ import annotations
@@ -19,9 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from .report import Report
+from .search import Search
 from .state import GameState
 
-SCHEMA = 3  # `odds_schema` in calculatro.lua
+SCHEMA = 4  # `odds_schema` in calculatro.lua
 
 # The panel fits 3 columns (`max_columns` in calculatro.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -77,6 +83,13 @@ def odds(state: GameState, report: Report | None) -> dict[str, Any]:
             card["discard"] = percent(p)
         payload["cards"].append(card)
     return payload
+
+
+def search(key: str, nonce: int, found: Search | None) -> dict[str, Any]:
+    """The result of the mod's search request `nonce` for the row `key`: the
+    discards to cycle through, as hand indices (0-based), best first. No
+    options if there was nothing to search (`key` isn't tracked)."""
+    return {"nonce": nonce, "key": key, "options": found.options if found else []}
 
 
 def write(path: Path, payload: dict[str, Any], attempts: int = 20) -> bool:

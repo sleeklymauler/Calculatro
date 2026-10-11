@@ -69,6 +69,17 @@ G = {
   consumeables = {T = {y = 0, h = 2.75}},
 }
 G.deck.T.y = 8.9
+G.hand.config.highlighted_limit = 5
+SOUNDS = 0  -- click sounds selecting cards
+function G.hand:unhighlight_all()  -- Cerulean Bell's forced card stays selected
+  for _, c in ipairs(self.cards) do
+    if not c.ability.forced_selection then c.highlighted = false end
+  end
+end
+function G.hand:add_to_highlighted(card, silent)
+  card.highlighted = true
+  if not silent then SOUNDS = SOUNDS + 1 end
+end
 BOXES = {}  -- every UIBox created, newest last
 -- Mock layout: the panel is 3.25 wide per column, and 0.5 + 0.3 per row of its
 -- tallest column, plus 0.3 for a message row after the odds (there should be none).
