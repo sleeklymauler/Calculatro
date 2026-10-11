@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 6
+SCHEMA = 7
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -80,6 +80,12 @@ def _strings(raw: Any) -> list[str]:
     return [s for s in raw or [] if isinstance(s, str)]
 
 
+def _search(raw: Any) -> tuple[str, int] | None:
+    if isinstance(raw, dict) and isinstance(raw.get("key"), str) and isinstance(raw.get("nonce"), int):
+        return raw["key"], raw["nonce"]
+    return None
+
+
 class SchemaMismatch(ValueError):
     """A snapshot written by a different version of the mod."""
 
@@ -110,6 +116,10 @@ class GameState:
     # Kind") and card queries for `cards.parse_query` ("at least 2 queen").
     tracked_hands: list[str] = field(default_factory=list)
     tracked_cards: list[str] = field(default_factory=list)
+    select_limit: int = 5  # most cards that can be selected (and so discarded) at once
+    # The latest best-discard search asked for in the panel: the row's key (a
+    # hand's name or "Any target") and its number, which goes up with each one.
+    search: tuple[str, int] | None = None
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -139,6 +149,8 @@ class GameState:
                     for j in (d.get("jokers") or []) if j.get("key")],
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
+            select_limit=d.get("select_limit") or 5,
+            search=_search(d.get("search")),
         )
 
     @property

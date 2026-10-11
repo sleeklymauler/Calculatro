@@ -12,8 +12,8 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 6,
-    odds_schema = 3,
+    schema = 7,
+    odds_schema = 4,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
     seq = 0,
@@ -24,6 +24,13 @@ local Calculatro = {
     odds_raw = nil,
     visible = true,
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open
+    -- Best-discard searches (see "Best discard"): the latest asked for, sent
+    -- with every snapshot; the one waiting for the app's reply; and the
+    -- options the last reply found, which the search button cycles through.
+    search_nonce = 0,
+    request = nil,   -- {key, nonce}
+    searching = nil, -- {key, nonce, hand = the hand's cards when it was asked for}
+    found = nil,     -- {key, options = {{hand indices, 0-based}, ...}, index, hand}
 }
 
 ---------------------------------------------------------------------------
@@ -468,6 +475,8 @@ function Calculatro.snapshot()
         discard = area_cards(G.discard, false),
         jokers = jokers,
         tracked = tracked,
+        select_limit = G.hand.config.highlighted_limit or 5,
+        search = Calculatro.request,
     }
 end
 
@@ -525,6 +534,110 @@ function Calculatro.read_odds()
     end
     Calculatro.ack_id = odds.id
     if not odds.pending then Calculatro.odds = odds end
+    Calculatro.receive_search(odds.search)
+end
+
+---------------------------------------------------------------------------
+-- Best discard: each target hand's search button asks the app for the
+-- discards with the best odds of making it (the request goes with the next
+-- snapshot), and selects the first once they arrive. Clicking it again
+-- selects the next, as long as the hand and the selection are still the
+-- search's. The app's indices are positions in the hand as it was when the
+-- search was asked for, so a reply for another hand is dropped.
+---------------------------------------------------------------------------
+local function hand_cards()
+    local cards = {}
+    for i, card in ipairs(G.hand.cards) do cards[i] = card end
+    return cards
+end
+
+local function same_hand(cards)
+    local now = G.hand and G.hand.cards
+    if not now or #now ~= #cards then return false end
+    for i, card in ipairs(now) do
+        if card ~= cards[i] then return false end
+    end
+    return true
+end
+
+local function is_selected(option, cards)
+    local chosen = {}
+    for _, i in ipairs(option) do chosen[cards[i + 1]] = true end
+    for _, card in ipairs(cards) do
+        if (card.highlighted and true or false) ~= (chosen[card] or false) then return false end
+    end
+    return true
+end
+
+-- Selects the hand cards at `option` (0-based indices into `cards`) and
+-- nothing else, as clicking them would, with one click sound. Cerulean
+-- Bell's forced card stays selected through unhighlight_all.
+function Calculatro.select(option, cards)
+    G.hand:unhighlight_all()
+    local silent = false
+    for _, i in ipairs(option) do
+        local card = cards[i + 1]
+        if card and not card.highlighted then
+            G.hand:add_to_highlighted(card, silent)
+            silent = true
+        end
+    end
+end
+
+-- Whether a search can be asked for: while selecting, with a way to throw
+-- cards away and draw before the last hand, a discard or a hand played for
+-- it with another left after (search.can_redraw).
+function Calculatro.can_search()
+    local S = G.STATES
+    local round = G.GAME and G.GAME.current_round
+    local can_redraw = round and ((round.discards_left or 0) > 0 or (round.hands_left or 0) > 1)
+    return G.STATE == S.SELECTING_HAND and can_redraw and G.hand and #G.hand.cards > 0 or false
+end
+
+-- The search button of the row `key`.
+function Calculatro.search(key)
+    local found = Calculatro.found
+    if found and found.key == key and same_hand(found.hand) then
+        local current = is_selected(found.options[found.index], found.hand)
+        found.index = current and found.index % #found.options + 1 or 1
+        Calculatro.select(found.options[found.index], found.hand)
+        return
+    end
+    if not Calculatro.can_search() then return end
+    Calculatro.found = nil
+    Calculatro.search_nonce = Calculatro.search_nonce + 1
+    Calculatro.request = { key = key, nonce = Calculatro.search_nonce }
+    Calculatro.searching = { key = key, nonce = Calculatro.search_nonce, hand = hand_cards() }
+    Calculatro.elapsed = Calculatro.interval  -- send it with the next frame's snapshot
+end
+
+-- The app's reply to a search (on every odds payload until the hand changes).
+function Calculatro.receive_search(reply)
+    local searching = Calculatro.searching
+    if type(reply) ~= 'table' or not searching or reply.nonce ~= searching.nonce then return end
+    Calculatro.searching = nil
+    local options = reply.options or {}
+    if #options == 0 or not same_hand(searching.hand) then return end
+    Calculatro.found = { key = searching.key, options = options, index = 1, hand = searching.hand }
+    Calculatro.select(options[1], searching.hand)
+end
+
+-- A search, or its options, only stand while the hand they're for does.
+function Calculatro.check_search()
+    if Calculatro.searching and not same_hand(Calculatro.searching.hand) then Calculatro.searching = nil end
+    if Calculatro.found and not same_hand(Calculatro.found.hand) then Calculatro.found = nil end
+end
+
+-- The title row's word on the search: while it runs, and while the selection
+-- is one of its options ("2/3", or "Keep hand" for keeping it).
+function Calculatro.search_message()
+    if Calculatro.searching then return 'Searching...' end
+    local found = Calculatro.found
+    if not found or not same_hand(found.hand) or not is_selected(found.options[found.index], found.hand) then
+        return nil
+    end
+    if #found.options > 1 then return found.index .. '/' .. #found.options end
+    if #found.options[found.index] == 0 then return 'Keep hand' end
 end
 
 ---------------------------------------------------------------------------
@@ -628,6 +741,7 @@ function Calculatro.panel_model()
         end
         model.stale = model.message ~= nil or nil
     end
+    model.message = model.message or Calculatro.search_message()
     local hand_odds, card_odds = {}, {}
     if odds then
         for _, o in ipairs(odds.targets or {}) do hand_odds[o.key] = o end
@@ -635,10 +749,14 @@ function Calculatro.panel_model()
     end
     local banned, all_banned = Calculatro.banned_hands(), true
     for _, h in ipairs(t.hands) do all_banned = all_banned and banned[h] ~= nil end
+    local can_search, searching = Calculatro.can_search(), Calculatro.searching
     local function hand(key, name, removable, is_banned)
         local o = hand_odds[key] or {}
+        -- Its search button: 'busy' while searching, 'on' if it can search, else off.
+        local search = (searching and searching.key == key and 'busy') or (can_search and 'on') or nil
         model.targets[#model.targets + 1] = { key = key, name = name, keep = o.keep, discard = o.discard,
-                                              trend = o.trend, removable = removable, banned = is_banned or nil }
+                                              trend = o.trend, removable = removable, banned = is_banned or nil,
+                                              search = search }
     end
     if #t.hands > 1 then hand('Any target', 'Any target', nil, all_banned) end
     for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true, banned[h]) end
@@ -654,7 +772,10 @@ local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fi
 -- its cell is shrunk. Card-only columns are as wide as target columns too.
 local CARD_NAME_W = NAME_W + VALUE_W + GAP_W
 local REMOVE_W = 0.3  -- each row ends with an x button that stops tracking it
-local COLUMN_W = CARD_NAME_W + DISCARD_W + REMOVE_W
+local SEARCH_W = 0.3  -- before it, target hands' best-discard search button
+-- Card rows have no search button, so their names take its place too.
+local CARD_ROW_NAME_W = CARD_NAME_W + SEARCH_W
+local COLUMN_W = CARD_ROW_NAME_W + DISCARD_W + REMOVE_W
 local TITLE_W, PLUS_W, COLUMN_GAP = 1.6, 0.35, 0.2
 -- Fits "Calculating..." and "Waiting for app" beside the
 -- title and its + button.
@@ -858,6 +979,7 @@ local function glyph(name, bitmap, colour)
 end
 
 local CROSS = { '#...#', '.#.#.', '..#..', '.#.#.', '#...#' }
+local MAGNIFIER = { '.##...', '#..#..', '#..#..', '.##...', '....#.', '.....#' }
 
 -- Room above and below text in the editor's boxes: m6x11's descenders (g,
 -- p, y) hang below a text node's box, so they'd poke out of a box only as
@@ -895,6 +1017,17 @@ local function remove_cell(key, action)
     } }
 end
 
+-- The search button that finds a target hand's best discard: green while it
+-- can search, dimmed while it does, dark and inert otherwise.
+local function search_cell(t, colours)
+    local action = t.search == 'on' and { 'search', t.key } or nil
+    return { n = G.UIT.C, config = { align = 'cr', minw = SEARCH_W }, nodes = {
+        button({ glyph('search', MAGNIFIER, action and G.C.UI.TEXT_LIGHT or colours.muted) }, action,
+               { id = 'calculatro_search_' .. t.key, w = 0.2, h = 0.2, colour = G.C.GREEN,
+                 off_colour = t.search == 'busy' and G.C.UI.BACKGROUND_INACTIVE or nil }),
+    } }
+end
+
 -- The odds rows in sections, each filling columns of its own: the target
 -- hands (kind 'hands'), then the drawn-card queries ('cards'). Empty
 -- sections are left out. Each row is a function building it.
@@ -912,6 +1045,7 @@ local function sections(model, colours)
                 cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
                 t.discard and arrow(colours.muted) or blank(ARROW_CELL_W),
                 cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour)),
+                search_cell(t, colours),
                 t.removable and remove_cell(t.key, { 'remove_hand', t.key }) or blank(REMOVE_W),
             }, { calculatro_anim = 'hand:' .. t.key })
         end
@@ -919,7 +1053,7 @@ local function sections(model, colours)
     for _, c in ipairs(model.cards) do
         cards[#cards + 1] = function()
             return row({
-                cell(CARD_NAME_W, 'cl', name_label(c.name)),
+                cell(CARD_ROW_NAME_W, 'cl', name_label(c.name)),
                 cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT)),
                 remove_cell(c.key, { 'remove_card', c.key }),
             }, { calculatro_anim = 'card:' .. c.key })
@@ -1020,13 +1154,14 @@ function Calculatro.definition(model, per)
         local discard = cell(DISCARD_W, 'cr', label('Discard', colours.muted))
         local config = { calculatro_anim = 'header:' .. kind .. ':' .. n }
         if kind == 'cards' then
-            return row({ cell(CARD_NAME_W, 'cl', label('Drawn cards', colours.muted)), discard, blank(REMOVE_W) }, config)
+            return row({ cell(CARD_ROW_NAME_W, 'cl', label('Drawn cards', colours.muted)), discard, blank(REMOVE_W) }, config)
         end
         return row({
             cell(NAME_W, 'cl', label('Hands', colours.muted)),
             cell(VALUE_W, 'cr', label('Keep', colours.muted)),
             blank(GAP_W),
             discard,
+            blank(SEARCH_W),
             blank(REMOVE_W),
         }, config)
     end
@@ -1246,6 +1381,7 @@ Calculatro.actions = {
     toggle_hand = function(name) Calculatro.toggle_hand(name) end,
     remove_hand = function(name) Calculatro.remove_hand(name) end,
     remove_card = function(query) Calculatro.remove_card(query) end,
+    search = function(key) Calculatro.search(key) end,
     cycle = function(arg) Calculatro.cycle(arg[1], arg[2]) end,
     -- Shows the page it's added to.
     add_card = function()
@@ -1629,6 +1765,7 @@ function Calculatro.update(dt)
         Calculatro.odds_elapsed = 0
         guard('reading odds', Calculatro.read_odds)
     end
+    guard('search', Calculatro.check_search)
     guard('panel', Calculatro.refresh_panel)
 end
 

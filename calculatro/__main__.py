@@ -8,14 +8,16 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from threading import Event
 
 from . import overlay, process
 from .cards import CardQuery, parse_query
-from .hands import Target, get_target
+from .hands import Target, combine, get_target
 from .report import Report, build_report
+from .search import Search, best_discards
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
 from .worker import Job
@@ -120,6 +122,28 @@ def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
     return (format_report(report) if report else ""), overlay.odds(state, report)
 
 
+def search_target(state: GameState, key: str) -> Target | None:
+    """The target of the panel's row `key`: a tracked hand, or "Any target" of several."""
+    targets, _ = tracked(state)
+    if key == "Any target":
+        return combine(targets) if len(targets) > 1 else None
+    return next((t for t in targets if t.name == key), None)
+
+
+def search_basis(state: GameState) -> GameState:
+    """What a best-discard search depends on: the state, but not what's selected
+    (the search selects cards itself), what's tracked or the game's state name."""
+    return replace(state, id=None, state=None, hand=[replace(c, highlighted=False) for c in state.hand],
+                   tracked_hands=[], tracked_cards=[], search=None)
+
+
+def format_search(state: GameState, key: str, found: Search) -> str:
+    best = found.options[0]
+    what = f"discard {' '.join(state.hand[i].short() for i in best)}" if best else "keep the hand"
+    more = f" (1 of {len(found.options)} options)" if len(found.options) > 1 else ""
+    return f"Best discard for {key}: {what}, {_pct(found.probability).strip()}{more}"
+
+
 CALCULATING = "Calculating odds..."
 NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
 RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
@@ -143,8 +167,18 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     soon as a state arrives, then its odds. It returns False if it couldn't
     deliver one; that payload is then sent again every RETRY seconds until it
     is, or a newer one replaces it.
+
+    A state asking for a best-discard search (`GameState.search`, with a number
+    not seen before) starts one in a job of its own. Only a change to what it
+    depends on (`search_basis`) cancels it, not selecting cards. Its result goes
+    on every payload (`overlay.search`) until that changes.
     """
     job: Job[tuple[str, dict]] | None = None
+    searching: Job[Search] | None = None
+    search_for: tuple[GameState, GameState, str, int] | None = None  # basis, state, key, nonce
+    found: dict | None = None  # the finished search's result, for the panel
+    seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
+    base: dict | None = None  # the latest payload, before the search's result goes on it
     pending = ""  # summary of the job's state, until it's printed
     deadline = 0.0
     unsent: dict | None = None  # the latest payload, until the panel gets it
@@ -162,24 +196,60 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                   file=sys.stderr, flush=True)
         unsent, retry_at = payload, time.monotonic() + RETRY
 
+    def show(payload: dict) -> None:
+        nonlocal base
+        base = payload
+        send({**payload, "search": found} if found else payload)
+
+    def start_search(state: GameState) -> None:
+        nonlocal searching, search_for, found, seen
+        basis = search_basis(state)
+        if search_for is not None and search_for[0] != basis:
+            if searching is not None:
+                searching.cancel()
+            searching = search_for = found = None
+        if state.search is None:
+            return
+        key, nonce = state.search
+        request = ((state.id or "").split(":")[0], nonce)
+        if request == seen:
+            return
+        seen = request
+        if searching is not None:
+            searching.cancel()
+        searching, search_for, found = None, (basis, state, key, nonce), None
+        target = search_target(state, key)
+        if target is None:
+            found = overlay.search(key, nonce, None)
+        else:
+            searching = Job(lambda cancel, state=state, target=target: best_discards(state, target, cancel))
+
     while not stop():
         if unsent is not None and time.monotonic() >= retry_at:
             send(unsent)
         state = source.poll()
         if state is not None:
+            start_search(state)
             if job is not None:
                 job.cancel()
             job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
             targets, queries = tracked(state)
             if targets or queries:
-                send(overlay.pending(state))
+                show(overlay.pending(state))
                 job = Job(lambda cancel, state=state, targets=targets, queries=queries:
                           calculate(state, targets, queries, cancel))
                 deadline = time.monotonic() + patience
             else:
                 write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
-                send(overlay.odds(state, None))
+                show(overlay.odds(state, None))
                 pending = ""
+        if searching is not None and searching.wait(0):
+            _, searched, key, nonce = search_for
+            result = searching.result()
+            searching, found = None, overlay.search(key, nonce, result)
+            write(format_search(searched, key, result))
+            if base is not None:
+                show(base)
         if job is None:
             time.sleep(poll_interval)
             continue
@@ -192,7 +262,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 write(pending + ("\n" + out if out else ""))
             elif out:
                 write(out)
-            send(payload)
+            show(payload)
             job, pending = None, ""
         elif pending and time.monotonic() >= deadline:
             write(pending + "\n" + CALCULATING)
