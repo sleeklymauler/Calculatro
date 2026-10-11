@@ -11,7 +11,7 @@ from itertools import combinations
 
 import pytest
 
-from calculatro.engine import Cancelled, evaluate_discard
+from calculatro.engine import Cancelled, Reuse, evaluate_discard
 from calculatro.hands import combine, get_target
 from calculatro.search import _identity, best_discards
 from calculatro.state import SUITS, Card, GameState, Joker
@@ -77,6 +77,9 @@ def test_matches_trying_every_discard_with_jokers(jokers):
     state = random_state(rng, deck=10, jokers=[Joker(j) for j in jokers])
     for name in ("Straight", "Flush", "Straight Flush"):
         check(state, get_target(name))
+    # "Any target": the hands' own odds bound it, and decide it when the bounds meet.
+    check(state, combine([get_target(n) for n in ("Pair", "Flush", "Straight")]))
+    check(state, combine([get_target(n) for n in ("Flush", "Straight Flush", "Full House")]))
 
 
 def test_wild_stone_and_debuffed_cards():
@@ -181,3 +184,33 @@ def test_the_hook_when_playing_to_throw_cards_away():
     state = random_state(rng, deck=10, blind="The Hook", discards_left=0, hands_left=2)
     for name in ("Pair", "Flush", "Three of a Kind"):
         check(state, get_target(name))
+
+
+@pytest.mark.parametrize("jokers, blind, names", [
+    ([], None, ["Full House", "Straight Flush", "Flush / Straight / Full House"]),
+    (["j_four_fingers", "j_shortcut"], None, ["Straight Flush", "Flush / Straight / Full House"]),
+    (["j_smeared", "j_four_fingers"], None, ["Straight Flush", "Flush House"]),
+    ([], "The Mark", ["Pair", "Straight Flush"]),
+    ([], "Cerulean Bell", ["Flush", "Full House"]),
+    ([], "The Hook", ["Flush", "Two Pair"]),
+])
+def test_shared_work_gives_the_same_odds(jokers, blind, names):
+    # The search shares the engine's work between discards (engine.Reuse), which
+    # must give exactly the odds of working each one out alone. A full deck
+    # with face-down cards and Wild Cards gives it many classes and patterns.
+    rng = random.Random(10)
+    cards = [card(r, s, "m_wild" if (r + len(s)) % 9 == 0 else "c_base") for s in SUITS for r in range(2, 15)]
+    rng.shuffle(cards)
+    hand = cards[:6] + [Card(hidden=True)] * 2
+    state = GameState(in_run=True, hand_size=8, hands_left=3, discards_left=0 if blind == "The Hook" else 2,
+                      hand=hand, deck=cards[8:], hidden_pool=cards[6:8], blind=blind,
+                      jokers=[Joker(j) for j in jokers])
+    if blind == "Cerulean Bell":
+        state = replace(state, hand=[replace(c, forced=i == 1) for i, c in enumerate(hand)])
+    discards = [[]] + [list(d) for n in (1, 2) for d in combinations(range(8), n)]
+    for name in names:
+        target = combine([get_target(n) for n in name.split(" / ")])
+        reuse = Reuse(state.hand)
+        for d in discards:
+            alone = evaluate_discard(state, target, d).probability
+            assert evaluate_discard(state, target, d, reuse=reuse).probability == alone, (name, d)

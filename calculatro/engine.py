@@ -70,7 +70,8 @@ class Cancelled(Exception):
 
 def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
                 rules: Rules = Rules(), cancel: Event | None = None,
-                marked: int = 0, marked_kept: int = 0, forced: Card | None = None) -> Fraction:
+                marked: int = 0, marked_kept: int = 0, forced: Card | None = None,
+                reuse: Reuse | None = None) -> Fraction:
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
 
     With The Mark, `marked` of the pool's cards are face down in hand, so they
@@ -79,6 +80,8 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
 
     With Cerulean Bell, `forced` is a card in hand besides `kept` that must be
     part of the hand played (`hands.forced_patterns`).
+
+    `reuse` shares work between calculations with the same pool (see Reuse).
 
     Raises Cancelled soon after `cancel` is set.
     """
@@ -93,9 +96,9 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
 
     def favourable(faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = ()) -> int:
         if split:
-            return _union_by_suit(patterns, kept, pool, draws, rules, cancel, faces, face_weights)
+            return _union_by_suit(patterns, kept, pool, draws, rules, cancel, faces, face_weights, reuse)
         return _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel,
-                           faces=faces, face_weights=face_weights)
+                           faces=faces, face_weights=face_weights, reuse=reuse)
 
     with _gc_paused():
         split_faces = _mark_split(pool, draws, rules, marked, marked_kept)
@@ -207,7 +210,7 @@ def _interchangeable(patterns: tuple[Pattern, ...]) -> bool:
 
 def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[Card], draws: int,
                    rules: Rules, cancel: Event | None, faces: list[bool] | None = None,
-                   face_weights: Sequence[tuple[int, int]] = ()) -> int:
+                   face_weights: Sequence[tuple[int, int]] = (), reuse: Reuse | None = None) -> int:
     """Favourable draws for `patterns`, by inclusion-exclusion over suits.
 
     The patterns with requirements on one suit's cards are grouped by that
@@ -245,10 +248,16 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
         def term_key(subset: tuple[str, ...]) -> object:
             return subset
     terms: dict[object, int] = {}
-    present = {k for card in (*kept, *pool) if (k := card_key(card, rules)) is not None}
-    # Every pattern of suit s needs at least this many cards of the suit.
-    necessary = {s: Requirement(suit_keys(s), min(_cards_within(p, suit_keys(s), present) for p in pats))
-                 for s, pats in by_suit.items()}
+    # Every pattern of suit s needs at least this many cards of the suit, in a
+    # hand of `present` classes. Classes that can't be present only weaken it.
+    known = kept if reuse is None else (*kept, *reuse.cards)
+    present = frozenset(k for card in (*known, *pool) if (k := card_key(card, rules)) is not None)
+    necessary = None if reuse is None else reuse.necessary.get((patterns, present))
+    if necessary is None:
+        necessary = {s: Requirement(suit_keys(s), min(_cards_within(p, suit_keys(s), present) for p in pats))
+                     for s, pats in by_suit.items()}
+        if reuse is not None:
+            reuse.necessary[patterns, present] = necessary
     rest_ways: int | None = None
     impossible: set[frozenset[str]] = set()
     total = 0
@@ -259,11 +268,11 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
             together = tuple(necessary[s] for s in subset)
             if (any(key - {s} in impossible for s in subset)
                     or not _favourable([together], [1], kept, pool, draws, rules, cancel,
-                                       faces=faces, face_weights=face_weights)):
+                                       faces=faces, face_weights=face_weights, reuse=reuse)):
                 impossible.add(key)
                 if rest_ways is None:
                     rest_ways = _favourable(rest, [1] * len(rest), kept, pool, draws, rules, cancel,
-                                           faces=faces, face_weights=face_weights)
+                                           faces=faces, face_weights=face_weights, reuse=reuse)
                 total += sign * rest_ways
                 continue
             tk = term_key(subset)
@@ -274,7 +283,7 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
                     chosen += by_suit[s]
                     masks += [1 << bit] * len(by_suit[s])
                 terms[tk] = _favourable(chosen, masks, kept, pool, draws, rules, cancel,
-                                        together if size > 1 else None, faces, face_weights)
+                                        together if size > 1 else None, faces, face_weights, reuse)
             total += sign * terms[tk]
     return total
 
@@ -287,7 +296,8 @@ def _cards_within(pattern: Pattern, keys: frozenset[ClassKey], present: set[Clas
 
 def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card], pool: list[Card],
                 draws: int, rules: Rules, cancel: Event | None, constraint: Pattern | None = None,
-                faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = ()) -> int:
+                faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = (),
+                reuse: Reuse | None = None) -> int:
     """Draws of `draws` cards from `pool` after which the satisfied patterns cover every group.
 
     Pattern p belongs to the groups in the bitmask `masks[p]`; with a single
@@ -300,9 +310,66 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     isn't listed). Face cards and others are then kept in separate classes,
     and the search tracks how many face cards are still to be drawn; the
     searches for each a share their memo.
+
+    With `reuse`, the search's layout (_layout) and its result are kept for
+    later calls with the same patterns and pool.
     """
     if not patterns:
         return 0
+    lay = _layout(tuple(patterns), tuple(masks), pool, rules, constraint, None if faces is None else tuple(faces), reuse)
+    have = [[0] * len(pattern) for pattern in lay.patterns]
+    for card in kept:
+        for p, q in lay.members.get(card_key(card, rules), ()):
+            have[p][q] += 1
+    kept_have = [tuple(h) for h in have]
+    if reuse is None:
+        return _search(lay, kept_have, draws, cancel, face_weights, shared=False)
+    key = lay, tuple(kept_have), draws, tuple(face_weights)
+    found = reuse.favourable.get(key)
+    if found is None:
+        found = reuse.favourable[key] = _search(lay, kept_have, draws, cancel, face_weights, shared=True)
+    return found
+
+
+class Reuse:
+    """What the engine's calculations can share when they draw from the same pool,
+    as the discards a best-discard search compares do: each search's layout
+    (_layout) and result, by what they depend on. Only for one thread.
+
+    `cards` are every card that may be kept (the hand). The bounds that
+    _union_by_suit prunes with then hold for any of them kept, so they're
+    worked out once per pool rather than for each choice of kept cards.
+    """
+
+    def __init__(self, cards: Sequence[Card] = ()) -> None:
+        self.cards = list(cards)
+        self.layouts: dict[tuple, _Layout] = {}
+        self.favourable: dict[tuple, int] = {}
+        self.necessary: dict[tuple, dict[str, Requirement]] = {}
+
+
+class _Layout:
+    """What a search depends on besides the kept cards and the number of draws:
+    the classes the pool's cards fall into, each pattern's tables, and the
+    parts with their transitions (see _search)."""
+    __slots__ = ("every", "patterns", "masks", "c", "faces", "needs", "members", "classes", "face_class",
+                 "remaining", "faces_left", "part_mask", "part_reqs",
+                 "part_need", "part_bits", "part_single", "single_parts", "intern", "status", "step",
+                 "transitions", "cards_needed", "start", "deferred", "deferred_sets", "in_deferred", "join_at",
+                 "joining_at", "signatures", "memo", "first")
+
+
+def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Card], rules: Rules,
+            constraint: Pattern | None, faces: tuple[bool, ...] | None, reuse: Reuse | None) -> _Layout:
+    """The layout of a search for _favourable; from `reuse` if it has one for these."""
+    layout_key = None
+    if reuse is not None:
+        layout_key = patterns, masks, constraint, tuple(card_key(card, rules) for card in pool), faces
+        lay = reuse.layouts.get(layout_key)
+        if lay is not None:
+            return lay
+    lay = _Layout()
+
     every = 0
     for mask in masks:
         every |= mask
@@ -325,12 +392,6 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         for q, req in enumerate(pattern):
             for key in req.keys:
                 members[key].append((p, q))
-
-    have = [[0] * len(pattern) for pattern in patterns]
-    for card in kept:
-        for p, q in members.get(card_key(card, rules), ()):
-            have[p][q] += 1
-    kept_have = [tuple(h) for h in have]
 
     # Merge pool cards with identical membership into one class; cards that
     # count towards nothing go into the dead class.
@@ -369,10 +430,6 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     for i in range(n - 1, -1, -1):
         remaining[i] = remaining[i + 1] + classes[i][1]
         faces_left[i] = faces_left[i + 1] + (classes[i][1] if face_class[i] else 0)
-    split = faces is not None
-    if split:
-        face_weights = [(a, w) for a, w in face_weights
-                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
 
     # slots[i] = for each pattern class i counts towards, the requirements it counts towards.
     slots: list[dict[int, list[int]]] = []
@@ -506,9 +563,62 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     for d, cls in enumerate(deferred_sets):
         for i in cls:
             in_deferred[i].append(d)
+    # The part a pattern joins the search with, by its deferred counts.
+    join_at = [bisect_left(ps, s) for ps, s in zip(steps, start)]
+    # Searches with this layout share their memo (see _search). For that they
+    # need the patterns (bar the constraint) that join at each class, or never
+    # (n), and they keep each pattern's first part and deficits by its kept cards.
+    memo: dict[tuple, int] = {}
+    signatures: dict[tuple, int] = {}
+    joining_at: list[list[int]] = []
+    first: list[dict[tuple[int, ...], tuple[int, tuple[int, ...]]]] = []
+    if reuse is not None:
+        joining_at = [[] for _ in range(n + 1)]
+        for p in range(len(patterns)):
+            if p != c:
+                joining_at[start[p]].append(p)
+        first = [{} for _ in patterns]
+    scope = locals()
+    for name in _Layout.__slots__:
+        setattr(lay, name, scope[name])
+    if layout_key is not None:
+        reuse.layouts[layout_key] = lay
+    return lay
+
+
+def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: Event | None,
+            face_weights: Sequence[tuple[int, int]], shared: bool) -> int:
+    """_favourable's count, for the kept cards' contributions `kept_have` to each requirement.
+    `shared` if other searches will use the layout too (see `signature`)."""
+    every, patterns, c, needs = lay.every, lay.patterns, lay.c, lay.needs
+    masks = list(lay.masks)
+    classes, face_class, remaining, faces_left = lay.classes, lay.face_class, lay.remaining, lay.faces_left
+    part_mask, part_reqs, part_need, part_bits = lay.part_mask, lay.part_reqs, lay.part_need, lay.part_bits
+    part_single, single_parts = lay.part_single, lay.single_parts
+    intern, status, step, transitions, cards_needed = lay.intern, lay.status, lay.step, lay.transitions, lay.cards_needed
+    start, deferred, deferred_sets, in_deferred, join_at = (lay.start, lay.deferred, lay.deferred_sets,
+                                                             lay.in_deferred, lay.join_at)
+    n = len(classes)
+    split = lay.faces is not None
+    if split:
+        face_weights = [(a, w) for a, w in face_weights
+                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
     drawn_from = [0] * len(deferred_sets)
-    initial = {p: part_need[v] for p in range(len(patterns))
-               if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}
+    initial = {}
+    deficits_of: dict[int, tuple[int, ...]] = {}  # of the patterns still to satisfy, if shared
+    if not shared:
+        initial = {p: part_need[v] for p in range(len(patterns))
+                   if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}
+    for p, (have, parts) in enumerate(zip(kept_have, lay.first) if shared else ()):
+        found = parts.get(have)
+        if found is None:
+            found = parts[have] = (status(p, have, 0),
+                                   tuple(need - h if need > h else 0 for need, h in zip(needs[p], have)))
+        v = found[0]
+        if v != DEAD and part_need[v] <= draws:
+            initial[p] = part_need[v]
+            if initial[p]:
+                deficits_of[p] = found[1]
     if c is not None:
         if c not in initial:  # only patterns of every group can be satisfied
             masks = [m if m == every else 0 for m in masks]
@@ -523,7 +633,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
         if split:
             return sum(w * comb(faces_left[0], a) * comb(remaining[0] - faces_left[0], draws - a)
                        for a, w in face_weights)
-        return comb(len(pool), draws)
+        return comb(remaining[0], draws)
     activate: list[list[int]] = [[] for _ in range(n)]
     # pending[a][i][r] = groups covered by possible patterns that join at class
     # i or later and may need at most r cards then; a = 0 counts only patterns
@@ -573,9 +683,23 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                     table[i][r] |= table[i + 1][r]
     c_start = start[c] if c is not None else n
     c_initial = initial[c] if c is not None else 0
-    # The part a pattern joins the search with, by its deferred counts.
-    join_at = [bisect_left(ps, s) for ps, s in zip(steps, start)]
     joined: dict[tuple[int, ...], int] = {}
+    # The count from a class on depends on the kept cards only through the
+    # patterns that haven't joined by then (and the constraint), since the
+    # others' are in their parts: through what each of those still needs, if
+    # it can be satisfied. signature[i] stands for that and the number of
+    # draws, so memo entries hold for every search with this layout: with
+    # Reuse, the discards a best-discard search tries share them. It also
+    # tells the classes apart.
+    # Unshared, the memo only holds this search's entries, so the class will do.
+    signature = list(range(n + 1))
+    if shared:
+        signatures = lay.signatures
+        sig = signatures.setdefault(("base", draws, kept_have[lay.c] if lay.c is not None else None),
+                                    len(signatures))
+        for i in range(n, -1, -1):
+            sig = signature[i] = signatures.setdefault(
+                (sig, tuple([deficits_of.get(p) for p in lay.joining_at[i]])), len(signatures))
 
     def join(p: int) -> int:
         key = (p, *(drawn_from[d] for _, d in deferred[p]))
@@ -587,7 +711,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             pid = joined[key] = status(p, have, join_at[p])
         return pid
 
-    memo: dict[tuple, int] = {}
+    memo = lay.memo
     # Joining parts, by (class, draws left, todo, free, deferred counts).
     joining: dict[tuple, list[int]] = {}
 
@@ -633,7 +757,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
             if covered & todo != todo:
                 return 0
         deferred_key = tuple([min(drawn_from[d], cap) for d, cap in tracked[i][rem]])
-        memo_key = (i, rem, todo, frozenset(live), deferred_key, fr)
+        memo_key = (signature[i], rem, todo, frozenset(live), deferred_key, fr)
         total = memo.get(memo_key)
         if total is not None:
             return total
@@ -665,7 +789,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
                                 live.discard(pid)
                                 break
             if len(live) < size:
-                memo_key = (i, rem, todo, frozenset(live), deferred_key, fr)
+                memo_key = (signature[i], rem, todo, frozenset(live), deferred_key, fr)
                 total = memo.get(memo_key)
                 if total is not None:
                     memo[keys[0]] = total
@@ -823,31 +947,33 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
-                     cancel: Event | None = None) -> DiscardOutcome:
+                     cancel: Event | None = None, reuse: Reuse | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`.
 
     Without discards left they'd have to be played instead, which under The
-    Hook also throws away 2 random kept cards (`_after_hook`).
+    Hook also throws away 2 random kept cards (`_after_hook`). Calls for the
+    same state can share a `reuse` (see Reuse).
     """
     d = _discard(state, discard)
     rules = state.rules
     if d.hooked:
-        return DiscardOutcome(d.discarded, d.draws, _after_hook(target, d, rules, cancel))
+        return DiscardOutcome(d.discarded, d.draws, _after_hook(target, d, rules, cancel, reuse))
     unseen = d.hidden_kept + d.draws
     if state.bell and bell_matters(target, rules):
         forced = state.forced
         if not discard and forced is not None and not state.hand[forced].hidden:
             # Keeping the hand keeps its forced card.
             kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
-            p = probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced])
+            p = probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
         else:
-            p = _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel)
+            p = _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel, reuse)
         return DiscardOutcome(d.discarded, d.draws, p)
-    p = probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept)
+    p = probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept, reuse=reuse)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None) -> Fraction:
+def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
+                reuse: Reuse | None = None) -> Fraction:
     """P(`target`) when The Hook throws away `d.hooked` of the kept cards, uniformly
     at random, before the draw (`Blind:press_play`): the average over which ones.
     Kept cards of the same class give the same odds, so it goes by how many of
@@ -873,12 +999,13 @@ def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None)
             weight *= comb(size, k)
         kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]]
         hidden = d.hidden_kept - counts[-1]
-        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked, hidden)
+        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked, hidden,
+                                      reuse=reuse)
     return total / comb(sum(sizes), d.hooked)
 
 
 def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: int,
-                     rules: Rules, cancel: Event | None) -> Fraction:
+                     rules: Rules, cancel: Event | None, reuse: Reuse | None = None) -> Fraction:
     """P(`target` can be played) when Cerulean Bell forces a random card of the final hand.
 
     Playing or discarding clears the forced card, and after the draw the game
@@ -899,7 +1026,8 @@ def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: 
     for i, c in enumerate(kept):
         key = card_key(c, rules)
         if key not in done:
-            done[key] = probability(target, kept[:i] + kept[i + 1:], pool, draws, rules, cancel, forced=c)
+            done[key] = probability(target, kept[:i] + kept[i + 1:], pool, draws, rules, cancel, forced=c,
+                                   reuse=reuse)
         total += done[key]
     if draws:
         groups: dict[object, list[int]] = {}
@@ -909,7 +1037,7 @@ def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: 
         for members in groups.values():
             j = members[0]
             unseen += len(members) * probability(target, kept, pool[:j] + pool[j + 1:], draws - 1, rules,
-                                                 cancel, forced=pool[j])
+                                                 cancel, forced=pool[j], reuse=reuse)
         total += draws * unseen / len(pool)
     return total / size
 

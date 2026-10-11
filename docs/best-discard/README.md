@@ -212,5 +212,7 @@ If benchmarks show it's needed:
 ## Status
 
 Implemented 2026-10-11 without the performance work (step 2), at the user's
-request: get it working first. "2/3" stays on the title row (user decision).
+request: get it working first. The performance work followed the same day:
+see [docs/performance/best-discard.md](../performance/best-discard.md).
+Four Fingers + Shortcut with Straight Flush is still over the ~1 s target. "2/3" stays on the title row (user decision).
 Not yet checked in game.

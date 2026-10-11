@@ -319,6 +319,14 @@ one just cancelled for a newer state) waits for them rather than building
 them again in parallel. Without that, each new selection during a slow
 build started another copy, and the copies shared the GIL.
 
+## Many discards at once
+
+The best-discard search calls the engine for up to hundreds of discards of
+the same hand, which all draw from the same pool. With an `engine.Reuse`,
+`_favourable`'s pool-dependent setup (`_layout`), its results and its memo
+are shared between those calls; see [best-discard.md](best-discard.md).
+Ordinary odds rows don't pass one, and build a fresh layout each time.
+
 ## Approaches that didn't pay off
 
 Recorded so they aren't retried blindly:

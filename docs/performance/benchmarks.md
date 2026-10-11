@@ -51,6 +51,11 @@ Scenarios (`tests/perf/scenarios.py`):
 
 ## Current numbers
 
+The best-discard search's own scenarios ("Best discard: ...") are in
+[best-discard.md](best-discard.md). Adding them (2026-10-11) re-measured the
+whole baseline; every other scenario gave the same result, within a few
+percent of the times below.
+
 ### Cerulean Bell (2026-10-09)
 
 The Cerulean Bell scenarios, added to `tests/perf/baseline.json` when it was

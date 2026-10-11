@@ -10,6 +10,10 @@ how to measure it.
   situations. The current numbers come first (The Mark, Cerulean Bell and
   the partial-state reductions), then each earlier piece of work's before
   and after, newest first.
+- [best-discard.md](best-discard.md): the panel's best-discard search,
+  which compares every discard of the hand: how it avoids most of those
+  calculations and shares the engine's work between the rest, with its
+  timings.
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)
@@ -29,7 +33,9 @@ keep that text rare, not to remove it.
 The benchmark scenarios are in `tests/perf/scenarios.py`. Each one is a game
 state built like the mod exports it, with face-down cards, a discard
 selection and jokers, plus a target. It is timed through `evaluate_discard`,
-the same call the app makes for one odds row.
+the same call the app makes for one odds row. The "Best discard" scenarios
+time `search.best_discards` instead, a click on a row's search button (see
+[best-discard.md](best-discard.md)).
 
 ```
 .venv\Scripts\python tests\perf\benchmark.py                       # everything, 5 runs each

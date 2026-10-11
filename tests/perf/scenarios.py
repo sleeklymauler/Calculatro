@@ -14,8 +14,12 @@ tracked or a joker changes the rules: every cache in `calculatro.hands` and
 `calculatro.engine` is cleared before each run, so building the target's
 patterns is timed too. Their situation keeps the search itself small.
 
-Only APIs that also exist in older versions are used here, so benchmark.py can
-time an older checkout (see docs/performance/README.md).
+"Best discard" scenarios time a click on a row's search button instead:
+`search.best_discards`, which compares every discard of the hand. Their result
+is the best odds and the options found.
+
+Apart from those, only APIs that also exist in older versions are used here, so
+benchmark.py can time an older checkout (see docs/performance/README.md).
 """
 
 from __future__ import annotations
@@ -153,6 +157,59 @@ class Scenario:
         return evaluate_discard(state, self.target(), discard, cancel).probability
 
 
+@dataclass(frozen=True)
+class Hand:
+    """A hand to find the best discard for, with the rest of the deck unseen."""
+    label: str
+    cards: tuple[str, ...]
+    hidden: int = 0  # the last `hidden` cards are face down
+    blind: str | None = None  # with "Cerulean Bell", the first card is the forced one
+    discards: int = 3
+
+
+@dataclass(frozen=True)
+class BestDiscard:
+    """A best-discard search: the odds row's target, for `hand`."""
+    hand: Hand
+    targets: tuple[str, ...]
+    jokers: str  # a JOKERS key
+    deck: str = "standard"
+
+    @property
+    def situation(self) -> Hand:  # benchmark.py's tables group by situation label
+        return self.hand
+
+    target_label = Scenario.target_label
+
+    @property
+    def id(self) -> str:
+        return f"{self.deck} | {self.hand.label} | {self.target_label} | {self.jokers}"
+
+    def state(self) -> GameState:
+        cards = {(c.rank_id, c.suit): c for c in deck(self.deck)}
+        hand_cards = [cards.pop(_parse(t)) for t in self.hand.cards]
+        known = len(hand_cards) - self.hand.hidden
+        hand = hand_cards[:known] + [Card(hidden=True)] * self.hand.hidden
+        if self.hand.blind == "Cerulean Bell":
+            hand[0] = replace(hand[0], forced=True)
+        return GameState(
+            in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
+            hand=hand, deck=sorted(cards.values(), key=lambda c: (c.suit, c.rank_id)),
+            hidden_pool=hand_cards[known:], jokers=[Joker(k) for k in JOKERS[self.jokers]],
+            blind=self.hand.blind,
+        )
+
+    target = Scenario.target
+
+    def prepare(self) -> None:
+        self.target().patterns(self.state().rules)
+
+    def run(self, cancel: Event | None = None) -> str:
+        from calculatro.search import best_discards
+        found = best_discards(self.state(), self.target(), cancel)
+        return f"{found.probability} ({len(found.options)} options, first {found.options[0]})"
+
+
 SINGLE_HANDS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House",
                 "Four of a Kind", "Straight Flush", "Royal Flush", "Five of a Kind",
                 "Flush House", "Flush Five"]
@@ -188,4 +245,28 @@ def _scenarios() -> list[Scenario]:
     return out
 
 
-SCENARIOS = _scenarios()
+HAND_10 = (*HAND, "2C", "TD")  # a bigger hand size, from jokers or vouchers
+SEARCH_HANDS = [
+    Hand("Best discard: 8 cards", tuple(HAND)),
+    Hand("Best discard: 8 cards, two pairs", ("7H", "7S", "9S", "QC", "QD", "3S", "5D", "JH")),
+    Hand("Best discard: 10 cards", HAND_10),
+]
+# Bosses that change what a discard does, on the 8-card hand.
+SEARCH_BOSSES = [
+    Hand("Best discard: 8 cards, 2 face-down", tuple(HAND), hidden=2, blind="The House"),
+    Hand("Best discard: 8 cards, Cerulean Bell", tuple(HAND), blind="Cerulean Bell"),
+    Hand("Best discard: 8 cards, The Hook, played", tuple(HAND), blind="The Hook", discards=0),
+]
+SEARCH_TARGETS = [("Pair",), ("Two Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
+                  ("Flush", "Straight", "Full House")]
+SEARCH_JOKERS = ["No jokers", "Four Fingers + Shortcut", "Smeared"]
+
+
+def _search_scenarios() -> list[BestDiscard]:
+    out = [BestDiscard(h, t, j) for j in SEARCH_JOKERS for h in SEARCH_HANDS for t in SEARCH_TARGETS]
+    out += [BestDiscard(h, t, "No jokers") for h in SEARCH_BOSSES
+            for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
+    return out
+
+
+SCENARIOS: list[Scenario | BestDiscard] = _scenarios() + _search_scenarios()
