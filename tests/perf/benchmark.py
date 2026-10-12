@@ -33,10 +33,9 @@ from threading import Event, Timer
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from perfdata import add_results, engine_path, load_expected, save_expected, save_results  # noqa: E402
-from scenarios import JOKERS, SCENARIOS, Scenario  # noqa: E402
-
-from calculatro.engine import Cancelled  # noqa: E402
+from calculatro.engine import Cancelled
+from perfdata import add_results, engine_path, load_expected, save_expected, save_results
+from scenarios import JOKERS, SCENARIOS, Scenario
 
 WARMUP = 1.0  # seconds; see measure()
 NOISY = 0.25  # a standard deviation above this fraction of the mean, see --rerun-noisy
@@ -130,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repeat", type=int, default=5, help="most runs per scenario (default 5)")
     parser.add_argument("--budget", type=float, default=20.0,
                         help="stop repeating a scenario once its runs add up to this many seconds (default 20)")
-    parser.add_argument("--timeout", type=float, default=120.0, help="cancel a run after this many seconds (default 120)")
+    parser.add_argument("--timeout", type=float, default=120.0,
+                        help="cancel a run after this many seconds (default 120)")
     parser.add_argument("--save", type=Path, help="write the results to this JSON file")
     parser.add_argument("--rerun-noisy", action="store_true",
                         help=f"only re-measure the scenarios in the --save file whose standard deviation is over "

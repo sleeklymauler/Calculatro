@@ -165,7 +165,8 @@ def test_selection_limit_and_no_discards():
     options = check(state, get_target("Flush"))
     assert max(map(len, options)) <= 2
     # Without discards, a hand can be played to throw cards away, if another is left after it.
-    assert best_discards(replace(state, discards_left=0, hands_left=2), get_target("Flush")) ==         best_discards(state, get_target("Flush"))
+    assert (best_discards(replace(state, discards_left=0, hands_left=2), get_target("Flush"))
+            == best_discards(state, get_target("Flush")))
     last_hand = replace(state, discards_left=0, hands_left=1)
     found = best_discards(last_hand, get_target("Flush"))
     assert found.options == [[]]

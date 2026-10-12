@@ -208,7 +208,6 @@ def test_builder_queries_parse_as_labelled(lua):
             assert re.search(rf"\b{rank.lower()}\b", query), query
         if rank == "Face":
             assert not any(s in query for s in ("spade", "heart", "club", "diamond")), query  # no suit for faces
-    _, mod = lua
     for cmp, (lo, hi) in [(1, (1, 8)), (2, (0, 8)), (3, (0, 7))]:
         for n in range(lo, hi + 1):
             query, label = builder_queries(lua, [(cmp, n)])[5 * 20][:2]  # rank 2, any suit and special

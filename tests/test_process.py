@@ -2,8 +2,8 @@ import subprocess
 import sys
 import uuid
 
-from calculatro import process
 import calculatro.__main__ as cli
+from calculatro import process
 from calculatro.__main__ import main
 
 

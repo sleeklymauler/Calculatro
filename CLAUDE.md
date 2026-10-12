@@ -12,8 +12,9 @@ Windows-only project (paths rely on `%APPDATA%`). Use the venv interpreter:
 - Performance: `.venv\Scripts\python tests\perf\benchmark.py` (timings; `-k` filters, `--compare tests\perf\baseline.json`; the "Best discard" scenarios time the search button), and `.venv\Scripts\python -m pytest -m perf` (exact results against the committed `tests/perf/expected.json`, written by `benchmark.py --update-expected`; timings against the git-ignored, per-machine `tests/perf/baseline.json`, measured by `benchmark.py --save tests\perf\baseline.json`, without which a run stops at collection; skipped by a plain `pytest`). See `docs/performance/README.md`.
 - Run: the mod starts the app with the game (see below). By hand: `.venv\Scripts\python -m calculatro watch` (`--file` overrides the state file path), which shows the console output. What to calculate is set in game, with the panel's target editor.
 - Install the mod into the game: `pwsh scripts/install_mod.ps1` (copies `mod/Calculatro` to `%AppData%\Balatro\Mods`; requires the Lovely injector DLL next to `Balatro.exe`). Re-run after any change to the Lua. It also writes the venv's `pythonw.exe` path to the installed mod's `launch.txt` (skip with `-NoAutoStart`): on its first frame the mod starts `pythonw -m calculatro watch --game-pid <pid>` through LuaJIT's FFI (`ShellExecuteW`; `os.execute` would flash a console). With `--game-pid` the app exits when the game does (`process.exited`), exits at once if another instance holds the `Local\Calculatro` mutex (`process.claim_instance`; every `watch` claims it; one started by hand beside another only prints, leaving the odds file to the first, since two writers would clash over it), and logs errors to `%AppData%\Balatro\calculatro.log`.
+- Lint: `.venv\Scripts\ruff check .` (`--fix` applies the safe fixes, including import sorting). Configured in `pyproject.toml` (`[tool.ruff]`); there's no formatter, and the Lua isn't linted.
 
-No runtime dependencies; `pytest` and `lupa` are dev-only. There is no linter configured.
+No runtime dependencies; `pytest`, `lupa` and `ruff` are dev-only.
 
 ## Architecture
 

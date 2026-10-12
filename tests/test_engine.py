@@ -13,10 +13,17 @@ from math import comb
 
 import pytest
 
-from calculatro.engine import (_bell_after_draw, _favourable, _split_by_suit, count_probability, evaluate_cards,
-                               evaluate_discard, probability)
-from calculatro.cards import parse_query
 from calculatro import hands
+from calculatro.cards import parse_query
+from calculatro.engine import (
+    _bell_after_draw,
+    _favourable,
+    _split_by_suit,
+    count_probability,
+    evaluate_cards,
+    evaluate_discard,
+    probability,
+)
 from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState, Joker

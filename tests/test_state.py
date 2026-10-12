@@ -10,8 +10,8 @@ import pytest
 from calculatro.__main__ import odds, summarize
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
-from calculatro.source import FileStateSource
 from calculatro.rules import Rules
+from calculatro.source import FileStateSource
 from calculatro.state import SCHEMA, GameState, Joker, SchemaMismatch
 
 lupa = pytest.importorskip("lupa")

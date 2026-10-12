@@ -19,8 +19,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from perfdata import BASELINE_FILE, load_expected, load_results  # noqa: E402
-from scenarios import SCENARIOS, Scenario  # noqa: E402
+from perfdata import BASELINE_FILE, load_expected, load_results
+from scenarios import SCENARIOS, Scenario
 
 pytestmark = pytest.mark.perf
 
