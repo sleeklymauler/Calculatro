@@ -13,28 +13,29 @@ target's patterns, filling caches) are kept out of the timings; see measure().
 To time an older version, check it out somewhere and put it first on
 PYTHONPATH; the "Engine:" line shows which one was imported.
 
---save writes means and exact results as JSON (test_perf.py checks against
-tests/perf/baseline.json); --compare adds a column from such a file.
-See docs/performance/README.md.
+Each result is checked against tests/perf/expected.json, the exact results
+(committed), and flagged if it differs; --update-expected writes them there
+once a change is known to be intended. --save writes timings and results as
+JSON (with -k, it adds them to the file); test_perf.py checks timings against
+tests/perf/baseline.json, this machine's own and not committed. --compare
+adds a column from such a file. See docs/performance/README.md.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import platform
 import statistics
 import sys
 import time
-from datetime import date
 from pathlib import Path
 from threading import Event, Timer
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from perfdata import add_results, engine_path, load_expected, save_expected, save_results  # noqa: E402
 from scenarios import JOKERS, SCENARIOS, Scenario  # noqa: E402
 
-import calculatro.engine  # noqa: E402
 from calculatro.engine import Cancelled  # noqa: E402
 
 WARMUP = 1.0  # seconds; see measure()
@@ -138,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="don't measure: show the results in this JSON file (with --compare/--markdown)")
     parser.add_argument("--compare", type=Path, help="show results from this JSON file alongside")
     parser.add_argument("--markdown", action="store_true", help="print a Markdown table at the end")
+    parser.add_argument("--update-expected", action="store_true",
+                        help="write the results (measured, or from --from) to tests/perf/expected.json")
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):  # "±" and "→" on a cp1252 console
         sys.stdout.reconfigure(encoding="utf-8")
@@ -154,7 +157,8 @@ def main(argv: list[str] | None = None) -> int:
         results = json.loads(args.save.read_text())["results"]
         scenarios = [s for s in scenarios if noisy(results.get(s.id, {}))]
     if scenarios:
-        print(f"Engine: {calculatro.engine.__file__}", flush=True)
+        print(f"Engine: {engine_path()}", flush=True)
+    expected = load_expected()
     width = max((len(s.id) for s in scenarios), default=0)
     for s in scenarios:
         r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
@@ -164,17 +168,25 @@ def main(argv: list[str] | None = None) -> int:
             b = before.get(s.id)
             if b and "mean" in b and "mean" in r and r.get("probability") != b.get("probability"):
                 line += "  RESULT DIFFERS"
+        if "probability" in r:
+            if s.id not in expected:
+                line += "  NO EXPECTED RESULT"
+            elif r["probability"] != expected[s.id]:
+                line += "  NOT AS EXPECTED"
         print(line, flush=True)
 
+    settings = {"repeat": args.repeat, "budget": args.budget, "timeout": args.timeout}
     if args.save and not args.source:
-        args.save.write_text(json.dumps({
-            "date": date.today().isoformat(),
-            "python": platform.python_version(),
-            "machine": platform.processor() or platform.machine(),
-            "engine": calculatro.engine.__file__,
-            "repeat": args.repeat, "budget": args.budget, "timeout": args.timeout,
-            "results": results,
-        }, indent=1) + "\n")
+        if args.k and not args.rerun_noisy:
+            add_results(args.save, results, **settings)
+        else:
+            save_results(args.save, results, **settings)
+    if args.update_expected:
+        ids = {s.id for s in SCENARIOS}
+        found = {id: r["probability"] for id, r in results.items() if id in ids and "probability" in r}
+        changed = sum(expected.get(id) != p for id, p in found.items())
+        save_expected({**expected, **found}, [s.id for s in SCENARIOS])
+        print(f"Updated {changed} of {len(found)} expected results in tests/perf/expected.json.")
     if args.markdown:
         print()
         print(markdown(results, before))

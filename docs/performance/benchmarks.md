@@ -15,7 +15,9 @@ for "Any target" when there are several targets. Anything slower than
   scenario ran 5 times after an untimed warm-up run, and rows with a
   standard deviation over 25% of the mean were re-measured once
   (`--rerun-noisy`). Times are **mean ± standard deviation**. The raw times
-  of [Current numbers](#current-numbers) are in `tests/perf/baseline.json`.
+  of [Current numbers](#current-numbers) are in `tests/perf/baseline.json`
+  at commit `e239e4d` (it's no longer committed, since timings depend on the
+  machine).
 - **Before** (in "The second pass" and "All scenarios after the second
   pass"): the engine at commit `62eb51c`, after the Shortcut work,
   measured the same day side by side (`--repeat 5 --budget 60`, so the two slowest rows ran once). Both
@@ -110,7 +112,7 @@ existing scenarios were unchanged within noise, with the same results.
 The engine at commit `0c93930` (before) and the partial-state reductions
 (after), measured side by side the same day, `--repeat 5 --budget 120`
 then `--rerun-noisy` for each. Every probability is the same in both. These
-runs are `tests/perf/baseline.json`.
+runs are `tests/perf/baseline.json` at commit `e239e4d`.
 
 The changes stay inside the existing search: one-card alternatives in a
 plain OR merge into a single set of outs, deferred counts are dropped from
