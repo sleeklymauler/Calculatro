@@ -1,0 +1,41 @@
+# Lint and tests on every pull request and every push to main. The tests run on
+# the oldest Python pyproject.toml supports and the one releases bundle. The
+# performance tests aren't run: shared runners' timings are too noisy.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:  # a newer push to the same branch or PR cancels the older run
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: python -m pip install ruff
+      - run: ruff check --output-format=github .
+
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest

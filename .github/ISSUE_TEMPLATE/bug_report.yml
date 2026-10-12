@@ -1,0 +1,50 @@
+name: Bug report
+description: Something doesn't work, or the odds look wrong.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you saw, and what you expected instead. A screenshot of the panel helps.
+    validations:
+      required: true
+  - type: textarea
+    id: situation
+    attributes:
+      label: Game situation
+      description: >
+        For wrong odds: your hand, what you had selected, your jokers and the blind. Attaching
+        `%AppData%\Balatro\calculatro_state.json`, taken while the odds are on screen, lets us reproduce it exactly.
+        It contains only what you can see in game.
+  - type: input
+    id: calculatro-version
+    attributes:
+      label: Calculatro version
+      description: From the release zip's name, or `version` in `Mods\Calculatro\lovely.toml`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: balatro-version
+    attributes:
+      label: Balatro version
+      placeholder: 1.0.1o-FULL
+    validations:
+      required: true
+  - type: input
+    id: lovely-version
+    attributes:
+      label: Lovely version
+      placeholder: 0.8.0
+  - type: input
+    id: mods
+    attributes:
+      label: Other mods installed
+      placeholder: None
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The contents of `%AppData%\Balatro\calculatro.log`, if it exists.
+      render: text

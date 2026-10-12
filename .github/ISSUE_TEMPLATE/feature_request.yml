@@ -1,0 +1,16 @@
+name: Feature request
+description: An idea for Calculatro, such as a joker or boss blind it should account for.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What you'd like Calculatro to do, and the situation in game where it would help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else?
+      description: How you work around it now, or how other mods or tools handle it.

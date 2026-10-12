@@ -19,38 +19,42 @@ Interactive probability calculator for Balatro on Windows.
   - Handles all boss blinds that debuff cards, like **The Pillar** and **The Plant**.
   - See [docs/blinds.md](docs/blinds.md) for more.
 
-## Setup
+## Installation (Users)
 
-### Prerequisites
-- [Balatro 1.0.1o-FULL](https://www.playbalatro.com/)
-- [Python 3.11+](https://www.python.org/downloads/)
-- [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases)
-- [PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows?view=powershell-7.6)
-- Windows only (for now)
+You need:
+- Windows (other platforms aren't supported, for now).
+- [Balatro](https://www.playbalatro.com/) 1.0.1o-FULL.
+- The [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases), which loads mods into Balatro.
 
-### Installation
+You don't need to install Python: the release comes with its own.
 
-1. Install the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases): put the DLL from the release zip (`winmm.dll` in current releases, `version.dll` in older ones) next to `Balatro.exe`.
-2. Clone the repository:
-   ```pwsh
-   git clone https://github.com/sleeklymauler/Calculatro.git
-   cd Calculatro
-   ```
-3. Install the Python app:
-   ```pwsh
-   python -m venv .venv
-   .venv\Scripts\pip install -e .
-   ```
-4. Install the mod:
-   ```pwsh
-   pwsh scripts/install_mod.ps1
-   ```
-   This copies `mod/Calculatro` to `%AppData%\Balatro\Mods` and tells the mod where the venv is, so do this after
-   step 3 (or re-run it). Pass `-NoAutoStart` if you'd rather start the app yourself, and `-GameDir` if Balatro isn't
-   in Steam's default folder. Re-run it after any change to the mod.
-5. Launch Balatro. The mod starts the app in the background (no console window), and it exits with the game. Errors go to `%AppData%\Balatro\calculatro.log`.
+1. **Install Lovely** if you haven't already. Download the Windows zip from its
+   [releases](https://github.com/ethangreen-dev/lovely-injector/releases) and put the DLL inside (`winmm.dll`, or
+   `version.dll` in older releases) next to `Balatro.exe`. To find that folder in Steam, right-click Balatro, then
+   **Manage** → **Browse local files**.
+2. **Download Calculatro.** From the [latest release](https://github.com/sleeklymauler/Calculatro/releases/latest),
+   download `Calculatro-<version>-windows.zip` (not "Source code").
+3. **Extract it into Balatro's Mods folder.** Right-click the zip, choose **Extract All...**, and enter
+   `%AppData%\Balatro\Mods` as the destination (that's `C:\Users\<you>\AppData\Roaming\Balatro\Mods`; create the
+   `Mods` folder if it isn't there). You should end up with `Mods\Calculatro\lovely.toml`. Explorer suggests a
+   folder named after the zip by default, which puts the mod one folder too deep for Lovely to find it.
+4. **Launch Balatro.** Calculatro starts in the background with the game and closes with it. Start a blind and
+   its panel appears above the deck.
 
-The mod writes the live game state to `%AppData%\Balatro\calculatro_state.json` (at most ~5×/sec, only when something changes). The app writes the odds back to `calculatro_odds.json` next to it, and the mod shows them in a panel above the deck.
+**Updating:** close Balatro, delete the `Mods\Calculatro` folder, and extract the new release as above.
+
+**Uninstalling:** delete the `Mods\Calculatro` folder. Calculatro also leaves `calculatro.log`,
+`calculatro_state.json` and `calculatro_odds.json` in `%AppData%\Balatro`; you can delete those too. Leave the
+other files there alone: they're Balatro's settings and saves.
+
+### Troubleshooting
+
+- **No panel in a blind:** check that Lovely is working (Balatro opens a console window next to the game when it
+  is) and that the mod is at `Mods\Calculatro\lovely.toml`, not in a folder inside that.
+- **The panel says "Waiting for app":** the app isn't running, or stopped. Errors go to
+  `%AppData%\Balatro\calculatro.log`; please include it if you [open an
+  issue](https://github.com/sleeklymauler/Calculatro/issues), along with your Balatro and Lovely versions and any
+  other mods you have installed.
 
 ## Usage
 
@@ -73,25 +77,9 @@ panel says "Waiting for app" if the app isn't answering.
   (or any face card), suit, specific card, and/or special: an enhancement (or any `Enhanced`), edition
   (or any edition) or seal (or `Sealed`).
 
-### Running the app by hand
+## Contributing
 
-```pwsh
-.venv\Scripts\python -m calculatro watch
-```
-
-This prints the game state and the odds to the console. If the game already started the app, this one only
-prints: the panel keeps showing the odds from the first. `--file` reads the state from another path instead of
-`%AppData%\Balatro\calculatro_state.json`.
-
-## Tests
-
-`.venv\Scripts\python -m pytest` runs the app's tests, and the mod's Lua (via `lupa`) against a mocked game state:
-the exported snapshot, the panel and its animation.
-
-Performance tests are separate: `.venv\Scripts\python tests\perf\benchmark.py` times the probability engine on a set of
-game situations, and `.venv\Scripts\python -m pytest -m perf` checks their exact results, and their timings against
-your machine's own baseline, which the first run records.
-See [docs/performance](docs/performance/README.md).
+To run Calculatro from source, run the tests or change it, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
