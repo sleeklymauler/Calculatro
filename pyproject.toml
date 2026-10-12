@@ -21,4 +21,4 @@ packages = ["calculatro"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not perf'"
-markers = ["perf: performance regression tests against tests/perf/baseline.json (slow; run with -m perf)"]
+markers = ["perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)"]

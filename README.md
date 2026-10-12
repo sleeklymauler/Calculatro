@@ -58,5 +58,6 @@ prints: the panel keeps showing the odds from the first. `--file` reads the stat
 the exported snapshot, the panel and its animation.
 
 Performance tests are separate: `.venv\Scripts\python tests\perf\benchmark.py` times the probability engine on a set of
-game situations, and `.venv\Scripts\python -m pytest -m perf` checks them against a saved baseline.
+game situations, and `.venv\Scripts\python -m pytest -m perf` checks their exact results, and their timings against
+your machine's own baseline, which the first run records.
 See [docs/performance](docs/performance/README.md).

@@ -65,24 +65,40 @@ time `search.best_discards` instead, a click on a row's search button (see
 ### Regression tests
 
 `tests/perf/test_perf.py` runs every scenario once. It checks the exact
-result against `tests/perf/baseline.json` and fails if a run takes over 3×
-the baseline mean (+0.1 s). These tests are marked `perf` and skipped by a
-plain `pytest`:
+result against `tests/perf/expected.json` and fails if a run takes over 3×
+the mean in `tests/perf/baseline.json` (+0.1 s). These tests are marked
+`perf` and skipped by a plain `pytest`:
 
 ```
 .venv\Scripts\python -m pytest -m perf
 ```
 
-Timings depend on the machine, so after an engine change, or on another
-machine, refresh the baseline:
+The two files are kept apart because only one of them is the same on every
+machine:
 
-```
-.venv\Scripts\python tests\perf\benchmark.py --repeat 5 --budget 120 --save tests\perf\baseline.json
-```
+- `expected.json` is committed: each scenario's exact probability. Every
+  benchmark run is checked against it too, and flags a result that's "NOT
+  AS EXPECTED" (or has "NO EXPECTED RESULT", for a new scenario). Once a
+  change is checked to be intended, write the new results there:
 
-The saved file records the date, Python version, CPU and which engine was
-imported. Only refresh it after checking that any changed probabilities are
-intended: the file is also the reference for exact results.
+  ```
+  .venv\Scripts\python tests\perf\benchmark.py -k "Some scenario" --update-expected
+  ```
+
+  (`--from FILE --update-expected` takes them from a saved run instead.)
+- `baseline.json` is this machine's timings, and git-ignored. A scenario
+  with no timing there is only checked for its result, and the timing from
+  that run is saved there for later runs, so the first `pytest -m perf` on a
+  machine creates the file. Those are single runs, so for steadier timings,
+  or after an engine change, measure the baseline properly:
+
+  ```
+  .venv\Scripts\python tests\perf\benchmark.py --repeat 5 --budget 120 --save tests\perf\baseline.json
+  ```
+
+  With `-k`, `--save` replaces only those scenarios' timings in the file.
+  The file records the date, Python version, CPU and which engine was
+  imported. Delete it to start again, e.g. after a Python upgrade.
 
 ### Comparing with an older version
 
@@ -111,5 +127,6 @@ git worktree remove ..\calculatro-before
    [four-fingers.md](jokers/four-fingers.md) as a template: what the rule
    does to the patterns, why it was slow, what fixed it, and what's still
    slow. Link it from the list above.
-4. Refresh `tests/perf/baseline.json` and the tables in
-   [benchmarks.md](benchmarks.md).
+4. Add the new scenarios' results to `tests/perf/expected.json`
+   (`--update-expected`), refresh your `tests/perf/baseline.json`, and
+   update the tables in [benchmarks.md](benchmarks.md).

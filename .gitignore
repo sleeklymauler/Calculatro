@@ -3,3 +3,5 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 TODO.txt
+tests/perf/baseline.json
+docs/going-public.md
