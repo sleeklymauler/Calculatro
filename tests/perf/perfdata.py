@@ -4,7 +4,7 @@
   machine, so a change in it means the engine's answer changed.
 - baseline.json (git-ignored): this machine's timings, which test_perf.py
   compares against. benchmark.py --save writes it, and `pytest -m perf`
-  fills in any scenario it has no timing for yet.
+  won't run without it.
 """
 
 from __future__ import annotations

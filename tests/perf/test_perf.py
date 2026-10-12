@@ -2,10 +2,9 @@
 
 Each scenario in scenarios.py runs once and must give exactly the result in
 expected.json (committed), in at most SLACK times its mean in baseline.json
-(plus GRACE). baseline.json holds this machine's timings and isn't committed:
-a scenario with no timing there is only checked for its result, and its
-timing is saved there for the next run (see conftest.py). After changing the
-engine, refresh it with
+(plus GRACE). baseline.json holds this machine's timings and isn't committed;
+the run stops before it starts if a scenario has no timing there (see
+conftest.py). Measure them, and refresh them after changing the engine, with
 `.venv\\Scripts\\python tests\\perf\\benchmark.py --save tests\\perf\\baseline.json`
 (see docs/performance/README.md). The default `pytest` run skips these.
 """
@@ -32,7 +31,7 @@ GRACE = 0.1  # seconds, so millisecond scenarios don't fail on a hiccup
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s.id)
-def test_scenario(scenario: Scenario, new_timings: dict[str, dict]):
+def test_scenario(scenario: Scenario):
     expected = EXPECTED.get(scenario.id)
     if expected is None:
         pytest.fail("no expected result: check it, then run benchmark.py -k <id> --update-expected")
@@ -41,11 +40,5 @@ def test_scenario(scenario: Scenario, new_timings: dict[str, dict]):
     p = scenario.run()
     elapsed = time.perf_counter() - start
     assert str(p) == expected
-    base = BASELINE.get(scenario.id)
-    if base is None or "mean" not in base:
-        new_timings[scenario.id] = {
-            "runs": 1, "mean": elapsed, "stdev": 0.0, "median": elapsed, "min": elapsed, "max": elapsed,
-            "times": [round(elapsed, 6)], "probability": str(p),
-        }
-        return
+    base = BASELINE[scenario.id]  # conftest.py checked it's there
     assert elapsed <= SLACK * base["mean"] + GRACE, f"took {elapsed:.3f} s; baseline mean {base['mean']:.3f} s"
