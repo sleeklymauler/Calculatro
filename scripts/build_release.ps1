@@ -1,5 +1,6 @@
-# Builds the player release, dist\Calculatro-<version>.zip: the mod with its
-# own Python (the official embeddable package) and the app in its python
+# Builds the player release, dist\Calculatro-<version>-windows.zip (not
+# Calculatro-<version>.zip, the name of the "Source code" zip GitHub adds to
+# every release): the mod with its own Python (the official embeddable package) and the app in its python
 # folder, which the mod runs when there's no launch.txt. Players unzip it into
 # %AppData%\Balatro\Mods; no Python install needed.
 #
@@ -77,7 +78,7 @@ Copy-Item (Join-Path $root "calculatro\*.py") $app
 if ($LASTEXITCODE -ne 0) { throw "The bundled Python couldn't run the app" }
 Get-ChildItem $app -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
 
-$zip = Join-Path $dist "Calculatro-$version.zip"
+$zip = Join-Path $dist "Calculatro-$version-windows.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($mod, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
