@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "lupa"]
+dev = ["pytest", "lupa", "ruff"]
 
 [project.scripts]
 calculatro = "calculatro.__main__:main"
@@ -22,3 +22,29 @@ packages = ["calculatro"]
 testpaths = ["tests"]
 addopts = "-m 'not perf'"
 markers = ["perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = [".", "tests", "tests/perf"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "E731",    # lambdas assigned to names are used deliberately for small callbacks
+    "B905",    # zip() without strict=: lengths are known to match, and the engine is hot code
+    "RUF005",  # [*a, b] over a + [b]: a matter of taste
+    "SIM105",  # contextlib.suppress over try/except/pass: a matter of taste
+    "RUF059",  # unused names from unpacking, as in `rt, mod = lua`, keep the shape readable
+    "RUF023",  # sorted __slots__: they're grouped by meaning
+]
+
+[tool.ruff.lint.per-file-ignores]
+# A table of one-line checks, aligned to read as one.
+"tests/test_engine.py" = ["E701"]
+# Tests take the `lua` fixture imported from test_state as a parameter.
+"tests/test_animation.py" = ["F811"]
+"tests/test_overlay.py" = ["F811"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["calculatro.rules.Rules"]

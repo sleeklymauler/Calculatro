@@ -20,7 +20,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from itertools import product
+from itertools import pairwise, product
 from threading import Event
 
 from .engine import Cancelled, Reuse, evaluate_discard
@@ -175,7 +175,7 @@ def _relabelled(state: GameState, target: Target) -> Callable[[list[int]], objec
             return lambda k: tuple((b if x == a else a if x == b else x) if i == axis else x
                                    for i, x in enumerate(k))
         return all({shape(pattern, swapper(a, b)) for pattern in patterns} == shapes
-                   for block in blocks for a, b in zip(block, block[1:]))
+                   for block in blocks for a, b in pairwise(block))
 
     faces = (11, 12, 13)
     rank_blocks = ([[r for r in RANKS if r not in faces], list(faces)] if state.mark and not rules.pareidolia

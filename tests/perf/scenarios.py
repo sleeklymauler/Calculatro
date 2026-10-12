@@ -241,7 +241,8 @@ def _scenarios() -> list[Scenario]:
                 for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",), ("Royal Flush",),
                           ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
-                for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",), ("Full House", "Straight Flush"))]
+                for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),
+                          ("Full House", "Straight Flush"))]
     return out
 
 

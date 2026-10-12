@@ -50,16 +50,15 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cache
 from fractions import Fraction
+from functools import cache
 from itertools import combinations, repeat
 from math import comb, lcm
 from operator import gt
 from threading import Event, Lock
 
 from .cards import CardQuery
-from .hands import (WILD, ClassKey, Pattern, Requirement, Target, bell_matters, card_key, forced_patterns,
-                    suit_keys)
+from .hands import WILD, ClassKey, Pattern, Requirement, Target, bell_matters, card_key, forced_patterns, suit_keys
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -316,7 +315,8 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     """
     if not patterns:
         return 0
-    lay = _layout(tuple(patterns), tuple(masks), pool, rules, constraint, None if faces is None else tuple(faces), reuse)
+    lay = _layout(tuple(patterns), tuple(masks), pool, rules, constraint,
+                  None if faces is None else tuple(faces), reuse)
     have = [[0] * len(pattern) for pattern in lay.patterns]
     for card in kept:
         for p, q in lay.members.get(card_key(card, rules), ()):
@@ -595,7 +595,8 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
     classes, face_class, remaining, faces_left = lay.classes, lay.face_class, lay.remaining, lay.faces_left
     part_mask, part_reqs, part_need, part_bits = lay.part_mask, lay.part_reqs, lay.part_need, lay.part_bits
     part_single, single_parts = lay.part_single, lay.single_parts
-    intern, status, step, transitions, cards_needed = lay.intern, lay.status, lay.step, lay.transitions, lay.cards_needed
+    intern, status, step, transitions = lay.intern, lay.status, lay.step, lay.transitions
+    cards_needed = lay.cards_needed
     start, deferred, deferred_sets, in_deferred, join_at = (lay.start, lay.deferred, lay.deferred_sets,
                                                              lay.in_deferred, lay.join_at)
     n = len(classes)
@@ -847,7 +848,8 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
                 child_cp = table.get(cp)
                 if child_cp is None:
                     child_cp = table[cp] = step(cp, i, k)
-            total += comb(count, k) * ways(i + 1, rem - k, left, child, child_cp, fr - face_step * k)
+            # `del ways` below runs only once the search is over.
+            total += comb(count, k) * ways(i + 1, rem - k, left, child, child_cp, fr - face_step * k)  # noqa: F821
         for d in sets:
             drawn_from[d] -= drawn
         for key in keys:

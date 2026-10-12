@@ -168,7 +168,6 @@ def test_tracked_skips_unknown_repeated_and_overflowing():
 from dataclasses import replace  # noqa: E402
 from fractions import Fraction  # noqa: E402
 
-from calculatro.hands import combine  # noqa: E402
 from calculatro.search import Search  # noqa: E402
 
 

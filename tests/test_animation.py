@@ -68,7 +68,7 @@ end
 
 
 @pytest.fixture
-def anim(lua):  # noqa: F811
+def anim(lua):
     rt, mod = lua
     rt.execute(HELPERS)
     mod.clock = 100
@@ -248,7 +248,7 @@ def test_reduced_motion(anim):
     assert p.calculatro_anim is None and p.draw is None
 
 
-def test_mock_panel_is_left_alone(lua):  # noqa: F811
+def test_mock_panel_is_left_alone(lua):
     """The tests' mocked UIBox has no elements to animate."""
     rt, mod = lua
     mod.update(1.0)

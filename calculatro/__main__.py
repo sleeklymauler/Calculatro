@@ -297,8 +297,9 @@ def main(argv: list[str] | None = None) -> int:
         stop = lambda: False
         if args.game_pid is not None:
             # No console (pythonw): keep errors in a log beside the state file.
-            sys.stdout = open(os.devnull, "w", encoding="utf-8")
-            sys.stderr = open(source.path.parent / "calculatro.log", "w", encoding="utf-8", buffering=1)
+            # Open for the life of the process.
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+            sys.stderr = open(source.path.parent / "calculatro.log", "w", encoding="utf-8", buffering=1)  # noqa: SIM115
             stop = process.exited(args.game_pid)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
