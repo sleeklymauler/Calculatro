@@ -1,5 +1,7 @@
 # Calculatro
-Interactive probability calculator for Balatro
+Interactive probability calculator for Balatro.
+
+<img width="2560" height="1440" alt="Base Profile Screenshot 2026 10 12 - 11 54 24 23" src="https://github.com/user-attachments/assets/2e2a8866-32a2-41dd-955b-d6395e722c93" />
 
 ## Setup
 
