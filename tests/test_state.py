@@ -331,9 +331,14 @@ def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
 
 def test_launch_command(lua, tmp_path):
     _, mod = lua
-    assert mod.launch_command(1234) is None  # no launch.txt: the app isn't started
+    assert mod.launch_command(1234) is None  # no launch.txt or python folder: the app isn't started
     mod_dir = tmp_path / "Mods" / "Calculatro"
-    mod_dir.mkdir(parents=True)
+    (mod_dir / "python").mkdir(parents=True)
+    (mod_dir / "python" / "pythonw.exe").write_bytes(b"")
+    # A release: its own Python, with a Windows path.
+    assert tuple(mod.launch_command(1234)) == (
+        str(mod_dir / "python" / "pythonw.exe"), "-m calculatro watch --game-pid 1234")
+    # launch.txt (install_mod.ps1) takes priority.
     (mod_dir / "launch.txt").write_text(r"C:\venv\Scripts\pythonw.exe" "\r\n", encoding="utf-8")
     assert tuple(mod.launch_command(1234)) == (
         r"C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")

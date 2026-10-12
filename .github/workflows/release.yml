@@ -1,0 +1,30 @@
+# Pushing a tag like v0.1.0 tests the code, builds the player zip
+# (scripts/build_release.ps1) and attaches it to a draft GitHub release, to be
+# reviewed and published by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # to create the release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Test
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest
+      - name: Build
+        run: ./scripts/build_release.ps1 -Tag "${{ github.ref_name }}"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" (Get-ChildItem dist\Calculatro-*.zip).FullName --draft --generate-notes --title "Calculatro ${{ github.ref_name }}"
