@@ -86,11 +86,11 @@ machine:
   ```
 
   (`--from FILE --update-expected` takes them from a saved run instead.)
-- `baseline.json` is this machine's timings, and git-ignored. A scenario
-  with no timing there is only checked for its result, and the timing from
-  that run is saved there for later runs, so the first `pytest -m perf` on a
-  machine creates the file. Those are single runs, so for steadier timings,
-  or after an engine change, measure the baseline properly:
+- `baseline.json` is this machine's timings, and git-ignored.
+  `pytest -m perf` won't run until it has a timing for every scenario
+  selected: it stops at collection and prints the commands to measure the
+  missing ones. Measure it on a new machine, after adding scenarios, and
+  after an engine change:
 
   ```
   .venv\Scripts\python tests\perf\benchmark.py --repeat 5 --budget 120 --save tests\perf\baseline.json

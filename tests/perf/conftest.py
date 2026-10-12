@@ -1,35 +1,33 @@
-"""Saves the timings test_perf.py measured for scenarios with no baseline yet.
+"""Stops `pytest -m perf` before it runs if this machine has no baseline yet.
 
-The first `pytest -m perf` on a machine checks only exact results, and its
-timings become that machine's baseline.json; later runs are checked against
-them. Scenarios added since are filled in the same way.
+test_perf.py checks timings against baseline.json, which benchmark.py
+measures; a scenario selected to run with no timing there stops the whole run
+at collection, saying what to measure.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from perfdata import BASELINE_FILE, ROOT, add_results
+from perfdata import BASELINE_FILE, ROOT, load_results
 
-NEW_TIMINGS = pytest.StashKey[dict[str, dict]]()
-
-
-@pytest.fixture
-def new_timings(request: pytest.FixtureRequest) -> dict[str, dict]:
-    """Scenario id -> timing record (as benchmark.py saves them) to add to baseline.json."""
-    return request.config.stash.setdefault(NEW_TIMINGS, {})
+MEASURE = (r".venv\Scripts\python tests\perf\benchmark.py --repeat 5 --budget 120 "
+           rf"--save {BASELINE_FILE.relative_to(ROOT)}")
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
-    new = session.config.stash.get(NEW_TIMINGS, {})
-    if new:
-        add_results(BASELINE_FILE, new, source="pytest -m perf", repeat=1)
-
-
-def pytest_terminal_summary(terminalreporter, config: pytest.Config) -> None:
-    new = config.stash.get(NEW_TIMINGS, {})
-    if new:
-        terminalreporter.write_line(
-            f"perf: saved this run's timings for {len(new)} scenario(s) with none yet to "
-            f"{BASELINE_FILE.relative_to(ROOT)}; later runs are checked against them. For steadier ones, run "
-            f"benchmark.py --repeat 5 --budget 120 --save {BASELINE_FILE.relative_to(ROOT)}")
+@pytest.hookimpl(trylast=True)  # after -m and -k have deselected what won't run
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    ids = [item.callspec.params["scenario"].id for item in items
+           if item.get_closest_marker("perf") and hasattr(item, "callspec")]
+    if not ids:
+        return
+    baseline = load_results(BASELINE_FILE)
+    missing = [id for id in ids if "mean" not in baseline.get(id, {})]
+    if not baseline:
+        pytest.exit(f"perf: no timings in {BASELINE_FILE.relative_to(ROOT)} yet; measure them first:\n  {MEASURE}",
+                    returncode=pytest.ExitCode.USAGE_ERROR)
+    if missing:
+        lines = "\n".join(f'  {MEASURE} -k "{id}"' for id in missing)
+        pytest.exit(f"perf: {len(missing)} scenario(s) have no timing in {BASELINE_FILE.relative_to(ROOT)}; "
+                    f"measure them first (with -k, --save adds to the file):\n{lines}",
+                    returncode=pytest.ExitCode.USAGE_ERROR)
