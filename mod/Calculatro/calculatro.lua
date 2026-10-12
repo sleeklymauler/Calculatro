@@ -644,14 +644,24 @@ end
 -- Starting the app
 ---------------------------------------------------------------------------
 -- install_mod.ps1 leaves the Python interpreter to run (the venv's
--- pythonw.exe) in the mod's launch.txt. The app exits with the game (by its
--- pid), and on its own if one is already running.
+-- pythonw.exe) in the mod's launch.txt. Without one, a release's own Python
+-- (build_release.ps1 puts it and the app in the mod's python folder) is run if
+-- it's there. The app exits with the game (by its pid), and on its own if one
+-- is already running.
 function Calculatro.launch_command(pid)
+    local exe
     local f = io.open(save_path('Mods/Calculatro/launch.txt'), 'rb')
-    if not f then return end
-    local exe = (f:read('*l') or ''):match('^%s*(.-)%s*$')
-    f:close()
-    if exe == '' then return end
+    if f then
+        exe = (f:read('*l') or ''):match('^%s*(.-)%s*$')
+        f:close()
+        if exe == '' then return end
+    else
+        exe = save_path('Mods/Calculatro/python/pythonw.exe')
+        f = io.open(exe, 'rb')
+        if not f then return end
+        f:close()
+        exe = exe:gsub('/', '\\')
+    end
     return exe, '-m calculatro watch --game-pid ' .. string.format('%d', pid)
 end
 
