@@ -8,7 +8,7 @@ Interactive probability calculator for Balatro on Windows.
   - Also supports the secret hands: five of a kind, flush house, and flush five.
 - Calculate the probability of drawing specific card types (e.g. 2+ red seals, exactly 1 Lucky card, at most 3 face cards, etc.) for a given discard selection.
 - Find the optimal discard selection for a target hand.
-- No cheating. The deck is exported by the mod to the app as a multiset: draw order is never leaked, and face-down cards in hand are hidden.
+- No cheating. The deck is exported by the mod to the app as a multiset: draw order is never leaked, and face-down cards in hand are hidden. All probabilities could be calculated by hand by the player, as all information needed to do so is already available in-game.
 - Joker aware: probabilities are accurate when using Jokers like **Four Fingers**, **Shortcut**, **Smeared Joker**, and **Pareidolia**. See [docs/jokers.md](docs/jokers.md#rules-that-matter-to-calculatro).
 - Boss blind aware:
   - Strikes out hands that can't score when facing **The Eye** or **The Mouth**.
