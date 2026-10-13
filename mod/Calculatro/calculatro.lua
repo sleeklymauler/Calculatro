@@ -285,8 +285,7 @@ local function build_options()
     for _, name in ipairs({ 'Jack', 'Queen', 'King', 'Ace' }) do
         ranks[#ranks + 1] = { text = name, query = name:lower(), name = name, short = name:sub(1, 1) }
     end
-    -- A face card can't have a suit in the query language.
-    ranks[#ranks + 1] = { text = 'Face', query = 'face', name = 'Face card', face = true }
+    ranks[#ranks + 1] = { text = 'Face', query = 'face', name = 'Face card', short = 'Face ' }
 
     local suits = { any }
     for _, suit in ipairs({ 'Spades', 'Hearts', 'Clubs', 'Diamonds' }) do
@@ -324,11 +323,11 @@ Calculatro.OPTIONS = OPTIONS
 -- The builder's choices, as indexes into OPTIONS (count is the number).
 Calculatro.builder = { cmp = 1, count = 1, rank = 1, suit = 1, special = 1 }
 
--- The chosen rank, suit and special; the suit is Any with a face card.
+-- The chosen comparison, rank, suit and special.
 local function builder_choice()
     local b = Calculatro.builder
     local rank = OPTIONS.rank[b.rank]
-    local suit = rank.face and OPTIONS.suit[1] or OPTIONS.suit[b.suit]
+    local suit = OPTIONS.suit[b.suit]
     return OPTIONS.cmp[b.cmp], rank, suit, OPTIONS.special[b.special]
 end
 
@@ -1261,7 +1260,7 @@ function Calculatro.editor_model()
     local query, name = Calculatro.builder_query()
     model.builder = {
         cmp = cmp.text, count = tostring(Calculatro.builder.count), rank = rank.text, suit = suit.text,
-        special = special.text, suit_off = rank.face or nil, add = name,
+        special = special.text, add = name,
         can_add = (query and not set_of(t.cards, 'query')[query] and Calculatro.can_add_card()) or nil,
     }
     local pages = math.max(1, math.ceil(#t.cards / CARDS_PER_PAGE))
@@ -1328,7 +1327,7 @@ local function cards_tab(model)
         field('Count', { builder_cycle('cmp', b.cmp, CMP_W, true), blank(COUNT_GAP),
                          builder_cycle('count', b.count, COUNT_W, true) }),
         field('Rank', { builder_cycle('rank', b.rank, OPTION_W, true) }),
-        field('Suit', { builder_cycle('suit', b.suit, OPTION_W, not b.suit_off) }),
+        field('Suit', { builder_cycle('suit', b.suit, OPTION_W, true) }),
         field('Special', { builder_cycle('special', b.special, OPTION_W, true) }),
     }
     local add = button(

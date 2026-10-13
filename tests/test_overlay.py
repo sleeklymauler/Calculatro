@@ -157,7 +157,7 @@ def test_percent_never_rounds_to_certainty():
 def test_card_labels_are_short_and_ascii_but_for_suits():
     labels = {q: label_for(q) for q in
               ["2+ queens", "at most 1 spade", "no face cards", "exactly 2 hearts", "QS", "at most 0 clubs",
-               "foil diamonds", "10 of hearts"]}
+               "foil diamonds", "10 of hearts", "no face spades"]}
     assert labels == {
         "2+ queens": "Queen: 2+",
         "at most 1 spade": "♠: 0-1",
@@ -167,6 +167,7 @@ def test_card_labels_are_short_and_ascii_but_for_suits():
         "at most 0 clubs": "♣: none",
         "foil diamonds": "Foil ♦: 1+",
         "10 of hearts": "T♥: 1+",
+        "no face spades": "Face ♠: none",
     }
 
 
@@ -206,8 +207,6 @@ def test_builder_queries_parse_as_labelled(lua):
         assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
         if rank != "Any":
             assert re.search(rf"\b{rank.lower()}\b", query), query
-        if rank == "Face":
-            assert not any(s in query for s in ("spade", "heart", "club", "diamond")), query  # no suit for faces
     for cmp, (lo, hi) in [(1, (1, 8)), (2, (0, 8)), (3, (0, 7))]:
         for n in range(lo, hi + 1):
             query, label = builder_queries(lua, [(cmp, n)])[5 * 20][:2]  # rank 2, any suit and special
@@ -1021,14 +1020,13 @@ def test_cards_tab_adds_queries(lua, tmp_path):
     assert [q.text for q in queries] == ["at least 2 lucky queen of spades"]
 
 
-def test_face_cards_take_no_suit(lua, tmp_path):
+def test_face_cards_take_a_suit(lua, tmp_path):
     rt, mod = cards_tab(lua, tmp_path)
-    set_builder(lua, "suit", "Hearts")
     set_builder(lua, "rank", "Face")
-    assert option(rt, "suit") == "Any" and find(rt, "calculatro_suit_next").config.button is None
     assert "Add  Face card: 1+@light" in panel_texts(rt)
-    set_builder(lua, "rank", "Any")  # the suit comes back
-    assert option(rt, "suit") == "Hearts"
+    set_builder(lua, "suit", "Hearts")
+    assert option(rt, "suit") == "Hearts" and find(rt, "calculatro_suit_next").config.button is not None
+    assert mod.builder_query() == ("at least 1 face of hearts", "Face ♥: 1+")
 
 
 def test_tracked_cards_page_five_at_a_time(lua, tmp_path):

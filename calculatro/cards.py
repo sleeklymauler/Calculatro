@@ -1,6 +1,6 @@
 """Card-count queries over the cards drawn after a discard.
 
-Examples: "queen", "2+ queens", "at least 2 queens", "no face cards",
+Examples: "queen", "2+ queens", "at least 2 queens", "no face cards", "face of spades",
 "exactly 1 spade", "<=1 heart", "2 of clubs", "2c", "QS", "lucky", "2+ mult cards",
 "red seal", "foil hearts", "lucky red seal queen".
 
@@ -159,6 +159,12 @@ def _parse_base(t: str, text: str) -> CardFilter:
     t = _singular(t)
     if t == "face":
         return CardFilter("Face card", _is_face)
+    # A suited face card: "face of spades" or "face spade".
+    m = re.fullmatch(r"face(?:\s+of)?\s+(\S+)", t)
+    if m and _singular(m[1]) in _SUIT_WORDS:
+        s = _SUIT_WORDS[_singular(m[1])]
+        return CardFilter("Face " + SUIT_SHORT[s], lambda c, rules, s=s:
+                          _is_face(c, rules) and _has_suit(c, s, rules))
     if t in _RANK_WORDS:
         r = _RANK_WORDS[t]
         return CardFilter(_rank_name(r), lambda c, rules, r=r: _has_rank(c, r, rules))
@@ -178,7 +184,7 @@ def _parse_base(t: str, text: str) -> CardFilter:
                               _has_rank(c, r, rules) and _has_suit(c, s, rules))
     raise ValueError(
         f"unknown card filter {text!r}; use a rank (queen, Q, 10), suit (spade), "
-        "specific card (2 of clubs, 2C), 'face', or a modifier (lucky, mult, foil, "
+        "specific card (2 of clubs, 2C), 'face' (face of spades), or a modifier (lucky, mult, foil, "
         "polychrome, red seal, enhanced, ...) optionally followed by one of those"
     )
 

@@ -43,6 +43,9 @@ def matches(text: str, c: Card, rules: Rules = Rules()) -> bool:
     (">1 queen", "Queen: at least 2"),
     ("no face cards", "Face card: none"),
     ("0 face", "Face card: none"),
+    ("face of spades", "Face ♠: at least 1"),
+    ("2+ face hearts", "Face ♥: at least 2"),
+    ("lucky face of clubs", "Lucky Face ♣: at least 1"),
     ("at most 1 spade", "Spade: at most 1"),
     ("<2 spades", "Spade: at most 1"),
     ("exactly 1 heart", "Heart: exactly 1"),
@@ -97,6 +100,8 @@ def test_match_rules():
     assert not matches("face", card(14, "Clubs"))
     assert not matches("face", card(11, "Clubs", debuff=True))
     assert matches("5 of spades", wild)
+    assert matches("face of spades", card(12, "Spades")) and not matches("face of spades", card(12, "Hearts"))
+    assert not matches("face of spades", card(9, "Spades")) and matches("face of hearts", card(13, "Clubs", "m_wild"))
 
 
 def test_smeared_suits():
@@ -125,6 +130,9 @@ def test_pareidolia_faces(rules):
     assert matches("foil face", card(2, "Spades", edition="foil"), rules) == rules.pareidolia
     assert not matches("foil face", card(12, "Spades"), rules)
     assert not matches("face card", card(12, "Spades", debuff=True), rules)
+    # A suited face card needs the suit too, which a Stone Card lacks.
+    assert matches("face of spades", card(2, "Spades"), rules) == rules.pareidolia
+    assert not matches("face of spades", card(12, "Spades", "m_stone"), rules)
 
 
 def test_modifier_rules():
