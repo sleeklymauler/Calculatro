@@ -7,10 +7,11 @@ Examples: "queen", "2+ queens", "at least 2 queens", "no face cards", "face of s
 Modifiers (enhancement, edition, seal) go before an optional rank/suit/card
 filter and are ANDed with it: "foil queen" is a Queen with the Foil edition.
 
-A bare count means "at least" ("2 queens" = at least 2); "no"/"zero"/"0"
-means none. Suits follow Balatro's flush rules: Wild Cards (unless
-debuffed) count as every suit, Stone Cards have no rank or suit, and with
-Smeared Joker a card counts as both suits of its colour.
+A bare count means "at least" ("2 queens" = at least 2), and counts may be
+spelled out ("two queens"); "no"/"zero"/"0" means none. Suits follow
+Balatro's flush rules: Wild Cards (unless debuffed) count as every suit,
+Stone Cards have no rank or suit, and with Smeared Joker a card counts as
+both suits of its colour.
 Face cards follow `Card:is_face`: a debuffed card is never a face card, and
 with Pareidolia every other card is one, Stone Cards included.
 """
@@ -32,6 +33,7 @@ _RANK_WORDS = {
     "seven": 7, "eight": 8, "nine": 9, "ten": 10,
     "twos": 2, "threes": 3, "fours": 4, "fives": 5, "sixes": 6,
     "sevens": 7, "eights": 8, "nines": 9, "tens": 10,
+    "jacks": 11, "queens": 12, "kings": 13, "aces": 14,
 }
 _RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
 _SUIT_WORDS = {
@@ -159,8 +161,8 @@ def _parse_base(t: str, text: str) -> CardFilter:
     t = _singular(t)
     if t == "face":
         return CardFilter("Face card", _is_face)
-    # A suited face card: "face of spades" or "face spade".
-    m = re.fullmatch(r"face(?:\s+of)?\s+(\S+)", t)
+    # A suited face card: "face of spades", "face spade" or "face cards of spades".
+    m = re.fullmatch(r"faces?(?:\s+cards?)?(?:\s+of)?\s+(\S+)", t)
     if m and _singular(m[1]) in _SUIT_WORDS:
         s = _SUIT_WORDS[_singular(m[1])]
         return CardFilter("Face " + SUIT_SHORT[s], lambda c, rules, s=s:
@@ -189,12 +191,23 @@ def _parse_base(t: str, text: str) -> CardFilter:
     )
 
 
+_NUMBER_WORDS = {w: n for n, w in enumerate([
+    "zero", "one", "two", "three", "four", "five", "six",
+    "seven", "eight", "nine", "ten", "eleven", "twelve",
+])}
+_NUMBER = r"(\d+|" + "|".join(_NUMBER_WORDS) + ")"
+
+
+def _number(word: str) -> int:
+    return _NUMBER_WORDS[word] if word in _NUMBER_WORDS else int(word)
+
+
 _COUNT_PATTERNS = [
-    (r"(?:at\s+least|>=)\s*(\d+)\s+", ">=", 0),
-    (r">\s*(\d+)\s+", ">=", 1),
-    (r"(?:at\s+most|<=)\s*(\d+)\s+", "<=", 0),
-    (r"<\s*(\d+)\s+", "<=", -1),
-    (r"(?:exactly|==?)\s*(\d+)\s+", "==", 0),
+    (rf"(?:at\s+least|>=)\s*{_NUMBER}\s+", ">=", 0),
+    (rf">\s*{_NUMBER}\s+", ">=", 1),
+    (rf"(?:at\s+most|<=)\s*{_NUMBER}\s+", "<=", 0),
+    (rf"<\s*{_NUMBER}\s+", "<=", -1),
+    (rf"(?:exactly|==?)\s*{_NUMBER}\s+", "==", 0),
     (r"(\d+)\+\s*", ">=", 0),
 ]
 
@@ -212,16 +225,16 @@ def _parse_query(text: str) -> CardQuery:
     for pattern, op, adjust in _COUNT_PATTERNS:
         m = re.match(pattern, t)
         if m:
-            count = int(m[1]) + adjust
+            count = _number(m[1]) + adjust
             if count < 0:
                 raise ValueError(f"impossible count in {text!r}")
             return CardQuery(parse_filter(t[m.end():]), op, count)
     m = re.match(r"(?:no|zero|none)\s+", t)
     if m:
         return CardQuery(parse_filter(t[m.end():]), "==", 0)
-    m = re.match(r"(\d+)\s+", t)
+    m = re.match(rf"{_NUMBER}\s+", t)
     if m:
-        count = int(m[1])
+        count = _number(m[1])
         return CardQuery(parse_filter(t[m.end():]), "==" if count == 0 else ">=", count)
-    m = re.match(r"(?:an?|any|one)\s+", t)
+    m = re.match(r"(?:an?|any)\s+", t)
     return CardQuery(parse_filter(t[m.end():] if m else t), ">=", 1)

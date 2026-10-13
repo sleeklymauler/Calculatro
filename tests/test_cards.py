@@ -80,6 +80,23 @@ def matches(text: str, c: Card, rules: Rules = Rules()) -> bool:
     ("wild", "Wild card: at least 1"),
     ("red", None),
     ("lucky purple", None),
+    ("2 kings of hearts", "K♥: at least 2"),
+    ("queens of spades", "Q♠: at least 1"),
+    ("aces of hearts", "A♥: at least 1"),
+    ("no queens of spades", "Q♠: none"),
+    ("jacks of clubs", "J♣: at least 1"),
+    ("face cards of spades", "Face ♠: at least 1"),
+    ("2 face cards of hearts", "Face ♥: at least 2"),
+    ("face card of diamonds", "Face ♦: at least 1"),
+    ("lucky face cards of clubs", "Lucky Face ♣: at least 1"),
+    ("two aces", "Ace: at least 2"),
+    ("three kings", "King: at least 3"),
+    ("at least two queens", "Queen: at least 2"),
+    ("exactly one heart", "Heart: exactly 1"),
+    ("at most three spades", "Spade: at most 3"),
+    ("one queen", "Queen: at least 1"),
+    ("two twos", "2: at least 2"),
+    ("two of hearts", "2♥: at least 1"),
 ])
 def test_parse(text, label):
     if label is None:
