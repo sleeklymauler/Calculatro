@@ -1,7 +1,7 @@
-# Calculatro
-Interactive probability calculator for Balatro on Windows.
 
-<img width="2560" height="1440" alt="The Calculatro odds panel above the deck during a blind" src="https://github.com/user-attachments/assets/2e2a8866-32a2-41dd-955b-d6395e722c93" />
+# Calculatro
+
+<img width="1280" height="640" alt="B · Pocket Calculator@1x" src="https://github.com/user-attachments/assets/f38edcbf-dfbd-4ccd-a189-71abfaaf7476" />
 
 ## Features
 - Calculate the probability of getting a target hand (e.g. two pair, flush, straight, etc.) for a given discard selection.
@@ -57,6 +57,17 @@ other files there alone: they're Balatro's settings and saves.
   other mods you have installed.
 
 ## Usage
+- Choose what to track in game by selecting the `+` button. Switch between the `Hands` and `Cards` tab to track specific hand or card types.
+- Click on specific hands in the `Hands` tab to toggle tracking. Or, remove tracked hands by clicking the red `X`'s.
+
+ddd
+
+<img width="426" height="240" alt="demo_hands" src="https://github.com/user-attachments/assets/2dd53a4e-fde8-4b8d-845d-c91baa92eab3" />
+
+ddd
+
+![alt text](https://github.com/user-attachments/assets/2dd53a4e-fde8-4b8d-845d-c91baa92eab3)
+
 
 Choose what to track in game: press the `+` beside "CALCULATRO" on the panel above the deck. Its Hands tab
 toggles target hands; its Cards tab builds card counts (a count, rank, suit and special) and lists the tracked
