@@ -61,6 +61,9 @@ other files there alone: they're Balatro's settings and saves.
 - Click on specific hands in the `Hands` tab to toggle tracking. Or, remove tracked hands by clicking the red `X`'s.
 <img width="426" height="240" alt="demo_hands" src="https://github.com/user-attachments/assets/2dd53a4e-fde8-4b8d-845d-c91baa92eab3" />
 
+- Build custom card types to track in the `Cards` tab. You can filter by rank, suit, and special, and get probabilities for at least, at most, or exact card counts.
+<img width="426" height="240" alt="demo_cards" src="https://github.com/user-attachments/assets/98fa9f63-6a1c-4c38-9843-9a3c12490990" />
+
 
 
 Choose what to track in game: press the `+` beside "CALCULATRO" on the panel above the deck. Its Hands tab
