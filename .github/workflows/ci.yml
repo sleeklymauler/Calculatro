@@ -1,12 +1,22 @@
-# Lint and tests on every pull request and every push to main. The tests run on
-# the oldest Python pyproject.toml supports and the one releases bundle. The
-# performance tests aren't run: shared runners' timings are too noisy.
+# Lint and tests on every pull request, and on pushes to main that change more
+# than docs. The tests run on the oldest Python pyproject.toml supports and the
+# one releases bundle. The performance tests aren't run: shared runners' timings
+# are too noisy.
 name: CI
 
 on:
+  # Not filtered by path: the ruleset requires these checks, and a pull request
+  # whose checks never run can't be merged.
   pull_request:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/CODEOWNERS"
+      - ".github/dependabot.yml"
 
 concurrency:  # a newer push to the same branch or PR cancels the older run
   group: ${{ github.workflow }}-${{ github.ref }}
