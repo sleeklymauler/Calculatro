@@ -61,7 +61,7 @@ G = {
   ASSET_ATLAS = {ui_1 = 'ui_1', ui_2 = 'ui_2'},
   SETTINGS = {colourblind_option = false},
   C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
-       WHITE = 'white', GREEN = 'green', RED = 'red', BLUE = 'blue', ORANGE = 'orange', GREY = 'grey',
+       WHITE = 'white', GREEN = 'green', RED = 'red', BLUE = 'blue', ORANGE = 'orange', GOLD = 'gold', GREY = 'grey',
        L_BLACK = 'l_black', CLEAR = 'clear', BLACK = {0.2, 0.4, 0.6, 1},
        DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
   FUNCS = {},

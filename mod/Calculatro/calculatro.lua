@@ -260,6 +260,20 @@ function Calculatro.add_card(query, label, about)
     return true
 end
 
+-- Puts a card query in the place of a tracked one, `old`, unless it's
+-- tracked already; returns whether it did.
+function Calculatro.replace_card(old, query, label, about)
+    local cards = Calculatro.tracked().cards
+    if query ~= old and set_of(cards, 'query')[query] then return false end
+    for i, c in ipairs(cards) do
+        if c.query == old then
+            cards[i] = { query = query, label = label, about = about }
+            return true
+        end
+    end
+    return false
+end
+
 function Calculatro.remove_card(query)
     local cards = Calculatro.tracked().cards
     for i, c in ipairs(cards) do
@@ -539,6 +553,67 @@ function Calculatro.toggle_suit(s)
     local b = Calculatro.builder
     b.suits[s] = not b.suits[s] or nil
     if next(b.suits) == nil then b.suits = all_suits() end
+end
+
+-- Words of a query part joined by " or " ("queen or king"), as a list.
+local function or_words(text)
+    local words = {}
+    for word in (text .. ' or '):gmatch('(.-) or ') do words[#words + 1] = word end
+    return words
+end
+
+local RANK_WORDS, SUIT_WORDS = {}, {}
+for r = 2, 14 do RANK_WORDS[RANKS[r].query] = { r } end
+for _, p in ipairs(OPTIONS.preset) do
+    if p.query then RANK_WORDS[p.query] = p.ranks end
+end
+for _, s in ipairs(SUITS) do SUIT_WORDS[s:lower()] = s end
+
+-- The builder's choices that make `query`, so a tracked query can be edited;
+-- nil unless it's one builder_query makes (it must give the query back).
+function Calculatro.builder_for(query)
+    local b = { cmp = 1, count = 1, high = 2, ranks = {}, suits = {}, special = 1, negate = false }
+    local rest
+    for i, cmp in ipairs(OPTIONS.cmp) do
+        if query:sub(1, #cmp.query + 1) == cmp.query .. ' ' then b.cmp, rest = i, query:sub(#cmp.query + 2) end
+    end
+    if not rest then return nil end
+    local count, high
+    if OPTIONS.cmp[b.cmp].query == 'between' then
+        count, high, rest = rest:match('^(%d+) and (%d+) (.*)$')
+    else
+        count, rest = rest:match('^(%d+) (.*)$')
+    end
+    if not rest then return nil end
+    b.count, b.high = tonumber(count), tonumber(high) or math.min(8, tonumber(count) + 1)
+    if rest:sub(1, 4) == 'not ' then b.negate, rest = true, rest:sub(5) end
+    -- The longest special that starts it: "gold seal" rather than "gold".
+    for i, s in ipairs(OPTIONS.special) do
+        if s.query and (rest == s.query or rest:sub(1, #s.query + 1) == s.query .. ' ')
+                and (b.special == 1 or #s.query > #OPTIONS.special[b.special].query) then
+            b.special = i
+        end
+    end
+    if b.special > 1 then rest = rest:sub(#OPTIONS.special[b.special].query + 2) end
+    local ranks, suits = rest:match('^(.-) of (.*)$')
+    if not ranks and rest ~= '' then
+        ranks = rest
+        if SUIT_WORDS[or_words(rest)[1]] then ranks, suits = nil, rest end
+    end
+    for _, word in ipairs(ranks and or_words(ranks) or {}) do
+        if not RANK_WORDS[word] then return nil end
+        for _, r in ipairs(RANK_WORDS[word]) do b.ranks[r] = true end
+    end
+    for _, word in ipairs(suits and or_words(suits) or {}) do
+        if not SUIT_WORDS[word] then return nil end
+        b.suits[SUIT_WORDS[word]] = true
+    end
+    if next(b.suits) == nil then b.suits = all_suits() end
+    local current = Calculatro.builder
+    Calculatro.builder = b
+    local made = Calculatro.builder_query()
+    Calculatro.builder = current
+    return made == query and b or nil
 end
 
 ---------------------------------------------------------------------------
@@ -947,7 +1022,8 @@ function Calculatro.panel_model()
     for _, c in ipairs(t.cards) do
         local o = card_odds[c.query] or {}
         model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about, discard = o.discard,
-                                          trend = o.trend, search = search_state(c.query) }
+                                          trend = o.trend, search = search_state(c.query),
+                                          editable = Calculatro.builder_for(c.query) and true or nil }
     end
     return model
 end
@@ -961,6 +1037,9 @@ local CARD_NAME_W = NAME_W + VALUE_W + GAP_W
 local REMOVE_W = 0.3  -- each row ends with an x button that stops tracking it
 local SEARCH_W = 0.3  -- before it, the best-discard search button
 local COLUMN_W = CARD_NAME_W + DISCARD_W + SEARCH_W + REMOVE_W
+-- Card query rows have a pencil between the two that edits the query; it
+-- comes out of their names' width.
+local EDIT_W = 0.3
 local TITLE_W, PLUS_W, COLUMN_GAP = 1.6, 0.35, 0.2
 -- Fits "Calculating..." and "Waiting for app" beside the
 -- title and its + button.
@@ -1236,6 +1315,7 @@ end
 
 local CROSS = { '#...#', '.#.#.', '..#..', '.#.#.', '#...#' }
 local MAGNIFIER = { '.##...', '#..#..', '#..#..', '.##...', '....#.', '.....#' }
+local PENCIL = { '....##', '...###', '..###.', '.###..', '.##...', '#.....' }
 
 -- Room above and below text in the editor's boxes: m6x11's descenders (g,
 -- p, y) hang below a text node's box, so they'd poke out of a box only as
@@ -1284,6 +1364,17 @@ local function search_cell(t, colours)
     } }
 end
 
+-- The pencil that opens the editor on a card query, to change it: on the
+-- one being edited (`editing`), it's outlined and stops editing it. Dark and
+-- inert for queries the builder didn't make.
+local function edit_cell(c, colours, editing)
+    local action = c.editable and { 'edit', c.key } or nil
+    return { n = G.UIT.C, config = { align = 'cr', minw = EDIT_W }, nodes = {
+        button({ glyph('edit', PENCIL, action and G.C.UI.TEXT_LIGHT or colours.muted) }, action,
+               { id = 'calculatro_edit_' .. c.key, w = 0.2, h = 0.2, colour = G.C.GOLD, outline = editing and 1 or nil }),
+    } }
+end
+
 -- The odds rows in sections, each filling columns of its own: the target
 -- hands (kind 'hands'), then the card queries ('cards'). Empty
 -- sections are left out. Each row is a function building it.
@@ -1313,9 +1404,10 @@ local function sections(model, colours)
     for _, c in ipairs(model.cards) do
         cards[#cards + 1] = function()
             return row({
-                card_name_cell(c, CARD_NAME_W),
+                card_name_cell(c, CARD_NAME_W - EDIT_W),
                 cell(DISCARD_W, 'cr', value(c.discard, trend_colour(c))),
                 search_cell(c, colours),
+                edit_cell(c, colours),
                 remove_cell(c.key, { 'remove_card', c.key }),
             }, { calculatro_anim = 'card:' .. c.key })
         end
@@ -1406,8 +1498,8 @@ function Calculatro.definition(model, per)
         local discard = cell(DISCARD_W, 'cr', label('Discard', colours.muted))
         local config = { calculatro_anim = 'header:' .. kind .. ':' .. n }
         if kind == 'cards' then
-            return row({ cell(CARD_NAME_W, 'cl', label('In hand', colours.muted)), discard, blank(SEARCH_W),
-                         blank(REMOVE_W) }, config)
+            return row({ cell(CARD_NAME_W - EDIT_W, 'cl', label('In hand', colours.muted)), discard, blank(SEARCH_W),
+                         blank(EDIT_W), blank(REMOVE_W) }, config)
         end
         return row({
             cell(NAME_W, 'cl', label('Hands', colours.muted)),
@@ -1509,6 +1601,15 @@ function Calculatro.editor_model()
     local b = Calculatro.builder
     local cmp, special = OPTIONS.cmp[b.cmp], OPTIONS.special[b.special]
     local query, name = Calculatro.builder_query()
+    local tracked = set_of(t.cards, 'query')
+    if not tracked[editor.editing] then editor.editing = nil end
+    -- Editing, Add saves the query in the edited one's place.
+    local can_add
+    if editor.editing then
+        can_add = query and query ~= editor.editing and not tracked[query]
+    else
+        can_add = query and not tracked[query] and Calculatro.can_add_card()
+    end
     local ranks, suits = array(), array()
     for r = 2, 14 do ranks[#ranks + 1] = { key = r, text = RANKS[r].chip, on = b.ranks[r] or nil } end
     for i, s in ipairs(SUITS) do suits[i] = { key = s, on = b.suits[s] or nil } end
@@ -1516,13 +1617,16 @@ function Calculatro.editor_model()
         cmp = cmp.text, count = tostring(b.count), high = cmp.query == 'between' and tostring(b.high) or nil,
         preset = Calculatro.rank_choice(), ranks = ranks, suits = suits,
         special = special.text, negate = b.negate or nil, can_negate = special.query and true or nil, add = name,
-        can_add = (query and not set_of(t.cards, 'query')[query] and Calculatro.can_add_card()) or nil,
+        can_add = can_add or nil, save = editor.editing and true or nil,
     }
     local pages = math.max(1, math.ceil(#t.cards / CARDS_PER_PAGE))
     editor.page = math.max(1, math.min(editor.page or 1, pages))
     model.page, model.pages, model.cards = editor.page, pages, array()
     for i = (editor.page - 1) * CARDS_PER_PAGE + 1, math.min(#t.cards, editor.page * CARDS_PER_PAGE) do
-        model.cards[#model.cards + 1] = { key = t.cards[i].query, name = t.cards[i].label, about = t.cards[i].about }
+        local c = t.cards[i]
+        model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about,
+                                          editable = Calculatro.builder_for(c.query) and true or nil,
+                                          editing = c.query == editor.editing or nil }
     end
     return model
 end
@@ -1613,16 +1717,18 @@ local function cards_tab(model)
         field('Special', { negate, builder_cycle('special', b.special, OPTION_W, true) }),
     }
     local add = button(
-        { name_label(Calculatro.fit_label(b.add and 'Add  ' .. b.add or 'Add', ADD_W, SCALE),
+        { name_label(Calculatro.fit_label((b.save and 'Save' or 'Add') .. (b.add and '  ' .. b.add or ''), ADD_W, SCALE),
                      function(text) return plain(text, add_text) end) },
-        b.can_add and { 'add_card' } or nil,
+        b.can_add and { b.save and 'save_card' or 'add_card' } or nil,
         { id = 'calculatro_add', w = ADD_W, colour = C.GREEN, padded = true })
 
     local builder_w = b.high and RANGE_ROW_W or CHIPS_W
-    local name_w = CARD_NAME_W + BUILDER_W - builder_w
+    local name_w = CARD_NAME_W + BUILDER_W - builder_w - EDIT_W - ROW_PAD
     local list = {}
+    local colours = { muted = C.JOKER_GREY }
     for _, c in ipairs(model.cards) do
-        list[#list + 1] = row({ card_name_cell(c, name_w), remove_cell(c.key, { 'remove_card', c.key }) },
+        list[#list + 1] = row({ card_name_cell(c, name_w), edit_cell(c, colours, c.editing),
+                                remove_cell(c.key, { 'remove_card', c.key }) },
                               { calculatro_anim = 'listed:' .. c.key })
     end
     if #list == 0 then list[1] = row({ label('Nothing tracked', C.JOKER_GREY) }, { calculatro_anim = 'listed:none' }) end
@@ -1667,6 +1773,27 @@ function Calculatro.editor_definition(model)
     })
 end
 
+-- Opens the editor on the Cards tab, on a tracked card query's page, with
+-- the builder set to make it, so that Save puts what it's changed to in its
+-- place. Again on the query being edited, it stops editing (the builder
+-- keeps its choices, to add as another).
+function Calculatro.edit(query)
+    local builder = Calculatro.builder_for(query)
+    if not builder then return end
+    local editor = Calculatro.editor
+    if editor and editor.editing == query then
+        editor.editing = nil
+        return
+    end
+    local index
+    for i, c in ipairs(Calculatro.tracked().cards) do
+        if c.query == query then index = i end
+    end
+    if not index then return end
+    Calculatro.builder, Calculatro.editor_tab = builder, 'cards'
+    Calculatro.editor = { tab = 'cards', page = math.ceil(index / CARDS_PER_PAGE), editing = query }
+end
+
 -- What the panel's buttons do: Calculatro.act{name, argument}.
 Calculatro.actions = {
     open = function() Calculatro.editor = { tab = Calculatro.editor_tab, page = 1 } end,
@@ -1676,6 +1803,7 @@ Calculatro.actions = {
     remove_hand = function(name) Calculatro.remove_hand(name) end,
     remove_card = function(query) Calculatro.remove_card(query) end,
     search = function(key) Calculatro.search(key) end,
+    edit = function(query) Calculatro.edit(query) end,
     cycle = function(arg) Calculatro.cycle(arg[1], arg[2]) end,
     toggle_rank = function(r) Calculatro.toggle_rank(r) end,
     toggle_suit = function(s) Calculatro.toggle_suit(s) end,
@@ -1685,6 +1813,12 @@ Calculatro.actions = {
         local query, name = Calculatro.builder_query()
         if query and Calculatro.add_card(query, name, Calculatro.builder_about()) and Calculatro.editor then
             Calculatro.editor.page = math.ceil(#Calculatro.tracked().cards / CARDS_PER_PAGE)
+        end
+    end,
+    save_card = function()
+        local query, name = Calculatro.builder_query()
+        if query and Calculatro.replace_card(Calculatro.editor.editing, query, name, Calculatro.builder_about()) then
+            Calculatro.editor.editing = nil
         end
     end,
     page = function(dir)
@@ -1697,7 +1831,7 @@ Calculatro.actions = {
 function Calculatro.act(action)
     if type(action) ~= 'table' or not Calculatro.actions[action[1]] then return end
     -- Buttons of a panel being replaced can still be clicked for a frame.
-    if (action[1] == 'tab' or action[1] == 'page') and not Calculatro.editor then return end
+    if (action[1] == 'tab' or action[1] == 'page' or action[1] == 'save_card') and not Calculatro.editor then return end
     Calculatro.actions[action[1]](action[2])
 end
 

@@ -246,6 +246,28 @@ def test_builder_queries_parse_as_labelled(lua):
         assert (q.op, q.count, q.high, label) == (op, count[1], count[2] if op == "between" else None, label_for(q))
 
 
+def test_builder_reads_back_its_queries(lua):
+    # Each query the builder makes sets it to choices that make that query
+    # again, so tracked queries can be edited; others can't.
+    _, mod = lua
+    counts = [(1, 2), (2, 0), (3, 7), (4, 1, 3)]
+    queries = [q for q, *_ in builder_queries(lua, counts) if q]
+    made = lua[0].execute("""return function(mod, queries)
+        local out = {}
+        for i, q in ipairs(queries) do
+            local b = mod.builder_for(q)
+            if b then mod.builder = b end
+            out[i] = b and mod.builder_query() or false
+        end
+        mod.reset_builder()
+        return out
+    end""")(mod, lua[0].table_from(queries))
+    assert list(made.values()) == queries
+    for query in ("QS", "queen", "2+ queens", "at least 1 queens", "at least 1 not queen", "exactly 2 of spades",
+                  "at least 1 queen of", "at most 1 nine"):
+        assert mod.builder_for(query) is None, query
+
+
 def test_builder_cycles_wrap_and_keep_counts_in_range(lua):
     _, mod = lua
     mod.cycle("preset", -1)
@@ -280,7 +302,7 @@ def test_panel_draws_suits_as_icons(lua, tmp_path):
     mod.update(0.1)
     texts = panel_texts(rt)
     names = texts[texts.index("Discard@muted") + 1:]
-    rows = [t for t in names if "%" not in t and t not in ("[x]", "[search]")]
+    rows = [t for t in names if "%" not in t and t not in ("[x]", "[search]", "[edit]")]
     assert rows == ["Q@light", "[ui_1 3,1]", ": 1+@light",
                     "[ui_1 0,1]", ": 0-1@light",
                     "Foil @light", "[ui_1 1,1]", ": 1+@light",
@@ -470,7 +492,7 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "Trips@light", "80.0%@light", "->@muted", "100%@green", "[search]", "[x]",
         "Pair@light", "100%@light", "->@muted", "100%@light", "[search]", "[x]",
         "In hand@muted", "Discard@muted",  # a column of their own
-        "9: 0-1@light", "100%@green", "[search]", "[x]",
+        "9: 0-1@light", "100%@green", "[search]", "[edit]", "[x]",
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
@@ -657,7 +679,7 @@ def test_panel_without_selection(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
         "Trips@light", "80.0%@light", "-@light", "[search]", "[x]",
-        "In hand@muted", "Discard@muted", "9: 0-1@light", "-@light", "[search]", "[x]",
+        "In hand@muted", "Discard@muted", "9: 0-1@light", "-@light", "[search]", "[edit]", "[x]",
     ]
 
 
@@ -670,13 +692,13 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     # Listed without a selection too, so the panel doesn't vanish between discards.
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light", "In hand@muted", "Discard@muted",
-        "Face card: none@light", "-@light", "[search]", "[x]",
+        "Face card: none@light", "-@light", "[search]", "[edit]", "[x]",
     ]
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)
     answer(lua, tmp_path, targets=(), queries=("no face",))
     mod.update(0.1)
-    assert panel_texts(rt)[-4:] == ["Face card: none@light", "0%@light", "[search]", "[x]"]
+    assert panel_texts(rt)[-5:] == ["Face card: none@light", "0%@light", "[search]", "[edit]", "[x]"]
 
 
 CELL_WIDTHS = r"""
@@ -695,13 +717,14 @@ end
 @pytest.mark.parametrize("targets", [(), ("trips",)])
 def test_card_names_use_the_keep_columns_space(lua, tmp_path, targets):
     # Text wider than its cell is shrunk, and modifier labels are too long for
-    # a hand name's cell; card rows have no Keep value, so they take its space.
+    # a hand name's cell; card rows have no Keep value, so they take its space,
+    # but for their pencil's.
     rt, mod = lua
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=("lucky", "sealed"))
     mod.update(0.1)
     widths = rt.execute(CELL_WIDTHS)(rt.eval("BOXES[#BOXES]").definition)
-    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25)
+    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25 - 0.3)
     if targets:
         assert widths["Trips"] == pytest.approx(1.4)
 
@@ -1067,10 +1090,10 @@ def test_cards_tab_adds_queries(lua, tmp_path):
     assert texts[texts.index("Add  Lucky Q@light"):][:3] == ["Add  Lucky Q@light", "[ui_1 3,1]", ": 2+@light"]
     assert click(lua, "calculatro_add")
     assert tracked(rt)[1] == ["at least 2 queen", "at least 2 lucky queen of spades"]
-    # The tracked list, each with its x.
+    # The tracked list, each with its pencil and x.
     texts = panel_texts(rt)
-    assert texts[texts.index("Queen: 2+@light"):][:6] == [
-        "Queen: 2+@light", "[x]", "Lucky Q@light", "[ui_1 3,1]", ": 2+@light", "[x]"]
+    assert texts[texts.index("Queen: 2+@light"):][:8] == [
+        "Queen: 2+@light", "[edit]", "[x]", "Lucky Q@light", "[ui_1 3,1]", ": 2+@light", "[edit]", "[x]"]
     assert click(lua, "calculatro_remove_at least 2 queen")
     assert tracked(rt)[1] == ["at least 2 lucky queen of spades"]
     # The app gets them as queries it can parse.
@@ -1161,6 +1184,59 @@ def test_builder_explains_its_query(lua, tmp_path):
     assert rt.eval("G.GAME.calculatro.cards[1].about") == mod.builder_about()
 
 
+def test_pencil_edits_a_tracked_query(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    queries = ("at least 2 queen", "QS", "at most 1 lucky king", "between 1 and 3 face of spades or hearts")
+    answer(lua, tmp_path, targets=("pair",), queries=queries)
+    mod.update(0.1)
+    # On card query rows, but not hands; inert for queries the builder didn't make.
+    assert find(rt, "calculatro_edit_Pair") is None
+    assert find(rt, "calculatro_edit_at least 2 queen").config.colour == "gold"
+    assert not click(lua, "calculatro_edit_QS")
+    # It opens the editor's Cards tab with the builder set to the query.
+    assert click(lua, "calculatro_edit_at most 1 lucky king")
+    assert mod.editor.tab == "cards" and find(rt, "calculatro_tab_cards").config.outline
+    assert (option(rt, "cmp"), option(rt, "count"), option(rt, "preset"), option(rt, "special")) == (
+        "at most", "1", "King", "Lucky")
+    assert find(rt, "calculatro_edit_at most 1 lucky king").config.outline  # the one being edited
+    # Add becomes Save, inert until something changes.
+    assert "Save  Lucky King: 0-1@stale" in panel_texts(rt)
+    assert not click(lua, "calculatro_add")
+    assert click(lua, "calculatro_negate")
+    assert "Save  No Lucky King: 0-1@light" in panel_texts(rt)
+    # Nor to one tracked already.
+    set_builder(lua, "special", "Any")
+    set_builder(lua, "cmp", "at least")
+    set_builder(lua, "count", "2")
+    assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_rank_13")
+    assert not click(lua, "calculatro_add")
+    assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_rank_13")  # back to King
+    set_builder(lua, "special", "Lucky")  # still negated
+    # Saving puts it in the edited one's place, and stops editing.
+    assert click(lua, "calculatro_add")
+    assert tracked(rt)[1] == ["at least 2 queen", "QS", "at least 2 not lucky king",
+                              "between 1 and 3 face of spades or hearts"]
+    card = rt.eval("G.GAME.calculatro.cards[3]")
+    assert (card.label, card.about) == ("No Lucky King: 2+", mod.builder_about())
+    assert mod.editor.editing is None and "Add  No Lucky King: 2+@stale" in panel_texts(rt)
+    # The list's pencils edit too; the edited one's stops editing, keeping the builder's choices.
+    assert click(lua, "calculatro_edit_between 1 and 3 face of spades or hearts")
+    assert mod.builder_query()[0] == "between 1 and 3 face of spades or hearts"
+    assert click(lua, "calculatro_edit_between 1 and 3 face of spades or hearts")
+    assert mod.editor.editing is None and find(rt, "calculatro_add").config.button is None  # Add: tracked already
+    # Removing the one being edited stops editing it.
+    assert click(lua, "calculatro_edit_at least 2 queen")
+    assert click(lua, "calculatro_remove_at least 2 queen")
+    assert mod.editor.editing is None and "Add  Queen: 2+@light" in panel_texts(rt)
+    # It opens on the query's page.
+    assert click(lua, "calculatro_done")
+    track(lua, queries=("queen", "king", "ace", "jack", "spade", "at least 1 hearts"))
+    mod.update(0.1)
+    assert click(lua, "calculatro_edit_at least 1 hearts")
+    assert option(rt, "page") == "Page 2/2"
+
+
 FONT = ("G.TILESIZE, G.LANG = 20, {font = {FONT = {getWidth = function(_, s) return 60 * #s end}, squish = 1,"
         " FONTSCALE = 0.1}}")
 
@@ -1193,7 +1269,7 @@ def test_card_names_show_their_popup_when_hovered(lua, tmp_path):
     cell = find(rt, f"calculatro_name_{query}")
     assert cell.config.collideable and cell.config.calculatro_popup.name == name
     shown = "".join(t.split("@")[0] for t in rt.execute(TEXTS)(cell).values())
-    assert shown == "Plain no.. [ui_1 0,1][ui_1 2,1][ui_1 1,1]: 1-3"
+    assert shown == "Plain.. [ui_1 0,1][ui_1 2,1][ui_1 1,1]: 1-3"
     assert click(lua, "calculatro_open") and click(lua, "calculatro_tab_cards")
     assert find(rt, f"calculatro_name_{query}").config.calculatro_popup.about == "In hand: between 1 and 3"
     # Hovering it shows the full name and what it means, above it.
