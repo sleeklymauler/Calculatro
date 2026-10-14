@@ -72,7 +72,7 @@ tracked ones; hovering over one shows its full name and what it means. Done goes
 with it) and a new run starts with none. The `+` is greyed out once the panel is full (3 columns of 6 rows).
 
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
-Target odds are shown for keeping your hand vs. discarding the selection; card odds cover only the drawn cards.
+Target odds are shown for keeping your hand vs. discarding the selection; card counts show the odds after discarding.
 
 The panel is only shown while playing a blind (not in the shop, blind select, booster packs or menus, nor while
 a played hand is scored); press `C` to hide or show it. A discard's odds are green when they beat keeping the
@@ -81,7 +81,8 @@ panel says "Waiting for app" if the app isn't answering.
 
 - Target hands: a target counts if you could play a hand Balatro scores as containing it (a Straight Flush
   counts as a Straight). Several targets also show the odds of hitting any of them.
-- Card counts cover the newly drawn cards only: at least / exactly / at most / between numbers of cards of
+- Card counts cover your hand after the draw (the cards you keep and the ones you draw): at least / exactly /
+  at most / between numbers of cards of
   any of a set of ranks (or face, non-face, even, odd or Fibonacci cards), any of a set of suits, and/or a
   special: an enhancement (or any `Enhanced`), edition (or any edition) or seal (or `Sealed`), or `not` one.
 

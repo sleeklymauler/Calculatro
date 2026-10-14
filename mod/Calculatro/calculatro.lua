@@ -13,7 +13,7 @@ local Calculatro = {
     clock = 0,
     last_json = nil,
     schema = 7,
-    odds_schema = 4,
+    odds_schema = 5,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
     seq = 0,
@@ -307,7 +307,7 @@ local function build_options()
 
     return {
         cmp = {
-            -- "at least 0" is always true, and so is "at most 8" with 8 or fewer drawn.
+            -- "at least 0" is always true, and so is "at most 8" with 8 or fewer in hand.
             { text = 'at least', query = 'at least', min = 1, max = 8 },
             { text = 'exactly', query = 'exactly', min = 0, max = 8 },
             { text = 'at most', query = 'at most', min = 0, max = 7 },
@@ -474,13 +474,13 @@ end
 -- What a negated special means, where "not <special>" doesn't say it well.
 local NEGATED_ABOUT = { Sealed = 'no seal', Enhanced = 'no enhancement', ['Any edition'] = 'no edition' }
 
--- What the builder's query means, for its popup: "Count: between 1 and 3",
+-- What the builder's query means, for its popup: "In hand: between 1 and 3",
 -- then whichever of Rank, Suit and Special aren't any, one per line. Labels
 -- abbreviate ("Fib", "T", "Plain"); this spells it out.
 function Calculatro.builder_about()
     local b = Calculatro.builder
     local cmp, special = OPTIONS.cmp[b.cmp], OPTIONS.special[b.special]
-    local lines = { 'Count: ' .. (cmp.query == 'between' and 'between ' .. b.count .. ' and ' .. b.high
+    local lines = { 'In hand: ' .. (cmp.query == 'between' and 'between ' .. b.count .. ' and ' .. b.high
                                   or cmp.text .. ' ' .. b.count) }
     local ids, suits = chosen_ranks(), chosen_suits()
     if #ids > 0 then
@@ -931,33 +931,35 @@ function Calculatro.panel_model()
     local banned, all_banned = Calculatro.banned_hands(), true
     for _, h in ipairs(t.hands) do all_banned = all_banned and banned[h] ~= nil end
     local can_search, searching = Calculatro.can_search(), Calculatro.searching
+    -- A row's search button: 'busy' while searching, 'on' if it can search, else off.
+    local function search_state(key)
+        return (searching and searching.key == key and 'busy') or (can_search and 'on') or nil
+    end
     local function hand(key, name, removable, is_banned)
         local o = hand_odds[key] or {}
-        -- Its search button: 'busy' while searching, 'on' if it can search, else off.
-        local search = (searching and searching.key == key and 'busy') or (can_search and 'on') or nil
         model.targets[#model.targets + 1] = { key = key, name = name, keep = o.keep, discard = o.discard,
                                               trend = o.trend, removable = removable, banned = is_banned or nil,
-                                              search = search }
+                                              search = search_state(key) }
     end
     if #t.hands > 1 then hand('Any target', 'Any target', nil, all_banned) end
     for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true, banned[h]) end
     for _, c in ipairs(t.cards) do
-        model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about,
-                                          discard = (card_odds[c.query] or {}).discard }
+        local o = card_odds[c.query] or {}
+        model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about, discard = o.discard,
+                                          trend = o.trend, search = search_state(c.query) }
     end
     return model
 end
 
 local NAME_W, VALUE_W, GAP_W, DISCARD_W = 1.4, 0.75, 0.25, 0.95  -- DISCARD_W fits "Discard"
--- Card query rows have no Keep value, so their names also take its place:
--- labels like "Lucky card: 1+" are too long for NAME_W, and text wider than
--- its cell is shrunk. Card-only columns are as wide as target columns too.
+-- Card query rows have no Keep value (with a full hand and nothing face
+-- down, it's 0% or 100%), so their names take its place: labels like "Lucky
+-- card: 1+" are too long for NAME_W, and text wider than its cell is shrunk.
+-- Card-only columns are as wide as target columns too.
 local CARD_NAME_W = NAME_W + VALUE_W + GAP_W
 local REMOVE_W = 0.3  -- each row ends with an x button that stops tracking it
-local SEARCH_W = 0.3  -- before it, target hands' best-discard search button
--- Card rows have no search button, so their names take its place too.
-local CARD_ROW_NAME_W = CARD_NAME_W + SEARCH_W
-local COLUMN_W = CARD_ROW_NAME_W + DISCARD_W + REMOVE_W
+local SEARCH_W = 0.3  -- before it, the best-discard search button
+local COLUMN_W = CARD_NAME_W + DISCARD_W + SEARCH_W + REMOVE_W
 local TITLE_W, PLUS_W, COLUMN_GAP = 1.6, 0.35, 0.2
 -- Fits "Calculating..." and "Waiting for app" beside the
 -- title and its + button.
@@ -1270,7 +1272,7 @@ local function remove_cell(key, action)
     } }
 end
 
--- The search button that finds a target hand's best discard: green while it
+-- The search button that finds a row's best discard: green while it
 -- can search, dimmed while it does, dark and inert otherwise.
 local function search_cell(t, colours)
     local action = t.search == 'on' and { 'search', t.key } or nil
@@ -1282,14 +1284,18 @@ local function search_cell(t, colours)
 end
 
 -- The odds rows in sections, each filling columns of its own: the target
--- hands (kind 'hands'), then the drawn-card queries ('cards'). Empty
+-- hands (kind 'hands'), then the card queries ('cards'). Empty
 -- sections are left out. Each row is a function building it.
 local function sections(model, colours)
     local C = G.C
     local function value(text, colour) return label(text or '-', model.stale and colours.stale or colour) end
+    -- Discard values are green when better than keeping the hand, red when worse.
+    local function trend_colour(t)
+        return (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
+    end
     local hands, cards = {}, {}
     for _, t in ipairs(model.targets) do
-        local colour = (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
+        local colour = trend_colour(t)
         hands[#hands + 1] = function()
             local name = label(t.name, t.banned and colours.muted)
             name.config.calculatro_strike = t.banned
@@ -1306,8 +1312,9 @@ local function sections(model, colours)
     for _, c in ipairs(model.cards) do
         cards[#cards + 1] = function()
             return row({
-                card_name_cell(c, CARD_ROW_NAME_W),
-                cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT)),
+                card_name_cell(c, CARD_NAME_W),
+                cell(DISCARD_W, 'cr', value(c.discard, trend_colour(c))),
+                search_cell(c, colours),
                 remove_cell(c.key, { 'remove_card', c.key }),
             }, { calculatro_anim = 'card:' .. c.key })
         end
@@ -1376,9 +1383,9 @@ end
 
 -- The odds panel: frame (see frame) and an inset with the odds rows, which
 -- fill columns of at most `per` rows (default: each section in one) top to
--- bottom, left to right, target hands and drawn cards in columns of their
--- own, each with its section's header ("Hands  Keep  Discard" or "Drawn
--- cards  Discard"). The + beside the title opens the target editor; it's
+-- bottom, left to right, target hands and card queries in columns of their
+-- own, each with its section's header ("Hands  Keep  Discard" or "In hand
+-- Discard"). The + beside the title opens the target editor; it's
 -- greyed out and inert once nothing more fits (model.can_add).
 --
 -- The message (model.message) must not change the panel's size, or the
@@ -1398,7 +1405,8 @@ function Calculatro.definition(model, per)
         local discard = cell(DISCARD_W, 'cr', label('Discard', colours.muted))
         local config = { calculatro_anim = 'header:' .. kind .. ':' .. n }
         if kind == 'cards' then
-            return row({ cell(CARD_ROW_NAME_W, 'cl', label('Drawn cards', colours.muted)), discard, blank(REMOVE_W) }, config)
+            return row({ cell(CARD_NAME_W, 'cl', label('In hand', colours.muted)), discard, blank(SEARCH_W),
+                         blank(REMOVE_W) }, config)
         end
         return row({
             cell(NAME_W, 'cl', label('Hands', colours.muted)),

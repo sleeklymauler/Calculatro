@@ -21,9 +21,16 @@ class TargetOdds:
 
 
 @dataclass(frozen=True)
+class CardOdds:
+    query: CardQuery
+    keep: Fraction  # the final hand after keeping the hand
+    discard: Fraction | None  # after discarding the selection; None if nothing is selected
+
+
+@dataclass(frozen=True)
 class Report:
     targets: list[TargetOdds]  # "Any target" first when there are several
-    cards: list[tuple[CardQuery, Fraction | None]]  # drawn-card odds; None if nothing is selected
+    cards: list[CardOdds]  # card queries over the final hand
     keep_draws: int  # cards drawn when keeping the hand
     discarded: list[Card]  # the selection; empty if nothing is selected
     discard_draws: int  # cards drawn after discarding it
@@ -32,12 +39,9 @@ class Report:
 
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
                  cancel: Event | None = None) -> Report | None:
-    """Target odds for keeping the hand vs. discarding the in-game selection,
-    plus card-query odds for the cards drawn after that discard.
-
-    Keeping the hand draws nothing (unless it isn't full), so card queries are
-    only calculated for a selection (without one, their odds are None). None
-    outside a run, with an empty hand, or with nothing to calculate.
+    """Odds of the target hands and card queries for keeping the hand vs.
+    discarding the in-game selection. None outside a run, with an empty hand,
+    or with nothing to calculate.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
@@ -45,17 +49,19 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     if len(targets) > 1:
         named.insert(0, ("Any target", combine(targets)))
     keep = [evaluate_discard(state, t, [], cancel) for _, t in named]
-    keep_draws = keep[0].draws if keep else 0
+    card_keep = [evaluate_cards(state, q, []) for q in queries]
+    keep_draws = (keep or card_keep)[0].draws
 
     selected = state.selected
     if not selected:
         rows = [TargetOdds(name, k.probability, None) for (name, _), k in zip(named, keep)]
-        return Report(rows, [(q, None) for q in queries], keep_draws, [], 0, state.discards_left)
+        cards = [CardOdds(q, k.probability, None) for q, k in zip(queries, card_keep)]
+        return Report(rows, cards, keep_draws, [], 0, state.discards_left)
 
     after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
-    card_odds = [(q, evaluate_cards(state, q, selected)) for q in queries]
-    first = (after or [o for _, o in card_odds])[0]
+    card_after = [evaluate_cards(state, q, selected) for q in queries]
+    first = (after or card_after)[0]
     rows = [TargetOdds(name, k.probability, a.probability)
             for (name, _), k, a in zip(named, keep, after)]
-    cards = [(q, o.probability) for q, o in card_odds]
+    cards = [CardOdds(q, k.probability, a.probability) for q, k, a in zip(queries, card_keep, card_after)]
     return Report(rows, cards, keep_draws, first.discarded, first.draws, state.discards_left)

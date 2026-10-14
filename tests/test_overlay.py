@@ -15,7 +15,7 @@ from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
 from calculatro.report import build_report
 from calculatro.rules import Rules
-from calculatro.search import Search, best_discards
+from calculatro.search import Search
 from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
@@ -87,7 +87,7 @@ def tracked(rt) -> tuple[list[str], list[str]]:
     return list(t.hands.values()), [c.query for c in t.cards.values()]
 
 
-def answer(lua, tmp_path, targets=("trips", "pair"), queries=("no face",)):
+def answer(lua, tmp_path, targets=("trips", "pair"), queries=("at most 1 nine",)):
     """Track these, then do what the app does: read the mod's state, write its odds."""
     _, mod = lua
     track(lua, targets, queries)
@@ -279,7 +279,8 @@ def test_panel_draws_suits_as_icons(lua, tmp_path):
     answer(lua, tmp_path, targets=(), queries=("QS", "at most 1 heart", "foil diamonds", "clubs", "queen"))
     mod.update(0.1)
     texts = panel_texts(rt)
-    rows = [t for t in texts[texts.index("Discard@muted") + 1:] if "%" not in t and t != "[x]"]  # names only
+    names = texts[texts.index("Discard@muted") + 1:]
+    rows = [t for t in names if "%" not in t and t not in ("[x]", "[search]")]
     assert rows == ["Q@light", "[ui_1 3,1]", ": 1+@light",
                     "[ui_1 0,1]", ": 0-1@light",
                     "Foil @light", "[ui_1 1,1]", ": 1+@light",
@@ -308,7 +309,8 @@ def test_payloads(lua, tmp_path):
     mod.write_snapshot()
     state = read_state(tmp_path)
     assert state.id == mod.state_id and state.selected == [2, 3]
-    report = build_report(state, [get_target("trips"), get_target("pair")], [parse_query("no face")])
+    report = build_report(state, [get_target("trips"), get_target("pair")],
+                          [parse_query("no face"), parse_query("at most 1 nine")])
     payload = overlay.odds(state, report)
     assert payload == {
         "schema": overlay.SCHEMA, "id": state.id,
@@ -317,7 +319,9 @@ def test_payloads(lua, tmp_path):
             {"key": "Three of a Kind", "keep": "80.0%", "discard": "100%", "trend": 1},
             {"key": "Pair", "keep": "100%", "discard": "100%", "trend": 0},
         ],
-        "cards": [{"key": "no face", "discard": "20.0%"}],
+        # Kept, the queens are face cards and the nines two nines.
+        "cards": [{"key": "no face", "discard": "0%", "trend": 0},
+                  {"key": "at most 1 nine", "discard": "100%", "trend": 1}],
     }
     assert overlay.pending(state) == {"schema": overlay.SCHEMA, "id": state.id, "pending": True}
 
@@ -465,8 +469,8 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "Any target@light", "100%@light", "->@muted", "100%@light", "[search]",  # can't be removed
         "Trips@light", "80.0%@light", "->@muted", "100%@green", "[search]", "[x]",
         "Pair@light", "100%@light", "->@muted", "100%@light", "[search]", "[x]",
-        "Drawn cards@muted", "Discard@muted",  # a column of their own
-        "Face card: none@light", "20.0%@light", "[x]",
+        "In hand@muted", "Discard@muted",  # a column of their own
+        "9: 0-1@light", "100%@green", "[search]", "[x]",
     ]
     box = rt.eval("BOXES[#BOXES]")
     assert rt.eval("BOXES[#BOXES].config.major == G.deck") and box.config.align == "tm"
@@ -528,7 +532,7 @@ def test_panel_spills_into_columns(lua, tmp_path):
     assert columns(rt, box.definition) == [
         ["Hands", "Any target", "Pair", "Two Pair", "Trips", "Straight", "Flush"],
         ["Hands", "Full House", "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House"],
-        ["Drawn cards", "Queen: 1+"],
+        ["In hand", "Queen: 1+"],
     ]
     assert box.T.h <= mod.max_panel_height()
     assert box.alignment.offset.x == pytest.approx((2.25 - 3 * 3.25) / 2)  # grows leftwards
@@ -634,13 +638,13 @@ def test_hands_and_cards_in_columns_of_their_own(lua, tmp_path):
     # 7 rows would fit one column of 7, but the cards start their own.
     assert columns(rt, rt.eval("BOXES[#BOXES]").definition) == [
         ["Hands", "Any target", "Pair", "Two Pair", "Trips", "Straight"],
-        ["Drawn cards", "Queen: 1+", "Face card: none"],
+        ["In hand", "Queen: 1+", "Face card: none"],
     ]
     # Each section fills its own columns: the hands' last isn't topped up with cards.
     assert columns(rt, mod.definition(mod.panel_model(), 3)) == [
         ["Hands", "Any target", "Pair", "Two Pair"],
         ["Hands", "Trips", "Straight"],
-        ["Drawn cards", "Queen: 1+", "Face card: none"],
+        ["In hand", "Queen: 1+", "Face card: none"],
     ]
 
 
@@ -653,7 +657,7 @@ def test_panel_without_selection(lua, tmp_path):
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
         "Trips@light", "80.0%@light", "-@light", "[search]", "[x]",
-        "Drawn cards@muted", "Discard@muted", "Face card: none@light", "-@light", "[x]",
+        "In hand@muted", "Discard@muted", "9: 0-1@light", "-@light", "[search]", "[x]",
     ]
 
 
@@ -665,14 +669,14 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     mod.update(0.1)
     # Listed without a selection too, so the panel doesn't vanish between discards.
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "+@light", "Drawn cards@muted", "Discard@muted",
-        "Face card: none@light", "-@light", "[x]",
+        "CALCULATRO@light", "+@light", "In hand@muted", "Discard@muted",
+        "Face card: none@light", "-@light", "[search]", "[x]",
     ]
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)
     answer(lua, tmp_path, targets=(), queries=("no face",))
     mod.update(0.1)
-    assert panel_texts(rt)[-3:] == ["Face card: none@light", "20.0%@light", "[x]"]
+    assert panel_texts(rt)[-4:] == ["Face card: none@light", "0%@light", "[search]", "[x]"]
 
 
 CELL_WIDTHS = r"""
@@ -691,14 +695,13 @@ end
 @pytest.mark.parametrize("targets", [(), ("trips",)])
 def test_card_names_use_the_keep_columns_space(lua, tmp_path, targets):
     # Text wider than its cell is shrunk, and modifier labels are too long for
-    # a hand name's cell; card rows have no Keep value or search button, so
-    # they take their space.
+    # a hand name's cell; card rows have no Keep value, so they take its space.
     rt, mod = lua
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=("lucky", "sealed"))
     mod.update(0.1)
     widths = rt.execute(CELL_WIDTHS)(rt.eval("BOXES[#BOXES]").definition)
-    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25 + 0.3)
+    assert widths["Lucky card: 1+"] == widths["Sealed card: 1+"] == pytest.approx(1.4 + 0.75 + 0.25)
     if targets:
         assert widths["Trips"] == pytest.approx(1.4)
 
@@ -1126,21 +1129,21 @@ def test_builder_explains_its_query(lua, tmp_path):
     assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_rank_13")
     set_builder(lua, "cmp", "between")
     set_builder(lua, "high", "3")
-    assert mod.builder_about() == "Count: between 1 and 3\nRank: Q or K\nSpecial: no seal"
+    assert mod.builder_about() == "In hand: between 1 and 3\nRank: Q or K\nSpecial: no seal"
     # Ranks and suits are named by those left out when that's shorter.
     assert click(lua, "calculatro_suit_Spades")
     set_builder(lua, "preset", "Fibonacci")
     set_builder(lua, "cmp", "at least")
-    assert mod.builder_about() == "Count: at least 1\nRank: Fibonacci (2, 3, 5, 8 or A)\nSuit: any but Spades\n" \
+    assert mod.builder_about() == "In hand: at least 1\nRank: Fibonacci (2, 3, 5, 8 or A)\nSuit: any but Spades\n" \
                                   "Special: no seal"
     set_builder(lua, "preset", "Non-face")
     set_builder(lua, "special", "Lucky")
-    assert mod.builder_about() == "Count: at least 1\nRank: Non-face (any but J, Q or K)\nSuit: any but Spades\n" \
+    assert mod.builder_about() == "In hand: at least 1\nRank: Non-face (any but J, Q or K)\nSuit: any but Spades\n" \
                                   "Special: not Lucky"
     set_builder(lua, "preset", "Any")
     assert click(lua, "calculatro_rank_12")
     assert click(lua, "calculatro_negate")
-    assert mod.builder_about() == "Count: at least 1\nRank: Queen\nSuit: any but Spades\nSpecial: Lucky"
+    assert mod.builder_about() == "In hand: at least 1\nRank: Queen\nSuit: any but Spades\nSpecial: Lucky"
     # Added queries keep it for their popups.
     assert click(lua, "calculatro_add")
     assert rt.eval("G.GAME.calculatro.cards[1].about") == mod.builder_about()
@@ -1172,15 +1175,15 @@ def test_card_names_show_their_popup_when_hovered(lua, tmp_path):
     answer(lua, tmp_path, targets=(), queries=(query,))
     name = rt.eval("G.GAME.calculatro.cards[1].label")
     assert name == "Plain not 5/9/K ♥♣♦: 1-3"
-    rt.eval("G.GAME.calculatro.cards[1]").about = "Count: between 1 and 3"
+    rt.eval("G.GAME.calculatro.cards[1]").about = "In hand: between 1 and 3"
     mod.update(0.1)
     # Cut to fit at full size in the odds panel, and in the editor's list.
     cell = find(rt, f"calculatro_name_{query}")
     assert cell.config.collideable and cell.config.calculatro_popup.name == name
     shown = "".join(t.split("@")[0] for t in rt.execute(TEXTS)(cell).values())
-    assert shown == "Plain not 5.. [ui_1 0,1][ui_1 2,1][ui_1 1,1]: 1-3"
+    assert shown == "Plain no.. [ui_1 0,1][ui_1 2,1][ui_1 1,1]: 1-3"
     assert click(lua, "calculatro_open") and click(lua, "calculatro_tab_cards")
-    assert find(rt, f"calculatro_name_{query}").config.calculatro_popup.about == "Count: between 1 and 3"
+    assert find(rt, f"calculatro_name_{query}").config.calculatro_popup.about == "In hand: between 1 and 3"
     # Hovering it shows the full name and what it means, above it.
     rt.execute("UIElement = {hover = function(self) HOVERED = self end}")
     hover_with = rt.execute("""return function(mod, about)
@@ -1190,11 +1193,11 @@ def test_card_names_show_their_popup_when_hovered(lua, tmp_path):
         assert(HOVERED == e)
         return e
     end""")
-    e = hover_with(mod, "Count: between 1 and 3\nSpecial: no enhancement")
+    e = hover_with(mod, "In hand: between 1 and 3\nSpecial: no enhancement")
     assert e.config.h_popup_config.align == "tm"
     assert list(rt.execute(TEXTS)(e.config.h_popup).values()) == [
         "Plain not 5/9/K @light", "[ui_1 0,1]", ": 1-3@light",
-        "Count: @muted", "between 1 and 3@light", "Special: @muted", "no enhancement@light"]
+        "In hand: @muted", "between 1 and 3@light", "Special: @muted", "no enhancement@light"]
     # Queries added before there were popups have just their name.
     assert list(rt.execute(TEXTS)(hover_with(mod, None).config.h_popup).values()) == [
         "Plain not 5/9/K @light", "[ui_1 0,1]", ": 1-3@light"]
@@ -1255,7 +1258,7 @@ def reply_search(tmp_path, options=None):
     state = read_state(tmp_path)
     _, payload = cli.calculate(state, *cli.tracked(state))
     key, nonce = state.search
-    found = Search(options, Fraction(1)) if options is not None else best_discards(state, cli.search_target(state, key))
+    found = Search(options, Fraction(1)) if options is not None else cli.find_best(state, cli.search_target(state, key))
     payload["search"] = overlay.search(key, nonce, found)
     assert overlay.write(tmp_path / "calculatro_odds.json", payload)
     return found
@@ -1277,12 +1280,11 @@ def search_ready(lua, tmp_path, targets=("trips", "pair")):
     mod.update(0.1)
 
 
-def test_search_buttons_on_target_hands_only(lua, tmp_path):
+def test_search_buttons_on_every_row(lua, tmp_path):
     rt, mod = lua
     search_ready(lua, tmp_path)
-    for key in ("Any target", "Three of a Kind", "Pair"):
+    for key in ("Any target", "Three of a Kind", "Pair", "no face"):
         assert find(rt, "calculatro_search_" + key).config.button
-    assert find(rt, "calculatro_search_no face") is None
     # Without discards left, a hand can be played to throw cards away, but not the last one.
     rt.execute("G.GAME.current_round.discards_left = 0")
     mod.update(0.01)
@@ -1315,6 +1317,21 @@ def test_search_selects_the_best_discard(lua, tmp_path):
     assert rt.eval("SOUNDS") == sounds + (1 if found.options[0] else 0)
     assert message(rt) == (f"1/{len(found.options)}" if len(found.options) > 1 else None)
     assert find(rt, "calculatro_search_Three of a Kind").config.button
+
+
+def test_card_row_search_selects_its_best_discard(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    track(lua, ("trips", "pair"), ("no face", "at most 1 nine"))
+    mod.update(0.1)
+    assert click(lua, "calculatro_search_at most 1 nine")
+    assert read_state(tmp_path).search == ("at most 1 nine", 1)
+    assert message(rt) == "Searching..."
+    found = reply_search(tmp_path)
+    mod.update(0.1)
+    # Throwing one nine away is enough: there's none left to draw.
+    assert found.probability == 1 and found.options[:2] == [[2], [3]]
+    assert selected(rt) == [2]
 
 
 def test_search_button_cycles_through_options(lua, tmp_path):

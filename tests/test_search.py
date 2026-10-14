@@ -11,14 +11,15 @@ from itertools import combinations
 
 import pytest
 
-from calculatro.engine import Cancelled, Reuse, evaluate_discard
+from calculatro.cards import CardQuery, parse_query
+from calculatro.engine import Cancelled, Reuse, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.search import _identity, best_discards
+from calculatro.search import _identity, best_card_discards, best_discards
 from calculatro.state import SUITS, Card, GameState, Joker
 from test_engine import card
 
 
-def brute_force(state: GameState, target) -> tuple[Fraction, set]:
+def brute_force(state: GameState, target, evaluate=evaluate_discard) -> tuple[Fraction, set]:
     """The best odds over every discard, and the tied discards as multisets of the cards thrown away."""
     forced = state.forced if state.bell else None
     others = [i for i in range(len(state.hand)) if i != forced]
@@ -32,7 +33,7 @@ def brute_force(state: GameState, target) -> tuple[Fraction, set]:
                 discards.append([*subset, forced])
             elif n:
                 discards.append(list(subset))
-    odds = [(evaluate_discard(state, target, d).probability, d) for d in discards]
+    odds = [(evaluate(state, target, d).probability, d) for d in discards]
     best = max(p for p, _ in odds)
     return best, {cards_of(state, d) for p, d in odds if p == best}
 
@@ -42,8 +43,13 @@ def cards_of(state: GameState, discard) -> frozenset:
 
 
 def check(state: GameState, target) -> list[list[int]]:
-    found = best_discards(state, target)
-    best, tied = brute_force(state, target)
+    """Checks the search for a target hand, or a card query, against brute_force."""
+    if isinstance(target, CardQuery):
+        found = best_card_discards(state, target)
+        best, tied = brute_force(state, target, evaluate_cards)
+    else:
+        found = best_discards(state, target)
+        best, tied = brute_force(state, target)
     assert found.probability == best
     assert [cards_of(state, o) for o in found.options] == list({cards_of(state, o): 0 for o in found.options})
     assert {cards_of(state, o) for o in found.options} == tied
@@ -215,3 +221,59 @@ def test_shared_work_gives_the_same_odds(jokers, blind, names):
         for d in discards:
             alone = evaluate_discard(state, target, d).probability
             assert evaluate_discard(state, target, d, reuse=reuse).probability == alone, (name, d)
+
+
+QUERIES = ["queen", "2+ hearts", "3+ face cards", "at most 1 heart", "exactly 2 spades",
+           "between 1 and 2 even", "no face cards", "lucky", "not sealed"]
+
+
+def enhanced_state(rng: random.Random, **kw) -> GameState:
+    """A random state whose cards are sometimes enhanced, sealed or debuffed."""
+    def vary(c: Card) -> Card:
+        return replace(c, enhancement=rng.choice(["c_base"] * 4 + ["m_lucky", "m_wild", "m_stone"]),
+                       seal=rng.choice([None] * 3 + ["Red"]), debuff=rng.random() < 0.1)
+    state = random_state(rng, deck=10, **kw)
+    return replace(state, hand=[vary(c) for c in state.hand], deck=[vary(c) for c in state.deck])
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_card_queries_match_trying_every_discard(seed):
+    state = enhanced_state(random.Random(seed))
+    for text in QUERIES:
+        check(state, parse_query(text))
+
+
+def test_card_queries_keep_matching_cards():
+    # Throwing a queen away for one draw can only lose one: keep them, throw the rest.
+    hand = [card(12, "Hearts"), card(2, "Clubs"), card(12, "Spades"), card(3, "Clubs"), card(4, "Clubs")]
+    deck = [card(12, "Clubs")] + [card(r, "Diamonds") for r in range(5, 12)]
+    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, deck=deck)
+    assert check(state, parse_query("3+ queens")) == [[1, 3, 4]]
+    # At most one: throwing both away is certain, as only one is left to draw.
+    assert check(state, parse_query("at most 1 queen"))[0] == [0, 2]
+
+
+@pytest.mark.parametrize("blind", ["The House", "The Mark", "Cerulean Bell", "The Serpent"])
+def test_card_queries_with_bosses(blind):
+    rng = random.Random(blind)
+    state = enhanced_state(rng, blind=blind)
+    if blind in ("The House", "The Mark"):
+        state = replace(state, hand=state.hand[:6] + [Card(hidden=True)] * 2,
+                        hidden_pool=[card(11, "Spades"), card(13, "Hearts")])
+    if blind == "Cerulean Bell":
+        state = replace(state, hand=[replace(c, forced=i == 2) for i, c in enumerate(state.hand)])
+    for text in ("king", "2+ face cards", "at most 1 heart", "between 1 and 2 hearts"):
+        check(state, parse_query(text))
+
+
+def test_card_queries_with_the_hook():
+    state = enhanced_state(random.Random(9), blind="The Hook", discards_left=0, hands_left=2)
+    for text in ("queen", "2+ hearts", "at most 1 face card"):
+        check(state, parse_query(text))
+
+
+def test_card_query_search_cancelled():
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(Cancelled):
+        best_card_discards(random_state(random.Random(0)), parse_query("queen"), cancel)

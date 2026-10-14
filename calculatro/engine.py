@@ -52,8 +52,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cache
-from itertools import combinations, repeat
-from math import comb, lcm
+from itertools import combinations, product, repeat
+from math import comb, lcm, prod
 from operator import gt
 from threading import Event, Lock
 
@@ -1054,45 +1054,62 @@ def _forced_group(hands: tuple[str, ...], rules: Rules, key: ClassKey | None) ->
                                for q, req in enumerate(pattern) if key in req.keys)
 
 
-def count_probability(query: CardQuery, pool: list[Card], draws: int,
-                      rules: Rules = Rules(), marked: int = 0) -> Fraction:
-    """P(the number of matching cards among `draws` drawn from `pool` satisfies `query`).
+def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rules = Rules(),
+                      marked: int = 0, marked_kept: int = 0, have: int = 0) -> Fraction:
+    """P(`have` plus the number of matching cards among `draws` random cards from
+    `pool` satisfies `query`).
 
-    With The Mark, `marked` of the pool's face cards are face down in hand, so
-    the draws come from the rest of the pool; see _mark_split.
+    With The Mark, `marked` of the pool's cards are face down in hand, so they
+    are known to be face cards, and `marked_kept` of them are among the
+    `draws`. The other draws come from the rest of the pool; see _mark_split.
     """
-    after_marked = max(0, min(draws, len(pool) - marked))
-    split = _mark_split(pool, after_marked, rules, marked, 0)
+    draws = max(0, min(draws, len(pool) - marked + marked_kept))
+    split = _mark_split(pool, draws, rules, marked, marked_kept)
     if split is not None:
         faces, weights = split
-        draws = after_marked
         f = sum(faces)
         others = len(pool) - f
         face_matches = sum(1 for c, face in zip(pool, faces) if face and query.filter.test(c, rules))
         other_matches = sum(1 for c, face in zip(pool, faces) if not face and query.filter.test(c, rules))
-        # Given k face cards drawn, they're a uniform sample of all f (as the face-down ones
-        # are), and the other draws - k one of the others.
+        # Given k face cards among the unseen cards, they're a uniform sample of all f
+        # (as the face-down ones are), and the other draws - k one of the others.
         return sum((w * sum(comb(face_matches, x) * comb(f - face_matches, k - x)
                             * comb(other_matches, y) * comb(others - other_matches, draws - k - y)
                             for x in range(min(face_matches, k) + 1)
-                            for y in range(min(other_matches, draws - k) + 1) if query.accepts(x + y))
+                            for y in range(min(other_matches, draws - k) + 1) if query.accepts(have + x + y))
                     for k, w in weights), Fraction(0))
-    draws = max(0, min(draws, len(pool)))
+    draws = min(draws, len(pool))
     matches = sum(1 for c in pool if query.filter.test(c, rules))
     others = len(pool) - matches
     hits = sum(comb(matches, k) * comb(others, draws - k)
-               for k in range(min(matches, draws) + 1) if query.accepts(k))
+               for k in range(min(matches, draws) + 1) if query.accepts(have + k))
     return Fraction(hits, comb(len(pool), draws))
 
 
 def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> DiscardOutcome:
-    """Probability that the cards drawn after discarding satisfy `query`.
+    """Probability that the final hand after discarding satisfies `query`.
 
-    Only the newly drawn cards count. From the player's view they are a uniform
-    sample of the unseen pool, even when face-down cards are kept in hand,
+    The final hand is the kept cards and the draw. From the player's view the
+    face-down kept cards and the draw are a uniform sample of the unseen pool,
     except with The Mark: its face-down cards are face cards, so fewer of
-    those are left to draw.
+    those are left to draw. Cerulean Bell's forced card is in the final hand
+    like any other, so it changes nothing. Without discards left the selection
+    would be played instead, which under The Hook also throws away 2 random
+    kept cards (`_hooked`): the odds are the average over which ones.
     """
     d = _discard(state, discard)
-    return DiscardOutcome(d.discarded, d.draws,
-                          count_probability(query, d.pool, d.draws, state.rules, d.marked))
+    rules = state.rules
+    have = sum(query.filter.test(c, rules) for c in d.kept_known)
+    if not d.hooked:
+        return DiscardOutcome(d.discarded, d.draws, count_probability(
+            query, d.pool, d.hidden_kept + d.draws, rules, d.marked, d.hidden_kept, have))
+    # Of the kept cards, only whether each matches matters, or that it's face down.
+    sizes = (have, len(d.kept_known) - have, d.hidden_kept)
+    total = Fraction(0)
+    for taken in product(*(range(min(n, d.hooked) + 1) for n in sizes)):
+        if sum(taken) == d.hooked:
+            hidden = d.hidden_kept - taken[2]
+            weight = prod(comb(n, k) for n, k in zip(sizes, taken))
+            total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden,
+                                                have - taken[0])
+    return DiscardOutcome(d.discarded, d.draws, total / comb(sum(sizes), d.hooked))

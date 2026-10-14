@@ -699,10 +699,13 @@ def test_mark_card_queries_match_brute_force(text):
     query = parse_query(text)
     rng = random.Random(f"mark {text}")
     for _ in range(6):
-        _, pool, marked, _, draws = mark_case(rng)
-        outcomes = [query.accepts(sum(query.filter.test(c, Rules()) for c in drawn))
-                    for _, drawn in mark_draws(pool, marked, 0, draws)]
-        assert count_probability(query, pool, draws, Rules(), marked) == Fraction(sum(outcomes), len(outcomes))
+        kept, pool, marked, marked_kept, draws = mark_case(rng)
+        have = sum(query.filter.test(c, Rules()) for c in kept)
+        # The final hand's face-down cards count as well as the draw.
+        outcomes = [query.accepts(have + sum(query.filter.test(c, Rules()) for c in down + drawn))
+                    for down, drawn in mark_draws(pool, marked, marked_kept, draws)]
+        assert (count_probability(query, pool, marked_kept + draws, Rules(), marked, marked_kept, have)
+                == Fraction(sum(outcomes), len(outcomes)))
 
 
 def mark_state(**kw) -> GameState:
@@ -720,8 +723,10 @@ def test_mark_face_down_cards_are_face_cards():
     # Discarding the King: the face-down King pairs only with the other one, among 4 cards to draw.
     assert evaluate_discard(state, get_target("pair"), [0]).probability == Fraction(1, 4)
     # Discarding the face-down card leaves one King among 4 cards to draw.
-    king = parse_query("king")
-    assert evaluate_cards(state, king, [1]).probability == Fraction(1, 4)
+    kings = parse_query("2+ kings")
+    assert evaluate_cards(state, kings, [1]).probability == Fraction(1, 4)
+    # Kept, the face-down card is a King.
+    assert evaluate_cards(state, kings, []).probability == 1
     assert evaluate_discard(state, get_target("pair"), [1]).probability == Fraction(1, 4)
 
 
@@ -732,7 +737,8 @@ def test_face_down_cards_are_any_unseen_card_without_the_mark(change):
     # face up again, and with Pareidolia every card is a face card.
     state = replace(mark_state(), **change)
     assert evaluate_discard(state, get_target("pair"), []).probability == Fraction(2, 5)
-    assert evaluate_cards(state, parse_query("king"), [1]).probability == Fraction(2, 5)
+    assert evaluate_cards(state, parse_query("2+ kings"), [1]).probability == Fraction(2, 5)
+    assert evaluate_cards(state, parse_query("2+ kings"), []).probability == Fraction(2, 5)
 
 
 def contains_forced(final: list[Card], forced: Card, names: set[str], rules: Rules = Rules()) -> bool:

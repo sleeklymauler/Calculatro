@@ -27,7 +27,7 @@ from .report import Report
 from .search import Search
 from .state import GameState
 
-SCHEMA = 4  # `odds_schema` in calculatro.lua
+SCHEMA = 5  # `odds_schema` in calculatro.lua
 
 # The panel fits 3 columns (`max_columns` in calculatro.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -77,10 +77,12 @@ def odds(state: GameState, report: Report | None) -> dict[str, Any]:
             target["discard"] = percent(row.discard)
             target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
         payload["targets"].append(target)
-    for q, p in report.cards:
-        card: dict[str, Any] = {"key": q.text}
-        if p is not None:
-            card["discard"] = percent(p)
+    for row in report.cards:
+        # No keep value: the panel shows only the discard's, coloured by the trend.
+        card: dict[str, Any] = {"key": row.query.text}
+        if row.discard is not None:
+            card["discard"] = percent(row.discard)
+            card["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
         payload["cards"].append(card)
     return payload
 

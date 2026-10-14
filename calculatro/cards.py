@@ -1,4 +1,4 @@
-"""Card-count queries over the cards drawn after a discard.
+"""Card-count queries over the final hand: the cards kept and the cards drawn.
 
 Examples: "queen", "2+ queens", "at least 2 queens", "no face cards", "face of spades",
 "exactly 1 spade", "<=1 heart", "2 of clubs", "2c", "QS", "lucky", "2+ mult cards",

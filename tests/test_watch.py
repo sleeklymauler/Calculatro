@@ -9,6 +9,7 @@ import time
 import pytest
 
 import calculatro.__main__ as cli
+from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, probability
 from calculatro.hands import get_target
 from calculatro.rules import Rules
@@ -274,3 +275,6 @@ def test_search_target():
         set(cli.search_target(state, "Any target").hands) == {"Pair", "Flush"}
     assert cli.search_target(state, "Straight") is None
     assert cli.search_target(replace(state, tracked_hands=["Pair"]), "Any target") is None
+    with_cards = replace(state, tracked_cards=["2+ queens"])
+    assert cli.search_target(with_cards, "2+ queens").label == parse_query("2+ queens").label
+    assert cli.search_target(with_cards, "3+ queens") is None

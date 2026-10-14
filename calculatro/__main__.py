@@ -17,7 +17,7 @@ from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
 from .report import Report, build_report
-from .search import Search, best_discards
+from .search import Search, best_card_discards, best_discards
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
 from .worker import Job
@@ -50,33 +50,28 @@ def _pct(p: Fraction) -> str:
 
 
 def format_report(report: Report) -> str:
-    """The report as text. Card odds have only a discard column."""
+    """The report as text: target hands, then card queries under "In hand"."""
     hint = "Select cards in game to see the odds after discarding them."
-    keep = report.targets
+    rows = [(row.name, row.keep, row.discard) for row in report.targets]
+    cards = [(row.query.label, row.keep, row.discard) for row in report.cards]
+    width = max(len(name) for name, _, _ in rows + cards)
+
+    def lines_of(odds: list[tuple[str, Fraction, Fraction | None]]) -> list[str]:
+        return [f"  {name:<{width}}  {_pct(keep)}" + (f"  ->  {_pct(after)}" if after is not None else "")
+                for name, keep, after in odds]
+
+    # Card queries count the final hand like targets, but are labelled apart.
+    body = lines_of(rows) + (["  In hand:"] if rows and cards else []) + lines_of(cards)
+
+    draws = report.keep_draws
     if not report.discarded:
-        if not keep:
-            return hint
-        width = max(len(row.name) for row in keep)
-        draws = report.keep_draws
         lines = ["Odds (current hand" + (f", drawing {draws}" if draws else "") + "):"]
-        lines += [f"  {row.name:<{width}}  {_pct(row.keep)}" for row in keep]
-        return "\n".join([*lines, hint])
+        return "\n".join([*lines, *body, hint])
 
-    card_rows = [(q.label, p) for q, p in report.cards]
     discarded = " ".join(c.short() for c in report.discarded)
-    width = max(len(name) for name in [row.name for row in keep] + [name for name, _ in card_rows])
-    # Card rows leave the keep column blank so the discard column lines up.
-    blank = " " * len(f"{_pct(Fraction(0))}  ->  ") if keep else ""
-
-    keep_desc = "keep hand" + (f" (draw {report.keep_draws})" if keep and report.keep_draws else "")
+    keep_desc = "keep hand" + (f" (draw {draws})" if draws else "")
     discard_desc = f"discard {discarded} and draw {report.discard_draws}"
-    lines = [f"Odds: {keep_desc}  ->  {discard_desc}" if keep else f"Odds: {discard_desc}"]
-    lines += [f"  {row.name:<{width}}  {_pct(row.keep)}  ->  {_pct(row.discard)}" for row in keep]
-    # Card odds cover only the drawn cards; label them apart from the whole-hand
-    # target rows. With no targets the header already says what's drawn.
-    if card_rows and keep:
-        lines.append("  Drawn cards:")
-    lines += [f"  {name:<{width}}  {blank}{_pct(p)}" for name, p in card_rows]
+    lines = [f"Odds: {keep_desc}  ->  {discard_desc}", *body]
     if report.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
@@ -84,8 +79,8 @@ def format_report(report: Report) -> str:
 
 def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
          cancel: Event | None = None) -> str:
-    """Target odds for keeping the hand vs. discarding the in-game selection,
-    plus card-query odds for the cards drawn after that discard, as text."""
+    """Odds of the targets and card queries for keeping the hand vs. discarding
+    the in-game selection, as text."""
     report = build_report(state, targets, queries, cancel)
     return format_report(report) if report else ""
 
@@ -122,12 +117,21 @@ def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
     return (format_report(report) if report else ""), overlay.odds(state, report)
 
 
-def search_target(state: GameState, key: str) -> Target | None:
-    """The target of the panel's row `key`: a tracked hand, or "Any target" of several."""
-    targets, _ = tracked(state)
+def search_target(state: GameState, key: str) -> Target | CardQuery | None:
+    """What the panel's row `key` tracks: a hand, "Any target" of several, or a
+    card query (no query's text is a hand's name)."""
+    targets, queries = tracked(state)
     if key == "Any target":
         return combine(targets) if len(targets) > 1 else None
-    return next((t for t in targets if t.name == key), None)
+    return (next((t for t in targets if t.name == key), None)
+            or next((q for q in queries if q.text == key), None))
+
+
+def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None = None) -> Search:
+    """The best discards for a row's target hand or card query."""
+    if isinstance(target, CardQuery):
+        return best_card_discards(state, target, cancel)
+    return best_discards(state, target, cancel)
 
 
 def search_basis(state: GameState) -> GameState:
@@ -222,7 +226,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         if target is None:
             found = overlay.search(key, nonce, None)
         else:
-            searching = Job(lambda cancel, state=state, target=target: best_discards(state, target, cancel))
+            searching = Job(lambda cancel, state=state, target=target: find_best(state, target, cancel))
 
     while not stop():
         if unsent is not None and time.monotonic() >= retry_at:

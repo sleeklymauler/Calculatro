@@ -12,6 +12,10 @@ choices (best_discards). The engine's work is shared between the discards
 choices are then expanded into concrete discards, one for each distinct set
 of cards the player could throw away (identical cards are one), ordered by
 Search.options.
+
+Card queries (best_card_discards) only look at whether each kept card
+matches, so their groups are matching, non-matching and face-down cards,
+and every choice of counts is simply evaluated.
 """
 
 from __future__ import annotations
@@ -23,7 +27,8 @@ from fractions import Fraction
 from itertools import pairwise, product
 from threading import Event
 
-from .engine import Cancelled, Reuse, evaluate_discard
+from .cards import CardQuery
+from .engine import Cancelled, Reuse, evaluate_cards, evaluate_discard
 from .hands import RANKS, WILD, ClassKey, Pattern, Target, bell_matters, card_key, flush_suits, get_target
 from .state import SUITS, Card, GameState
 
@@ -95,6 +100,43 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
             winners.append(choices[j])
 
     options = {tuple(sorted(o)) for counts in winners for o in _expand(hand, groups, counts, forced)}
+    return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
+
+
+def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None = None) -> Search:
+    """The discards (or keeping the hand) with the best odds of a final hand
+    satisfying `query`, under the same rules as best_discards.
+
+    The odds only look at whether a kept card matches the query, or that it's
+    face down, so those are the groups whose counts are enumerated.
+    Raises engine.Cancelled soon after `cancel` is set.
+    """
+    hand = state.hand
+    rules = state.rules
+    forced = state.forced if state.bell else None
+    limit = min(state.select_limit, len(hand)) if can_redraw(state) else 0
+    budget = limit - (forced is not None)
+    groups: dict[object, list[int]] = {}
+    for i, c in enumerate(hand):
+        if i != forced:
+            groups.setdefault("hidden" if c.hidden else query.filter.test(c, rules), []).append(i)
+    group_list = list(groups.values())
+
+    choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
+    if budget >= 0:
+        choices += [c for c in _counts([len(g) for g in group_list], budget) if forced is not None or any(c)]
+    best: Fraction | None = None
+    winners: list[tuple[int, ...] | None] = []
+    for counts in choices:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled
+        p = evaluate_cards(state, query, _representative(group_list, counts, forced)).probability
+        if best is None or p > best:
+            best, winners = p, [counts]
+        elif p == best:
+            winners.append(counts)
+
+    options = {tuple(sorted(o)) for counts in winners for o in _expand(hand, group_list, counts, forced)}
     return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
 
 
