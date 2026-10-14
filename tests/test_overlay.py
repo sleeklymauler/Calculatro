@@ -991,6 +991,18 @@ def test_editor_replaces_the_odds_until_done(lua, tmp_path):
     assert mod.editor is None and "Hands@muted" in panel_texts(rt)
 
 
+def test_editor_reopens_on_the_last_tab(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    assert click(lua, "calculatro_tab_cards")
+    assert click(lua, "calculatro_done")
+    assert click(lua, "calculatro_open")
+    assert find(rt, "calculatro_tab_cards").config.outline
+    assert click(lua, "calculatro_tab_hands")
+    assert click(lua, "calculatro_done")
+    assert click(lua, "calculatro_open")
+    assert find(rt, "calculatro_tab_hands").config.outline
+
+
 def test_hands_tab_toggles_hands(lua, tmp_path):
     rt, mod = open_editor(lua, tmp_path)
     assert find(rt, "calculatro_hand_Pair").config.colour == "blue"

@@ -24,6 +24,7 @@ local Calculatro = {
     odds_raw = nil,
     visible = true,
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open
+    editor_tab = 'hands',  -- the tab last shown, which the editor reopens on
     -- Best-discard searches (see "Best discard"): the latest asked for, sent
     -- with every snapshot; the one waiting for the app's reply; and the
     -- options the last reply found, which the search button cycles through.
@@ -1668,9 +1669,9 @@ end
 
 -- What the panel's buttons do: Calculatro.act{name, argument}.
 Calculatro.actions = {
-    open = function() Calculatro.editor = { tab = 'hands', page = 1 } end,
+    open = function() Calculatro.editor = { tab = Calculatro.editor_tab, page = 1 } end,
     done = function() Calculatro.editor = nil end,
-    tab = function(tab) Calculatro.editor.tab = tab end,
+    tab = function(tab) Calculatro.editor.tab, Calculatro.editor_tab = tab, tab end,
     toggle_hand = function(name) Calculatro.toggle_hand(name) end,
     remove_hand = function(name) Calculatro.remove_hand(name) end,
     remove_card = function(query) Calculatro.remove_card(query) end,
