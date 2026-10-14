@@ -2,13 +2,23 @@
 
 Examples: "queen", "2+ queens", "at least 2 queens", "no face cards", "face of spades",
 "exactly 1 spade", "<=1 heart", "2 of clubs", "2c", "QS", "lucky", "2+ mult cards",
-"red seal", "foil hearts", "lucky red seal queen".
+"red seal", "foil hearts", "lucky red seal queen", "between 1 and 3 queen or king",
+"1-3 even of hearts or diamonds", "non-face red cards", "not sealed", "not hearts".
 
 Modifiers (enhancement, edition, seal) go before an optional rank/suit/card
 filter and are ANDed with it: "foil queen" is a Queen with the Foil edition.
+"not"/"non-" negates a modifier ("not lucky", "non-foil"); "unsealed" and
+"unenhanced" are the same as "not sealed" and "not enhanced".
+
+Ranks and suits are ORed within themselves: "queen or king", "2, 3 or 5",
+"hearts or diamonds", "red suits"/"black cards", "not hearts" (the other three),
+and the groups "even", "odd", "fibonacci" (Even Steven's, Odd Todd's and
+Fibonacci's ranks), "face" and "non-face" (not a face card, as Card:is_face
+sees it). Ranks then suits: "queen or king of hearts or diamonds".
 
 A bare count means "at least" ("2 queens" = at least 2), and counts may be
-spelled out ("two queens"); "no"/"zero"/"0" means none. Suits follow
+spelled out ("two queens"); "no"/"zero"/"0" means none. Ranges are
+"between 1 and 3", "1-3" or "1 to 3". Suits follow
 Balatro's flush rules: Wild Cards (unless debuffed) count as every suit,
 Stone Cards have no rank or suit, and with Smeared Joker a card counts as
 both suits of its colour.
@@ -80,19 +90,24 @@ class CardFilter:
 @dataclass(frozen=True)
 class CardQuery:
     filter: CardFilter
-    op: str  # ">=", "<=" or "=="
+    op: str  # ">=", "<=", "==" or "between" (count to high, both included)
     count: int
+    high: int | None = None  # the top of a "between" range
     text: str = field(default="", compare=False)  # as written, e.g. "at least 2 queen"
 
     @property
     def label(self) -> str:
         if self.op == "==" and self.count == 0:
             desc = "none"
+        elif self.op == "between":
+            desc = f"between {self.count} and {self.high}"
         else:
             desc = {">=": "at least", "<=": "at most", "==": "exactly"}[self.op] + f" {self.count}"
         return f"{self.filter.name}: {desc}"
 
     def accepts(self, k: int) -> bool:
+        if self.op == "between":
+            return self.count <= k <= self.high
         return {">=": k >= self.count, "<=": k <= self.count, "==": k == self.count}[self.op]
 
 
@@ -109,8 +124,8 @@ _ENHANCEMENTS = {
     "steel": "m_steel", "stone": "m_stone", "gold": "m_gold", "lucky": "m_lucky",
 }
 _EDITIONS = {
-    "foil": ("foil", "Foil"), "holographic": ("holo", "Holographic"), "holo": ("holo", "Holographic"),
-    "polychrome": ("polychrome", "Polychrome"), "poly": ("polychrome", "Polychrome"),
+    "foil": ("foil", "Foil"), "holographic": ("holo", "Holo"), "holo": ("holo", "Holo"),
+    "polychrome": ("polychrome", "Poly"), "poly": ("polychrome", "Poly"),
     "negative": ("negative", "Negative"),
 }
 _SEALS = ["Red", "Blue", "Gold", "Purple"]
@@ -128,13 +143,26 @@ def _modifiers() -> list[tuple[str, CardFilter]]:
     mods += [(w, CardFilter(w.capitalize(), lambda c, rules, k=k: c.enhancement == k))
              for w, k in _ENHANCEMENTS.items()]
     mods.append(("enhanced", CardFilter("Enhanced", lambda c, rules: c.enhancement not in (None, "c_base"))))
+    by_phrase = dict(mods)
+    mods += [("un" + w, _negate(by_phrase[w])) for w in ("sealed", "enhanced")]
     return sorted(mods, key=lambda m: len(m[0]), reverse=True)
+
+
+# What "not <modifier>" is called; the rest are "No <modifier>".
+_NEGATED_NAMES = {"Sealed": "No Seal", "Enhanced": "Plain"}
+
+
+def _negate(f: CardFilter) -> CardFilter:
+    return CardFilter(_NEGATED_NAMES.get(f.name, "No " + f.name), lambda c, rules: not f.test(c, rules))
 
 
 _MODIFIERS = _modifiers()
 
 
 def _match_modifier(t: str) -> tuple[CardFilter, str] | None:
+    neg = re.match(r"(?:not\s+|non-\s*|non\s+)", t)
+    if neg and (m := _match_modifier(t[neg.end():])):
+        return _negate(m[0]), m[1]
     for phrase, f in _MODIFIERS:
         m = re.match(rf"{phrase}s?(?:\s+|$)", t)
         if m:
@@ -144,7 +172,7 @@ def _match_modifier(t: str) -> tuple[CardFilter, str] | None:
 
 def parse_filter(text: str) -> CardFilter:
     t = text.strip().lower()
-    t = re.sub(r"\s+cards?$", "", t)  # "face cards", "queen card"
+    t = re.sub(r"(?<!red)(?<!black)\s+cards?$", "", t)  # "face cards", "queen card", but "red cards"
     mods: list[CardFilter] = []
     while (m := _match_modifier(t)):
         mods.append(m[0])
@@ -157,37 +185,120 @@ def parse_filter(text: str) -> CardFilter:
     return CardFilter(name, lambda c, rules: all(f.test(c, rules) for f in filters))
 
 
+# The rank groups jokers care about: Even Steven, Odd Todd, Fibonacci.
+_GROUPS = {
+    "even": ("Even", (2, 4, 6, 8, 10)),
+    "odd": ("Odd", (3, 5, 7, 9, 14)),
+    "fibonacci": ("Fib", (2, 3, 5, 8, 14)),
+    "fib": ("Fib", (2, 3, 5, 8, 14)),
+}
+_OR = re.compile(r"\s*,\s*(?:or\s+)?|\s+or\s+")  # "2, 3 or 5", "queen or king"
+
+
+def _short(r: int) -> str:
+    return RANK_SHORT.get(_rank_name(r), _rank_name(r))
+
+
+def _ranks_label(ranks: list[int]) -> str:
+    """Several ranks, lowest first: runs of 3 or more as "2-5", the rest joined by "/" ("4/T")."""
+    parts, i = [], 0
+    while i < len(ranks):
+        j = i
+        while j + 1 < len(ranks) and ranks[j + 1] == ranks[j] + 1:
+            j += 1
+        if j - i >= 2:
+            parts.append(f"{_short(ranks[i])}-{_short(ranks[j])}")
+            i = j + 1
+        else:
+            parts.append(_short(ranks[i]))
+            i += 1
+    return "/".join(parts)
+
+
+@dataclass(frozen=True)
+class _Ranks:
+    name: str    # on its own: "Queen", "Q/K", "Even", "Face card", "Non-face"
+    prefix: str  # before suit symbols: "Q" ("Q♠"), "Q/K ", "Face "
+    test: Callable[[Card, Rules], bool]
+
+
+def _rank_set(ranks: tuple[int, ...]) -> Callable[[Card, Rules], bool]:
+    return lambda c, rules: not c.is_stone and c.rank_id in ranks
+
+
+def _parse_ranks(part: str) -> _Ranks | None:
+    part = re.sub(r"\s+cards?$", "", part.strip())
+    if re.fullmatch(r"faces?", part):
+        return _Ranks("Face card", "Face ", _is_face)
+    if re.fullmatch(r"non[\s-]?faces?", part):
+        return _Ranks("Non-face", "Non-face ", lambda c, rules: not _is_face(c, rules))
+    if part in _GROUPS:
+        name, ranks = _GROUPS[part]
+        return _Ranks(name, name + " ", _rank_set(ranks))
+    words = [_singular(w) for w in _OR.split(part)]
+    if not all(w in _RANK_WORDS for w in words):
+        return None
+    ranks = sorted({_RANK_WORDS[w] for w in words})
+    if len(ranks) == 1:
+        return _Ranks(_rank_name(ranks[0]), _short(ranks[0]), _rank_set(tuple(ranks)))
+    # Named by the ranks left out when that's shorter: "not 5/9/K".
+    name = _ranks_label(ranks)
+    left_out = [r for r in range(2, 15) if r not in ranks]
+    if left_out and len(excluded := "not " + _ranks_label(left_out)) < len(name):
+        name = excluded
+    return _Ranks(name, name + " ", _rank_set(tuple(ranks)))
+
+
+def _parse_suits(part: str) -> tuple[str, ...] | None:
+    """Suits in SUITS order: "spades", "hearts or diamonds", "red suits", "not hearts"."""
+    part = part.strip()
+    m = re.fullmatch(r"(red|black)\s+(?:suit|card)s?", part)
+    if m:
+        return ("Hearts", "Diamonds") if m[1] == "red" else ("Spades", "Clubs")
+    m = re.fullmatch(r"(?:not\s+|non-\s*|non\s+)(\S+)", part)
+    if m:
+        s = _SUIT_WORDS.get(_singular(m[1]))
+        return tuple(x for x in SUITS if x != s) if s else None
+    words = [_singular(w) for w in _OR.split(part)]
+    if not all(w in _SUIT_WORDS for w in words):
+        return None
+    suits = {_SUIT_WORDS[w] for w in words}
+    return tuple(s for s in SUITS if s in suits)
+
+
+def _suited(ranks: _Ranks | None, suits: tuple[str, ...]) -> CardFilter:
+    def has_suit(c: Card, rules: Rules) -> bool:
+        return any(_has_suit(c, s, rules) for s in suits)
+    symbols = "".join(SUIT_SHORT[s] for s in suits)
+    if ranks is None:
+        return CardFilter(suits[0][:-1] if len(suits) == 1 else symbols, has_suit)
+    return CardFilter(ranks.prefix + symbols, lambda c, rules: ranks.test(c, rules) and has_suit(c, rules))
+
+
 def _parse_base(t: str, text: str) -> CardFilter:
-    t = _singular(t)
-    if t == "face":
-        return CardFilter("Face card", _is_face)
-    # A suited face card: "face of spades", "face spade" or "face cards of spades".
-    m = re.fullmatch(r"faces?(?:\s+cards?)?(?:\s+of)?\s+(\S+)", t)
-    if m and _singular(m[1]) in _SUIT_WORDS:
-        s = _SUIT_WORDS[_singular(m[1])]
-        return CardFilter("Face " + SUIT_SHORT[s], lambda c, rules, s=s:
-                          _is_face(c, rules) and _has_suit(c, s, rules))
-    if t in _RANK_WORDS:
-        r = _RANK_WORDS[t]
-        return CardFilter(_rank_name(r), lambda c, rules, r=r: _has_rank(c, r, rules))
-    if t in _SUIT_WORDS:
-        s = _SUIT_WORDS[t]
-        return CardFilter(s[:-1], lambda c, rules, s=s: _has_suit(c, s, rules))
-    # Specific card: "2c", "QS", "2♣" or "2 of clubs" (but not "2 clubs", a count).
+    if ranks := _parse_ranks(t):
+        return CardFilter(ranks.name, ranks.test)
+    if suits := _parse_suits(t):
+        return _suited(None, suits)
+    # Ranks of suits: "2 of clubs", "queen or king of hearts or diamonds", "face cards of spades".
+    for m in re.finditer(r"\s+of\s+", t):
+        ranks, suits = _parse_ranks(t[:m.start()]), _parse_suits(t[m.end():])
+        if ranks and suits:
+            return _suited(ranks, suits)
+    # A named group then suits: "face spade", "even hearts or diamonds" (but not "2 clubs", a count).
+    m = re.fullmatch(r"((?:non[\s-]?)?faces?(?:\s+cards?)?|even|odd|fib(?:onacci)?)\s+(.+)", t)
+    if m and (suits := _parse_suits(m[2])):
+        return _suited(_parse_ranks(m[1]), suits)
+    # Specific card: "2c", "QS", "2♣", "10s".
     for word in sorted(_RANK_WORDS, key=len, reverse=True):
-        if not t.startswith(word):
-            continue
-        m = re.fullmatch(r"(?:\s+of\s+)?(\S+)", t[len(word):])
-        suit = m and _singular(m[1])
+        suit = _singular(t[len(word):]) if t.startswith(word) else None
         if suit in _SUIT_WORDS:
-            r, s = _RANK_WORDS[word], _SUIT_WORDS[suit]
-            name = RANK_SHORT.get(_rank_name(r), _rank_name(r)) + SUIT_SHORT[s]
-            return CardFilter(name, lambda c, rules, r=r, s=s:
-                              _has_rank(c, r, rules) and _has_suit(c, s, rules))
+            return _suited(_parse_ranks(word), (_SUIT_WORDS[suit],))
     raise ValueError(
-        f"unknown card filter {text!r}; use a rank (queen, Q, 10), suit (spade), "
-        "specific card (2 of clubs, 2C), 'face' (face of spades), or a modifier (lucky, mult, foil, "
-        "polychrome, red seal, enhanced, ...) optionally followed by one of those"
+        f"unknown card filter {text!r}; use a rank (queen, Q, 10, queen or king, even, odd, fibonacci, face, "
+        "non-face), suits (spade, hearts or diamonds, red suits, not hearts), ranks of suits (2 of clubs, 2C, "
+        "face of spades), or a modifier (lucky, mult, foil, polychrome, red seal, enhanced, not sealed, ...) "
+        "optionally followed by one of those"
     )
 
 
@@ -222,6 +333,14 @@ def _parse_query(text: str) -> CardQuery:
         return CardQuery(parse_filter(t), ">=", 1)
     except ValueError:
         pass
+    m = (re.match(rf"between\s+{_NUMBER}\s+and\s+{_NUMBER}\s+", t)
+         or re.match(rf"{_NUMBER}\s*(?:-|to\s)\s*{_NUMBER}\s+", t))
+    if m:
+        low, high = _number(m[1]), _number(m[2])
+        if low > high:
+            raise ValueError(f"impossible count in {text!r}")
+        f = parse_filter(t[m.end():])
+        return CardQuery(f, "==", low) if low == high else CardQuery(f, "between", low, high)
     for pattern, op, adjust in _COUNT_PATTERNS:
         m = re.match(pattern, t)
         if m:

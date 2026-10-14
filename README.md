@@ -61,14 +61,14 @@ other files there alone: they're Balatro's settings and saves.
 - Click on specific hands in the `Hands` tab to toggle tracking. Or, remove tracked hands by clicking the red `X`'s.
 <img width="426" height="240" alt="demo_hands" src="https://github.com/user-attachments/assets/2dd53a4e-fde8-4b8d-845d-c91baa92eab3" />
 
-- Build custom card types to track in the `Cards` tab. You can filter by rank, suit, and special, and get probabilities for at least, at most, or exact card counts.
+- Build custom card types to track in the `Cards` tab. Pick any ranks (or a preset like Face, Even or Fibonacci), suits and a special (which `not` negates), and get probabilities for at least, exactly, at most, or between two counts of them. Hover over a tracked card type to see its full name and what it means.
 <img width="426" height="240" alt="demo_cards" src="https://github.com/user-attachments/assets/98fa9f63-6a1c-4c38-9843-9a3c12490990" />
 
 
 
 Choose what to track in game: press the `+` beside "CALCULATRO" on the panel above the deck. Its Hands tab
-toggles target hands; its Cards tab builds card counts (a count, rank, suit and special) and lists the tracked
-ones. Done goes back to the odds, and the `x` on a row stops tracking it. Targets last for the run (they're saved
+toggles target hands; its Cards tab builds card counts (a count, ranks, suits and a special) and lists the
+tracked ones; hovering over one shows its full name and what it means. Done goes back to the odds, and the `x` on a row stops tracking it. Targets last for the run (they're saved
 with it) and a new run starts with none. The `+` is greyed out once the panel is full (3 columns of 6 rows).
 
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
@@ -81,9 +81,9 @@ panel says "Waiting for app" if the app isn't answering.
 
 - Target hands: a target counts if you could play a hand Balatro scores as containing it (a Straight Flush
   counts as a Straight). Several targets also show the odds of hitting any of them.
-- Card counts cover the newly drawn cards only: at least / exactly / at most a number of cards of a rank
-  (or any face card), suit, specific card, and/or special: an enhancement (or any `Enhanced`), edition
-  (or any edition) or seal (or `Sealed`).
+- Card counts cover the newly drawn cards only: at least / exactly / at most / between numbers of cards of
+  any of a set of ranks (or face, non-face, even, odd or Fibonacci cards), any of a set of suits, and/or a
+  special: an enhancement (or any `Enhanced`), edition (or any edition) or seal (or `Sealed`), or `not` one.
 
 ## Contributing
 

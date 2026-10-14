@@ -251,11 +251,11 @@ function Calculatro.remove_hand(name)
 end
 
 -- Adds a card query unless it's already tracked or wouldn't fit; returns
--- whether it did.
-function Calculatro.add_card(query, label)
+-- whether it did. `about` (optional) explains it in its popup.
+function Calculatro.add_card(query, label, about)
     local cards = Calculatro.tracked().cards
     if set_of(cards, 'query')[query] or not Calculatro.can_add_card() then return false end
-    cards[#cards + 1] = { query = query, label = label }
+    cards[#cards + 1] = { query = query, label = label, about = about }
     return true
 end
 
@@ -267,32 +267,30 @@ function Calculatro.remove_card(query)
 end
 
 ---------------------------------------------------------------------------
--- Card query builder: option cycles for the count, rank, suit and a
--- special (enhancement, edition or seal), building a query that
--- cards.parse_query accepts, so the app stays the only parser, and its
--- label, as the app would name it ("Lucky Q♠: 2+"; the panel draws the
--- suit symbols as icons).
+-- Card query builder: the count (a comparison and a number, or a range),
+-- rank chips with presets, suit chips, and a special (enhancement, edition
+-- or seal) that `not` can negate. It builds a query that cards.parse_query
+-- accepts, so the app stays the only parser, and its label, as the app
+-- would name it ("No Seal Q/K: 1-3"; the panel draws the suit symbols as
+-- icons). Ranks and suits are ORed within themselves; none or all of them
+-- means any.
 ---------------------------------------------------------------------------
 local SUIT_SYMBOLS = { Spades = '\226\153\160', Hearts = '\226\153\165',
                        Clubs = '\226\153\163', Diamonds = '\226\153\166' }
+local SUITS = { 'Spades', 'Hearts', 'Clubs', 'Diamonds' }
+
+-- By rank id: its word in queries, its name alone ("Queen"), before a suit
+-- ("Q♠") or among others ("Q/K"), and its chip's text.
+local RANKS = {}
+for r = 2, 10 do
+    RANKS[r] = { query = tostring(r), name = tostring(r), short = r == 10 and 'T' or tostring(r), chip = tostring(r) }
+end
+for i, name in ipairs({ 'Jack', 'Queen', 'King', 'Ace' }) do
+    RANKS[10 + i] = { query = name:lower(), name = name, short = name:sub(1, 1), chip = name:sub(1, 1) }
+end
 
 local function build_options()
-    local any = { text = 'Any' }
-    local ranks = { any }
-    for r = 2, 10 do
-        ranks[#ranks + 1] = { text = tostring(r), query = tostring(r), name = tostring(r), short = r == 10 and 'T' or tostring(r) }
-    end
-    for _, name in ipairs({ 'Jack', 'Queen', 'King', 'Ace' }) do
-        ranks[#ranks + 1] = { text = name, query = name:lower(), name = name, short = name:sub(1, 1) }
-    end
-    ranks[#ranks + 1] = { text = 'Face', query = 'face', name = 'Face card', short = 'Face ' }
-
-    local suits = { any }
-    for _, suit in ipairs({ 'Spades', 'Hearts', 'Clubs', 'Diamonds' }) do
-        suits[#suits + 1] = { text = suit, query = suit:lower(), name = SUIT_SYMBOLS[suit] }
-    end
-
-    local specials = { any }
+    local specials = { { text = 'Any' } }
     local function special(text, query, name)
         specials[#specials + 1] = { text = text, query = query, name = name or text }
     end
@@ -300,7 +298,9 @@ local function build_options()
         special(e, e:lower())
     end
     special('Enhanced', 'enhanced')
-    for _, e in ipairs({ 'Foil', 'Holographic', 'Polychrome', 'Negative' }) do special(e, e:lower()) end
+    for _, e in ipairs({ { 'Foil' }, { 'Holographic', 'Holo' }, { 'Polychrome', 'Poly' }, { 'Negative' } }) do
+        special(e[1], e[1]:lower(), e[2])
+    end
     special('Any edition', 'edition', 'Edition')
     for _, s in ipairs({ 'Red', 'Blue', 'Gold', 'Purple' }) do special(s .. ' Seal', s:lower() .. ' seal') end
     special('Sealed', 'sealed')
@@ -311,61 +311,233 @@ local function build_options()
             { text = 'at least', query = 'at least', min = 1, max = 8 },
             { text = 'exactly', query = 'exactly', min = 0, max = 8 },
             { text = 'at most', query = 'at most', min = 0, max = 7 },
+            -- From the count to `high`, which is above it and at most 8. From 0 it
+            -- would be "at most".
+            { text = 'between', query = 'between', min = 1, max = 7 },
         },
-        rank = ranks,
-        suit = suits,
+        -- Sets of ranks the rank cycle sets the chips to, lowest first. Those
+        -- with a query are groups the app knows by name, which it matches as
+        -- the game does (face cards by Card:is_face); the others are spelt out.
+        preset = {
+            { text = 'Any', ranks = {} },
+            { text = 'Face', ranks = { 11, 12, 13 }, query = 'face', name = 'Face card', prefix = 'Face' },
+            { text = 'Non-face', ranks = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 14 }, query = 'non-face', name = 'Non-face' },
+            { text = 'Even', ranks = { 2, 4, 6, 8, 10 }, query = 'even', name = 'Even' },        -- Even Steven
+            { text = 'Odd', ranks = { 3, 5, 7, 9, 14 }, query = 'odd', name = 'Odd' },           -- Odd Todd
+            { text = 'Fibonacci', ranks = { 2, 3, 5, 8, 14 }, query = 'fibonacci', name = 'Fib' },
+            { text = '2 to 5', ranks = { 2, 3, 4, 5 } },                                         -- Hack
+            { text = '10 or 4', ranks = { 4, 10 } },                                             -- Walkie Talkie
+        },
         special = specials,
     }
 end
 local OPTIONS = build_options()
 Calculatro.OPTIONS = OPTIONS
 
--- The builder's choices, as indexes into OPTIONS (count is the number).
-Calculatro.builder = { cmp = 1, count = 1, rank = 1, suit = 1, special = 1 }
-
--- The chosen comparison, rank, suit and special.
-local function builder_choice()
-    local b = Calculatro.builder
-    local rank = OPTIONS.rank[b.rank]
-    local suit = OPTIONS.suit[b.suit]
-    return OPTIONS.cmp[b.cmp], rank, suit, OPTIONS.special[b.special]
+local function all_suits()
+    local set = {}
+    for _, s in ipairs(SUITS) do set[s] = true end
+    return set
 end
 
--- The query and label the builder makes; nil while rank, suit and special
--- are all Any, which every card matches.
+-- The builder's choices: indexes into OPTIONS.cmp and .special, the count
+-- (and `high`, a range's top), the chosen ranks and suits as sets, and
+-- whether the special is negated.
+function Calculatro.reset_builder()
+    Calculatro.builder = { cmp = 1, count = 1, high = 2, ranks = {}, suits = all_suits(), special = 1, negate = false }
+end
+Calculatro.reset_builder()
+
+-- The chosen ranks, lowest first, and suits, in SUITS order: empty for any.
+local function chosen_ranks()
+    local ids = {}
+    for r = 2, 14 do
+        if Calculatro.builder.ranks[r] then ids[#ids + 1] = r end
+    end
+    return #ids == 13 and {} or ids
+end
+
+local function chosen_suits()
+    local list = {}
+    for _, s in ipairs(SUITS) do
+        if Calculatro.builder.suits[s] then list[#list + 1] = s end
+    end
+    return #list == #SUITS and {} or list
+end
+
+-- The preset the chosen ranks are, if any.
+local function preset_index()
+    local ids = chosen_ranks()
+    for i, p in ipairs(OPTIONS.preset) do
+        local same = #p.ranks == #ids
+        for j = 1, #ids do same = same and p.ranks[j] == ids[j] end
+        if same then return i end
+    end
+end
+
+-- What the rank cycle shows: the preset, a single rank, or 'Custom'.
+function Calculatro.rank_choice()
+    local i, ids = preset_index(), chosen_ranks()
+    return (i and OPTIONS.preset[i].text) or (#ids == 1 and RANKS[ids[1]].name) or 'Custom'
+end
+
+-- Several ranks, as the app names them: runs of 3 or more as "2-5", the
+-- rest joined by "/" ("4/T").
+local function ranks_label(ids)
+    local parts, i = {}, 1
+    while i <= #ids do
+        local j = i
+        while ids[j + 1] == ids[j] + 1 do j = j + 1 end
+        if j - i >= 2 then
+            parts[#parts + 1] = RANKS[ids[i]].short .. '-' .. RANKS[ids[j]].short
+            i = j + 1
+        else
+            parts[#parts + 1] = RANKS[ids[i]].short
+            i = i + 1
+        end
+    end
+    return table.concat(parts, '/')
+end
+
+-- What a negated special is called; the rest are "No <special>".
+local NEGATED_NAMES = { Sealed = 'No Seal', Enhanced = 'Plain' }
+
+-- The query and label the builder makes; nil while ranks, suits and special
+-- are all any, which every card matches.
 function Calculatro.builder_query()
-    local cmp, rank, suit, special = builder_choice()
-    local n = Calculatro.builder.count
-    local words, name = {}, nil
-    if rank.query and suit.query then
-        words[1], name = rank.query .. ' of ' .. suit.query, rank.short .. suit.name
-    elseif rank.query or suit.query then
-        local base = rank.query and rank or suit
-        words[1], name = base.query, base.name
+    local b = Calculatro.builder
+    local cmp, special = OPTIONS.cmp[b.cmp], OPTIONS.special[b.special]
+    local ids, suits = chosen_ranks(), chosen_suits()
+    local preset = OPTIONS.preset[preset_index() or 0]
+    -- The ranks' query words, and their name alone and before suit symbols.
+    local ranks, rank_name, prefix
+    if #ids == 1 then
+        local r = RANKS[ids[1]]
+        ranks, rank_name, prefix = r.query, r.name, r.short
+    elseif preset and preset.query then
+        ranks, rank_name, prefix = preset.query, preset.name, (preset.prefix or preset.name) .. ' '
+    elseif #ids > 1 then
+        local words = {}
+        for i, r in ipairs(ids) do words[i] = RANKS[r].query end
+        ranks, rank_name = table.concat(words, ' or '), ranks_label(ids)
+        -- Named by the ranks left out when that's shorter: "not 5/9/K".
+        local left_out, chosen = {}, Calculatro.builder.ranks
+        for r = 2, 14 do
+            if not chosen[r] then left_out[#left_out + 1] = r end
+        end
+        local excluded = 'not ' .. ranks_label(left_out)
+        if #excluded < #rank_name then rank_name = excluded end
+        prefix = rank_name .. ' '
+    end
+    local words, name
+    if #suits > 0 then
+        local suit_words, symbols = {}, {}
+        for i, s in ipairs(suits) do suit_words[i], symbols[i] = s:lower(), SUIT_SYMBOLS[s] end
+        words, name = table.concat(suit_words, ' or '), table.concat(symbols)
+        if ranks then words, name = ranks .. ' of ' .. words, prefix .. name end
+    elseif ranks then
+        words, name = ranks, rank_name
     end
     if special.query then
-        table.insert(words, 1, special.query)
-        name = special.name .. ' ' .. (name or 'card')
+        local special_name = b.negate and (NEGATED_NAMES[special.name] or 'No ' .. special.name) or special.name
+        words = (b.negate and 'not ' or '') .. special.query .. (words and ' ' .. words or '')
+        name = special_name .. ' ' .. (name or 'card')
     end
     if not name then return nil end
+    local n = b.count
+    if cmp.query == 'between' then
+        return 'between ' .. n .. ' and ' .. b.high .. ' ' .. words, name .. ': ' .. n .. '-' .. b.high
+    end
     local count = (n == 0 and 'none') or (cmp.query == 'at least' and n .. '+')
         or (cmp.query == 'at most' and '0-' .. n) or tostring(n)
-    return cmp.query .. ' ' .. n .. ' ' .. table.concat(words, ' '), name .. ': ' .. count
+    return cmp.query .. ' ' .. n .. ' ' .. words, name .. ': ' .. count
 end
 
--- Steps one of the builder's cycles (cmp, count, rank, suit, special) by
--- `dir`, wrapping around. The count stays in its comparison's range.
+-- "a, b or c".
+local function either(list)
+    if #list < 2 then return list[1] end
+    return table.concat(list, ', ', 1, #list - 1) .. ' or ' .. list[#list]
+end
+
+-- The chosen ones of `all` (set `chosen`) named by `name`, or those left out
+-- when that's shorter: "Q or K", "any but 5, 9 or K".
+local function chosen_or_not(all, chosen, name)
+    local on, off = {}, {}
+    for _, x in ipairs(all) do
+        local list = chosen[x] and on or off
+        list[#list + 1] = name(x)
+    end
+    local shown, but = either(on), 'any but ' .. either(off)
+    return #but < #shown and but or shown
+end
+
+-- What a negated special means, where "not <special>" doesn't say it well.
+local NEGATED_ABOUT = { Sealed = 'no seal', Enhanced = 'no enhancement', ['Any edition'] = 'no edition' }
+
+-- What the builder's query means, for its popup: "Count: between 1 and 3",
+-- then whichever of Rank, Suit and Special aren't any, one per line. Labels
+-- abbreviate ("Fib", "T", "Plain"); this spells it out.
+function Calculatro.builder_about()
+    local b = Calculatro.builder
+    local cmp, special = OPTIONS.cmp[b.cmp], OPTIONS.special[b.special]
+    local lines = { 'Count: ' .. (cmp.query == 'between' and 'between ' .. b.count .. ' and ' .. b.high
+                                  or cmp.text .. ' ' .. b.count) }
+    local ids, suits = chosen_ranks(), chosen_suits()
+    if #ids > 0 then
+        local all = {}
+        for r = 2, 14 do all[#all + 1] = r end
+        local ranks = chosen_or_not(all, b.ranks, function(r) return #ids == 1 and RANKS[r].name or RANKS[r].chip end)
+        local preset = OPTIONS.preset[preset_index() or 0]
+        if preset and preset.query then ranks = preset.text .. ' (' .. ranks .. ')' end
+        lines[#lines + 1] = 'Rank: ' .. ranks
+    end
+    if #suits > 0 then
+        lines[#lines + 1] = 'Suit: ' .. chosen_or_not(SUITS, b.suits, function(s) return s end)
+    end
+    if special.query then
+        lines[#lines + 1] = 'Special: ' .. (b.negate and (NEGATED_ABOUT[special.text] or 'not ' .. special.text)
+                                            or special.text)
+    end
+    return table.concat(lines, '\n')
+end
+
+-- Steps one of the builder's cycles (cmp, count, high, preset, special) by
+-- `dir`, wrapping around. The count stays in its comparison's range, and a
+-- range's top above its count.
 function Calculatro.cycle(field, dir)
     local b = Calculatro.builder
+    if field == 'preset' then
+        -- From ranks that aren't a preset, as if from Any.
+        local i = ((preset_index() or 1) - 1 + dir) % #OPTIONS.preset + 1
+        b.ranks = {}
+        for _, r in ipairs(OPTIONS.preset[i].ranks) do b.ranks[r] = true end
+        return
+    end
     local cmp = OPTIONS.cmp[b.cmp]
     if field == 'count' then
         b.count = b.count + dir
         if b.count > cmp.max then b.count = cmp.min elseif b.count < cmp.min then b.count = cmp.max end
-        return
+    elseif field == 'high' then
+        b.high = b.high + dir
+        if b.high > 8 then b.high = b.count + 1 elseif b.high <= b.count then b.high = 8 end
+    else
+        b[field] = (b[field] - 1 + dir) % #OPTIONS[field] + 1
+        cmp = OPTIONS.cmp[b.cmp]
+        b.count = math.max(cmp.min, math.min(cmp.max, b.count))
     end
-    b[field] = (b[field] - 1 + dir) % #OPTIONS[field] + 1
-    cmp = OPTIONS.cmp[b.cmp]
-    b.count = math.max(cmp.min, math.min(cmp.max, b.count))
+    b.high = math.max(b.count + 1, math.min(8, b.high))
+end
+
+-- The rank and suit chips. Turning off the last suit turns them all back
+-- on: no suits means any, as all of them does.
+function Calculatro.toggle_rank(r)
+    Calculatro.builder.ranks[r] = not Calculatro.builder.ranks[r] or nil
+end
+
+function Calculatro.toggle_suit(s)
+    local b = Calculatro.builder
+    b.suits[s] = not b.suits[s] or nil
+    if next(b.suits) == nil then b.suits = all_suits() end
 end
 
 ---------------------------------------------------------------------------
@@ -770,7 +942,8 @@ function Calculatro.panel_model()
     if #t.hands > 1 then hand('Any target', 'Any target', nil, all_banned) end
     for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true, banned[h]) end
     for _, c in ipairs(t.cards) do
-        model.cards[#model.cards + 1] = { key = c.query, name = c.label, discard = (card_odds[c.query] or {}).discard }
+        model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about,
+                                          discard = (card_odds[c.query] or {}).discard }
     end
     return model
 end
@@ -843,6 +1016,77 @@ local function name_label(text, text_node)
     if #nodes == 0 then return text_node(text) end
     if pos <= #text then nodes[#nodes + 1] = text_node(text:sub(pos)) end
     return { n = G.UIT.R, config = { align = 'cm', padding = 0 }, nodes = nodes }
+end
+
+-- Text's width at `scale`, as the game lays it out (UIBox's text nodes), or
+-- nil without the game's font.
+local function text_width(text, scale)
+    local font = G.LANG and G.LANG.font
+    if not (font and font.FONT and font.FONT.getWidth) then return nil end
+    return font.FONT:getWidth(text) * font.squish * scale * font.FONTSCALE / G.TILESIZE
+end
+
+-- A label's width as name_label draws it, suit icons and all.
+local function label_width(text, scale)
+    local letters, icons = text:gsub(SUIT_PATTERN, '')
+    local w = text_width(letters, scale)
+    return w and w + icons * (ICON_SIZE + 2 * (ICON_PAD + ICON_GAP))
+end
+
+-- `text` (a card query's label) cut short to fit `w` at `scale`, as the game
+-- would shrink it instead: "Plain not 5/9.. ♥♣♦: 1-3". The cut comes out of
+-- the name, never its suit symbols or the count after them; the full label
+-- is in the row's popup. As it is without the game's font.
+function Calculatro.fit_label(text, w, scale)
+    local full = label_width(text, scale)
+    if not full or full <= w then return text end
+    local name, tail = text:match('^(.*)(: [^:]*)$')
+    if not name then name, tail = text, '' end
+    -- The suit symbols ending the name, and the space before them, stay.
+    while #name >= 3 and name:sub(-3):find('^' .. SUIT_PATTERN .. '$') do
+        tail, name = name:sub(-3) .. tail, name:sub(1, -4)
+    end
+    if name:sub(-1) == ' ' then tail, name = ' ' .. tail, name:sub(1, -2) end
+    for keep = #name - 1, 1, -1 do
+        local cut = name:sub(1, keep):gsub('[%s/%-]+$', '') .. '..' .. tail
+        if label_width(cut, scale) <= w then return cut end
+    end
+    return '..' .. tail
+end
+
+-- The inset behind the odds: what BOSS_MAIN is outside boss blinds
+-- (Blind:change_colour). BOSS_MAIN itself is the boss's colour, too light
+-- behind light text for some (The Club, The Water, The Psychic, ...) and
+-- the same hue as the green/red discard values for others.
+local function inset_colour()
+    local black = G.C.BLACK
+    return { black[1] * 0.95, black[2] * 0.95, black[3] * 0.95, black[4] }
+end
+
+-- The popup over a card query's name: its full label, and what each part
+-- of it means (`about`, lines of "Field: value", from the builder) if known,
+-- in the panel's colours: light text on its dark inset, in its frame.
+local POPUP_SCALE = 0.36
+function Calculatro.popup_definition(name, about)
+    local C = G.C
+    local function line(nodes) return { n = G.UIT.R, config = { align = 'cl', padding = 0.02 }, nodes = nodes } end
+    local rows = { line({ name_label(name, function(text) return label(text, C.UI.TEXT_LIGHT, POPUP_SCALE) end) }) }
+    for text in (about or ''):gmatch('[^\n]+') do
+        local field, value = text:match('^(.-): (.*)$')
+        rows[#rows + 1] = line({ label(field .. ': ', C.JOKER_GREY), label(value) })
+    end
+    return { n = G.UIT.ROOT, config = { align = 'cm', padding = 0.05, r = 0.1, colour = C.DYN_UI.MAIN, emboss = 0.05 }, nodes = {
+        { n = G.UIT.C, config = { align = 'cl', padding = 0.08, r = 0.1, colour = inset_colour(), emboss = 0.05 }, nodes = rows },
+    } }
+end
+
+-- A card query's name in a cell `w` wide, cut to fit (fit_label), that shows
+-- its popup while hovered (see hover_popups). `card`: {key, name, about}.
+local function card_name_cell(card, w)
+    return { n = G.UIT.C, config = { id = 'calculatro_name_' .. card.key, align = 'cl', minw = w, maxw = w,
+                                     collideable = true, calculatro_popup = { name = card.name, about = card.about } }, nodes = {
+        name_label(Calculatro.fit_label(card.name, w, SCALE)),
+    } }
 end
 
 -- The arrow between Keep and Discard, drawn in boxes the size of the font's
@@ -1062,7 +1306,7 @@ local function sections(model, colours)
     for _, c in ipairs(model.cards) do
         cards[#cards + 1] = function()
             return row({
-                cell(CARD_ROW_NAME_W, 'cl', name_label(c.name)),
+                card_name_cell(c, CARD_ROW_NAME_W),
                 cell(DISCARD_W, 'cr', value(c.discard, C.UI.TEXT_LIGHT)),
                 remove_cell(c.key, { 'remove_card', c.key }),
             }, { calculatro_anim = 'card:' .. c.key })
@@ -1096,15 +1340,6 @@ end
 -- Number of columns with at most `per` rows each.
 function Calculatro.column_count(model, per)
     return #split(sections(model, {}), per)
-end
-
--- The inset behind the odds: what BOSS_MAIN is outside boss blinds
--- (Blind:change_colour). BOSS_MAIN itself is the boss's colour, too light
--- behind light text for some (The Club, The Water, The Psychic, ...) and
--- the same hue as the green/red discard values for others.
-local function inset_colour()
-    local black = G.C.BLACK
-    return { black[1] * 0.95, black[2] * 0.95, black[3] * 0.95, black[4] }
 end
 
 local TITLE_SCALE = 0.36
@@ -1220,27 +1455,33 @@ local FIELD_W = 0.8                        -- the builder's row names ("Special"
 local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
 local OPTION_W = 1.6                       -- a cycle's value ("Holographic")
 local CMP_W, COUNT_W, COUNT_GAP = 1.2, 0.25, 0.05  -- CMP_W leaves room around "at least"
+local AND_W = 0.4                          -- "and", before a range's top
+local CHIP_W, SUIT_CHIP_W = 0.28, 0.45     -- the rank chips fit "10"
+local NOT_W = 0.45                         -- the toggle that negates the special
 local BUILDER_GAP = 0.3                    -- between the builder and the tracked list
 local PAGE_W = 1.25                        -- fits "Page 2/2"
--- Fits the longest label, "Add  Purple Seal Face card: none" (4.24): the game
--- shrinks wider text, but not the suit icons beside it.
-local ADD_W = 4.4
 local ADD_GAP = 0.1                        -- between the builder and Add
 
 local function cycle_w(w) return w + 2 * (CYCLE_ARROW_W + CYCLE_GAP) end
--- The Cards tab: the builder (its widest row is Count's) beside the tracked
--- list, with the rows' padding around and between their cells; under them,
--- Add and the page cycle, which stays put as pages change.
-local BUILDER_W = FIELD_W + cycle_w(CMP_W) + COUNT_GAP + cycle_w(COUNT_W) + 5 * ROW_PAD
+-- The Cards tab: the builder beside the tracked list, with the rows' padding
+-- around and between their cells; under them, Add and the page cycle, which
+-- stays put as pages change. The rank chips start at the builder's left
+-- edge, so its rows fit in their width, but for Count with a range, which is
+-- wider. The list takes what the builder leaves.
+local CHIPS_W = 13 * CHIP_W + 14 * ROW_PAD
+local RANGE_ROW_W = FIELD_W + cycle_w(CMP_W) + COUNT_GAP + cycle_w(COUNT_W) + AND_W + cycle_w(COUNT_W) + 7 * ROW_PAD
+local BUILDER_W = math.max(CHIPS_W, RANGE_ROW_W)
 local CARDS_TAB_W = BUILDER_W + BUILDER_GAP + (CARD_NAME_W + REMOVE_W + 3 * ROW_PAD)
-local PAGE_CELL_W = CARDS_TAB_W - ADD_W - 3 * ROW_PAD
+-- Add takes what the page cycle leaves; its label is cut to fit (fit_label).
+local PAGE_CELL_W = cycle_w(PAGE_W)
+local ADD_W = CARDS_TAB_W - PAGE_CELL_W - 3 * ROW_PAD
 -- The inset's width, the same on both tabs: the Hands tab is narrower, and
 -- centred in it.
 local EDITOR_W = CARDS_TAB_W + 2 * INSET_PAD
--- Both tabs are as tall as the Hands tab's columns of toggles, rows of
--- padded buttons.
+-- Both tabs are as tall as the Cards tab: its builder's five rows of padded
+-- buttons, then Add. The Hands tab's six rows of toggles are a little shorter.
 local EDITOR_ROW_H = TEXT_H + 2 * TEXT_PAD + 2 * ROW_PAD
-local EDITOR_H = #HANDS / 2 * EDITOR_ROW_H
+local EDITOR_H = 6 * EDITOR_ROW_H + ADD_GAP
 
 -- What the editor shows; like the odds panel's model, it's rebuilt only
 -- when this changes.
@@ -1256,18 +1497,23 @@ function Calculatro.editor_model()
         end
         return model
     end
-    local cmp, rank, suit, special = builder_choice()
+    local b = Calculatro.builder
+    local cmp, special = OPTIONS.cmp[b.cmp], OPTIONS.special[b.special]
     local query, name = Calculatro.builder_query()
+    local ranks, suits = array(), array()
+    for r = 2, 14 do ranks[#ranks + 1] = { key = r, text = RANKS[r].chip, on = b.ranks[r] or nil } end
+    for i, s in ipairs(SUITS) do suits[i] = { key = s, on = b.suits[s] or nil } end
     model.builder = {
-        cmp = cmp.text, count = tostring(Calculatro.builder.count), rank = rank.text, suit = suit.text,
-        special = special.text, add = name,
+        cmp = cmp.text, count = tostring(b.count), high = cmp.query == 'between' and tostring(b.high) or nil,
+        preset = Calculatro.rank_choice(), ranks = ranks, suits = suits,
+        special = special.text, negate = b.negate or nil, can_negate = special.query and true or nil, add = name,
         can_add = (query and not set_of(t.cards, 'query')[query] and Calculatro.can_add_card()) or nil,
     }
     local pages = math.max(1, math.ceil(#t.cards / CARDS_PER_PAGE))
     editor.page = math.max(1, math.min(editor.page or 1, pages))
     model.page, model.pages, model.cards = editor.page, pages, array()
     for i = (editor.page - 1) * CARDS_PER_PAGE + 1, math.min(#t.cards, editor.page * CARDS_PER_PAGE) do
-        model.cards[#model.cards + 1] = { key = t.cards[i].query, name = t.cards[i].label }
+        model.cards[#model.cards + 1] = { key = t.cards[i].query, name = t.cards[i].label, about = t.cards[i].about }
     end
     return model
 end
@@ -1312,7 +1558,9 @@ local function hands_tab(model)
         if c > 0 then columns[#columns + 1] = blank(TOGGLE_GAP) end
         columns[#columns + 1] = { n = G.UIT.C, config = { align = 'tl' }, nodes = rows }
     end
-    return columns
+    return { { n = G.UIT.C, config = { align = 'tm', minh = EDITOR_H }, nodes = {
+        { n = G.UIT.R, config = { align = 'tm', padding = 0 }, nodes = columns },
+    } } }
 end
 
 local function cards_tab(model)
@@ -1322,22 +1570,50 @@ local function cards_tab(model)
         table.insert(nodes, 1, cell(FIELD_W, 'cl', label(name, C.JOKER_GREY)))
         return row(nodes, { calculatro_anim = 'field:' .. name })
     end
+    -- A toggle chip: blue while on.
+    local function chip(id, nodes, on, action, w)
+        return button(nodes, action, { id = id, w = w, h = TEXT_H + 2 * TEXT_PAD, padded = true,
+                                       colour = on and C.BLUE or C.L_BLACK })
+    end
     local add_text = b.can_add and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE
+    local count = { builder_cycle('cmp', b.cmp, CMP_W, true), blank(COUNT_GAP),
+                    builder_cycle('count', b.count, COUNT_W, true) }
+    if b.high then
+        count[#count + 1] = cell(AND_W, 'cm', label('and', C.JOKER_GREY))
+        count[#count + 1] = builder_cycle('high', b.high, COUNT_W, true)
+    end
+    -- The rank chips, under the rank cycle that sets them to its presets.
+    local ranks = {}
+    for _, r in ipairs(b.ranks) do
+        ranks[#ranks + 1] = chip('calculatro_rank_' .. r.key, { plain(r.text) }, r.on, { 'toggle_rank', r.key }, CHIP_W)
+    end
+    local suits = {}
+    for _, s in ipairs(b.suits) do
+        suits[#suits + 1] = chip('calculatro_suit_' .. s.key, { suit_icon(SUIT_ICONS[SUIT_SYMBOLS[s.key]]) }, s.on,
+                                 { 'toggle_suit', s.key }, SUIT_CHIP_W)
+    end
+    local negate = button(
+        { plain('not', b.can_negate and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE) },
+        b.can_negate and { 'toggle_negate' } or nil,
+        { id = 'calculatro_negate', w = NOT_W, colour = b.negate and C.BLUE or C.L_BLACK, padded = true })
     local builder = {
-        field('Count', { builder_cycle('cmp', b.cmp, CMP_W, true), blank(COUNT_GAP),
-                         builder_cycle('count', b.count, COUNT_W, true) }),
-        field('Rank', { builder_cycle('rank', b.rank, OPTION_W, true) }),
-        field('Suit', { builder_cycle('suit', b.suit, OPTION_W, true) }),
-        field('Special', { builder_cycle('special', b.special, OPTION_W, true) }),
+        field('Count', count),
+        field('Rank', { builder_cycle('preset', b.preset, OPTION_W, true) }),
+        row(ranks, { calculatro_anim = 'field:Ranks' }),
+        field('Suit', suits),
+        field('Special', { negate, builder_cycle('special', b.special, OPTION_W, true) }),
     }
     local add = button(
-        { name_label(b.add and 'Add  ' .. b.add or 'Add', function(text) return plain(text, add_text) end) },
+        { name_label(Calculatro.fit_label(b.add and 'Add  ' .. b.add or 'Add', ADD_W, SCALE),
+                     function(text) return plain(text, add_text) end) },
         b.can_add and { 'add_card' } or nil,
         { id = 'calculatro_add', w = ADD_W, colour = C.GREEN, padded = true })
 
+    local builder_w = b.high and RANGE_ROW_W or CHIPS_W
+    local name_w = CARD_NAME_W + BUILDER_W - builder_w
     local list = {}
     for _, c in ipairs(model.cards) do
-        list[#list + 1] = row({ cell(CARD_NAME_W, 'cl', name_label(c.name)), remove_cell(c.key, { 'remove_card', c.key }) },
+        list[#list + 1] = row({ card_name_cell(c, name_w), remove_cell(c.key, { 'remove_card', c.key }) },
                               { calculatro_anim = 'listed:' .. c.key })
     end
     if #list == 0 then list[1] = row({ label('Nothing tracked', C.JOKER_GREY) }, { calculatro_anim = 'listed:none' }) end
@@ -1346,7 +1622,7 @@ local function cards_tab(model)
     return {
         { n = G.UIT.C, config = { align = 'tl', minh = EDITOR_H }, nodes = {
             { n = G.UIT.R, config = { align = 'tl', padding = 0 }, nodes = {
-                { n = G.UIT.C, config = { align = 'tl' }, nodes = builder },
+                { n = G.UIT.C, config = { align = 'tl', minw = builder_w }, nodes = builder },
                 blank(BUILDER_GAP),
                 { n = G.UIT.C, config = { align = 'tl' }, nodes = list },
             } },
@@ -1392,10 +1668,13 @@ Calculatro.actions = {
     remove_card = function(query) Calculatro.remove_card(query) end,
     search = function(key) Calculatro.search(key) end,
     cycle = function(arg) Calculatro.cycle(arg[1], arg[2]) end,
+    toggle_rank = function(r) Calculatro.toggle_rank(r) end,
+    toggle_suit = function(s) Calculatro.toggle_suit(s) end,
+    toggle_negate = function() Calculatro.builder.negate = not Calculatro.builder.negate end,
     -- Shows the page it's added to.
     add_card = function()
         local query, name = Calculatro.builder_query()
-        if query and Calculatro.add_card(query, name) and Calculatro.editor then
+        if query and Calculatro.add_card(query, name, Calculatro.builder_about()) and Calculatro.editor then
             Calculatro.editor.page = math.ceil(#Calculatro.tracked().cards / CARDS_PER_PAGE)
         end
     end,
@@ -1667,6 +1946,25 @@ local function steady_buttons(e)
 end
 Calculatro.steady_buttons = steady_buttons
 
+-- Card query names show their popup (config.calculatro_popup, see
+-- popup_definition) above them while hovered, through the game's own hover
+-- popups (Node:hover, h_popup). It's built anew each time: removing a popup
+-- removes its suit icons' sprites too.
+local function hover_popups(e)
+    local popup = e.config and e.config.calculatro_popup
+    if popup then
+        function e:hover()
+            self.config.h_popup = Calculatro.popup_definition(popup.name, popup.about)
+            self.config.h_popup_config = { align = 'tm', offset = { x = 0, y = -0.1 }, parent = self }
+            UIElement.hover(self)
+            local box = self.children and self.children.h_popup
+            if box and box.UIRoot then deepen_shadows(box.UIRoot) end
+        end
+    end
+    for _, child in ipairs(ui_children(e)) do hover_popups(child) end
+end
+Calculatro.hover_popups = hover_popups
+
 -- The panel collides (can_collide) for its buttons. They need a box that
 -- isn't replaced while they're used, so it's only rebuilt when what it shows
 -- changes, and the editor only by its own buttons.
@@ -1684,6 +1982,7 @@ local function build_panel(definition)
         deepen_shadows(panel.UIRoot)
         strike_through(panel.UIRoot)
         steady_buttons(panel.UIRoot)
+        hover_popups(panel.UIRoot)
     end
     return panel
 end

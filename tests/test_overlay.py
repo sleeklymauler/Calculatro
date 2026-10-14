@@ -14,8 +14,9 @@ from calculatro import overlay
 from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
 from calculatro.report import build_report
+from calculatro.rules import Rules
 from calculatro.search import Search, best_discards
-from calculatro.state import SUIT_SHORT, GameState
+from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
 
@@ -63,6 +64,8 @@ def label_for(query: CardQuery | str) -> str:
     name = re.sub(r"\b(" + "|".join(_SUIT_SYMBOLS) + r")\b", lambda m: _SUIT_SYMBOLS[m[1]], q.filter.name)
     if q.count == 0 and q.op in ("==", "<="):
         count = "none"
+    elif q.op == "between":
+        count = f"{q.count}-{q.high}"
     else:
         count = {">=": f"{q.count}+", "<=": f"0-{q.count}", "==": str(q.count)}[q.op]
     return f"{name}: {count}"
@@ -172,61 +175,100 @@ def test_card_labels_are_short_and_ascii_but_for_suits():
 
 
 BUILDER_QUERIES = r"""
-return function(mod, counts)  -- every query the builder makes, with its label, for these {cmp, count} pairs
+return function(mod, counts, rank_sets, suit_sets)  -- every query the builder makes, with its label
   local out = {}
   local O = mod.OPTIONS
   for _, cc in ipairs(counts) do
-    for rank = 1, #O.rank do for suit = 1, #O.suit do for special = 1, #O.special do
-      mod.builder = {cmp = cc[1], count = cc[2], rank = rank, suit = suit, special = special}
-      local query, label = mod.builder_query()
-      out[#out + 1] = {query or false, label or false, O.rank[rank].text, O.suit[suit].text, O.special[special].text}
-    end end end
+    for _, ranks in ipairs(rank_sets) do for _, suits in ipairs(suit_sets) do
+      for special = 1, #O.special do for _, negate in ipairs({false, true}) do
+        if negate and special == 1 then goto skip end  -- "not" needs a special
+        mod.reset_builder()
+        local b = mod.builder
+        b.cmp, b.count, b.high, b.special, b.negate = cc[1], cc[2], cc[3] or 2, special, negate
+        b.ranks, b.suits = {}, {}
+        for _, r in ipairs(ranks) do b.ranks[r] = true end
+        for _, s in ipairs(suits) do b.suits[s] = true end
+        local query, label = mod.builder_query()
+        out[#out + 1] = {query or false, label or false, O.special[special].text, negate}
+        ::skip::
+      end end
+    end end
   end
   return out
 end
 """
 
+PRESETS = [(), (11, 12, 13), (2, 3, 4, 5, 6, 7, 8, 9, 10, 14), (2, 4, 6, 8, 10), (3, 5, 7, 9, 14),
+           (2, 3, 5, 8, 14), (2, 3, 4, 5), (4, 10)]
+RANK_SETS = [*PRESETS, *((r,) for r in range(2, 15)), (12, 13), (2, 3, 4, 5, 9), (2, 14), (10, 11, 12, 13),
+             tuple(range(2, 15))]
+SUIT_SETS = [tuple(s for i, s in enumerate(SUITS) if mask >> i & 1) for mask in range(16)]
 
-def builder_queries(lua, counts):
+
+def builder_queries(lua, counts, rank_sets=RANK_SETS, suit_sets=SUIT_SETS):
     rt, mod = lua
-    rows = rt.execute(BUILDER_QUERIES)(mod, rt.table_from([rt.table_from(c) for c in counts]))
+    lists = [rt.table_from([rt.table_from(x) for x in xs]) for xs in (counts, rank_sets, suit_sets)]
+    rows = rt.execute(BUILDER_QUERIES)(mod, *lists)
     return [tuple(r.values()) for r in rows.values()]
 
 
 def test_builder_queries_parse_as_labelled(lua):
-    # Every rank, suit and special with a few counts, and every count with one of them.
-    counts = [(1, 2), (2, 0), (3, 3), (2, 8)]
-    rows = builder_queries(lua, counts)
-    assert len(rows) == len(counts) * 15 * 5 * 20
-    for query, label, rank, suit, special in rows:
-        if (rank, suit, special) == ("Any", "Any", "Any"):
-            assert query is False and label is False  # every card matches: nothing to add
-            continue
+    # Every preset and some other rank sets, every set of suits, every special
+    # and its negation: the app parses the query, names it as the label does,
+    # and matches the cards the chips chose.
+    plain = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base") for r in range(2, 15) for s in SUITS]
+    per_set = 2 * len(lua[1].OPTIONS.special) - 1  # each special, and each but Any negated
+    rows = iter(builder_queries(lua, [(1, 2)]))
+    for ranks in RANK_SETS:
+        for suits in SUIT_SETS:
+            for query, label, special, negate in (next(rows) for _ in range(per_set)):
+                if not ranks or len(ranks) == 13:
+                    ranks = range(2, 15)
+                any_card = len(ranks) == 13 and len(suits) in (0, 4) and special == "Any"
+                if any_card:
+                    assert query is False and label is False  # every card matches: nothing to add
+                    continue
+                q = parse_query(query)
+                assert label_for(q) == label, query
+                assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
+                # Plain cards are ruled out by a special, and by none negated.
+                expected = [c.rank_id in ranks and (not suits or c.suit in suits) and (special == "Any" or negate)
+                            for c in plain]
+                assert [q.filter.test(c, Rules()) for c in plain] == expected, query
+    assert next(rows, None) is None
+    # Every count, with one rank.
+    counts = [(1, n) for n in range(1, 9)] + [(2, n) for n in range(9)] + [(3, n) for n in range(8)]
+    counts += [(4, n, h) for n in range(1, 8) for h in range(n + 1, 9)]
+    rows = builder_queries(lua, counts, [(2,)], [()])
+    for (query, label, *_), count in zip((r for r in rows if r[2] == "Any"), counts, strict=True):
         q = parse_query(query)
-        assert label_for(q) == label, query
-        assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
-        if rank != "Any":
-            assert re.search(rf"\b{rank.lower()}\b", query), query
-    for cmp, (lo, hi) in [(1, (1, 8)), (2, (0, 8)), (3, (0, 7))]:
-        for n in range(lo, hi + 1):
-            query, label = builder_queries(lua, [(cmp, n)])[5 * 20][:2]  # rank 2, any suit and special
-            q = parse_query(query)
-            assert (q.op, q.count, label) == ({1: ">=", 2: "==", 3: "<="}[cmp], n, label_for(q))
+        op = {1: ">=", 2: "==", 3: "<=", 4: "between"}[count[0]]
+        assert (q.op, q.count, q.high, label) == (op, count[1], count[2] if op == "between" else None, label_for(q))
 
 
 def test_builder_cycles_wrap_and_keep_counts_in_range(lua):
     _, mod = lua
-    mod.cycle("rank", -1)
-    assert mod.OPTIONS.rank[mod.builder.rank].text == "Face"
-    mod.cycle("rank", 1)
-    assert mod.builder.rank == 1
+    mod.cycle("preset", -1)
+    assert mod.rank_choice() == "10 or 4"
+    mod.cycle("preset", 1)
+    assert mod.rank_choice() == "Any"
     mod.cycle("count", -1)  # at least 1 -> at least 8
     assert (mod.builder.cmp, mod.builder.count) == (1, 8)
-    mod.cycle("cmp", -1)  # at most: 0..7
-    assert (mod.builder.cmp, mod.builder.count) == (3, 7)
+    mod.cycle("cmp", -1)  # between: 1..7, and its top above that
+    assert (mod.builder.cmp, mod.builder.count, mod.builder.high) == (4, 7, 8)
+    mod.cycle("high", 1)  # wraps to just above the count
+    assert mod.builder.high == 8
+    mod.cycle("count", -1)
+    mod.cycle("high", -1)
+    assert (mod.builder.count, mod.builder.high) == (6, 7)
+    mod.cycle("high", -1)  # not down to the count: wraps to 8
+    assert mod.builder.high == 8
     mod.cycle("count", 1)
-    assert mod.builder.count == 0
-    mod.cycle("cmp", -1)  # exactly 0
+    mod.cycle("count", 1)  # wraps to 1: from 0 it would be "at most"
+    assert (mod.builder.count, mod.builder.high) == (1, 8)
+    mod.cycle("cmp", -1)  # at most: 0..7
+    assert (mod.builder.cmp, mod.builder.count) == (3, 1)
+    mod.cycle("cmp", -1)  # exactly 1
     mod.cycle("cmp", -1)  # at least: 1..8
     assert (mod.builder.cmp, mod.builder.count) == (1, 1)
 
@@ -997,12 +1039,14 @@ def test_cards_tab_adds_queries(lua, tmp_path):
     assert find(rt, "calculatro_add").config.button is None  # Any, Any, Any: always true
     assert "Nothing tracked@muted" in panel_texts(rt)
     set_builder(lua, "count", "2")
-    set_builder(lua, "rank", "Queen")
+    assert click(lua, "calculatro_rank_12")
+    assert option(rt, "preset") == "Queen"
     assert "Add  Queen: 2+@light" in panel_texts(rt)
     assert click(lua, "calculatro_add")
     assert tracked(rt) == (["Pair"], ["at least 2 queen"])
     assert find(rt, "calculatro_add").config.button is None  # already tracked
-    set_builder(lua, "suit", "Spades")
+    for suit in ("Hearts", "Clubs", "Diamonds"):
+        assert click(lua, f"calculatro_suit_{suit}")
     set_builder(lua, "special", "Lucky")
     texts = panel_texts(rt)
     assert texts[texts.index("Add  Lucky Q@light"):][:3] == ["Add  Lucky Q@light", "[ui_1 3,1]", ": 2+@light"]
@@ -1022,17 +1066,144 @@ def test_cards_tab_adds_queries(lua, tmp_path):
 
 def test_face_cards_take_a_suit(lua, tmp_path):
     rt, mod = cards_tab(lua, tmp_path)
-    set_builder(lua, "rank", "Face")
+    set_builder(lua, "preset", "Face")
     assert "Add  Face card: 1+@light" in panel_texts(rt)
-    set_builder(lua, "suit", "Hearts")
-    assert option(rt, "suit") == "Hearts" and find(rt, "calculatro_suit_next").config.button is not None
+    for suit in ("Spades", "Clubs", "Diamonds"):
+        assert click(lua, f"calculatro_suit_{suit}")
     assert mod.builder_query() == ("at least 1 face of hearts", "Face ♥: 1+")
+
+
+def test_rank_chips_suit_chips_not_and_ranges(lua, tmp_path):
+    rt, mod = cards_tab(lua, tmp_path)
+    # A preset sets the chips; changing them makes it Custom.
+    set_builder(lua, "preset", "Even")
+    assert [r for r in range(2, 15) if mod.builder.ranks[r]] == [2, 4, 6, 8, 10]
+    assert "Add  Even: 1+@light" in panel_texts(rt)
+    assert click(lua, "calculatro_rank_10")
+    assert option(rt, "preset") == "Custom"
+    assert mod.builder_query() == ("at least 1 2 or 4 or 6 or 8", "2/4/6/8: 1+")
+    assert click(lua, "calculatro_preset_next")  # from Custom as if from Any
+    assert option(rt, "preset") == "Face"
+    for r in (11, 12, 13):
+        assert click(lua, f"calculatro_rank_{r}")
+    assert option(rt, "preset") == "Any" and find(rt, "calculatro_add").config.button is None
+    # "not" negates the special, so it's inert without one.
+    assert not click(lua, "calculatro_negate")
+    set_builder(lua, "special", "Sealed")
+    assert click(lua, "calculatro_negate")
+    assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_rank_13")
+    assert "Add  No Seal Q/K: 1+@light" in panel_texts(rt)
+    # Turning off the last suit turns them all back on: none means any.
+    for suit in ("Spades", "Hearts", "Clubs"):
+        assert click(lua, f"calculatro_suit_{suit}")
+    assert mod.builder_query()[0] == "at least 1 not sealed queen or king of diamonds"
+    assert click(lua, "calculatro_suit_Diamonds")
+    assert all(mod.builder.suits[s] for s in SUITS)
+    # A range shows its top.
+    assert find(rt, "calculatro_high") is None
+    set_builder(lua, "cmp", "between")
+    assert "and@muted" in panel_texts(rt)
+    set_builder(lua, "high", "3")
+    assert mod.builder_query() == ("between 1 and 3 not sealed queen or king", "No Seal Q/K: 1-3")
+    # Named by the ranks left out when that's shorter.
+    flips = (13, 2, 3, 4, 6, 7, 8, 10, 11, 14)
+    for r in flips:
+        assert click(lua, f"calculatro_rank_{r}")
+    assert mod.builder_query()[1] == "No Seal not 5/9/K: 1-3"
+    for r in flips:  # back to Q/K
+        assert click(lua, f"calculatro_rank_{r}")
+    assert click(lua, "calculatro_add")
+    assert click(lua, "calculatro_done", dt=0.3)
+    _, queries = cli.tracked(read_state(tmp_path))
+    assert [(q.text, label_for(q)) for q in queries] == [
+        ("between 1 and 3 not sealed queen or king", "No Seal Q/K: 1-3")]
+
+
+def test_builder_explains_its_query(lua, tmp_path):
+    rt, mod = cards_tab(lua, tmp_path)
+    set_builder(lua, "special", "Sealed")
+    assert click(lua, "calculatro_negate")
+    assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_rank_13")
+    set_builder(lua, "cmp", "between")
+    set_builder(lua, "high", "3")
+    assert mod.builder_about() == "Count: between 1 and 3\nRank: Q or K\nSpecial: no seal"
+    # Ranks and suits are named by those left out when that's shorter.
+    assert click(lua, "calculatro_suit_Spades")
+    set_builder(lua, "preset", "Fibonacci")
+    set_builder(lua, "cmp", "at least")
+    assert mod.builder_about() == "Count: at least 1\nRank: Fibonacci (2, 3, 5, 8 or A)\nSuit: any but Spades\n" \
+                                  "Special: no seal"
+    set_builder(lua, "preset", "Non-face")
+    set_builder(lua, "special", "Lucky")
+    assert mod.builder_about() == "Count: at least 1\nRank: Non-face (any but J, Q or K)\nSuit: any but Spades\n" \
+                                  "Special: not Lucky"
+    set_builder(lua, "preset", "Any")
+    assert click(lua, "calculatro_rank_12")
+    assert click(lua, "calculatro_negate")
+    assert mod.builder_about() == "Count: at least 1\nRank: Queen\nSuit: any but Spades\nSpecial: Lucky"
+    # Added queries keep it for their popups.
+    assert click(lua, "calculatro_add")
+    assert rt.eval("G.GAME.calculatro.cards[1].about") == mod.builder_about()
+
+
+FONT = ("G.TILESIZE, G.LANG = 20, {font = {FONT = {getWidth = function(_, s) return 60 * #s end}, squish = 1,"
+        " FONTSCALE = 0.1}}")
+
+
+def test_long_card_names_are_cut_to_fit(lua):
+    rt, mod = lua
+    name = "Plain not 5/9/K ♥♣♦: 1-3"
+    assert mod.fit_label(name, 2.0, 0.32) == name  # as it is without the game's font
+    rt.execute(FONT)  # 0.096 a letter at 0.32, and 0.28 an icon
+    assert mod.fit_label(name, 3.0, 0.32) == name
+    # The cut comes out of the name; the suits and count stay.
+    assert mod.fit_label(name, 2.0, 0.32) == "Plai.. ♥♣♦: 1-3"
+    assert mod.fit_label(name, 2.57, 0.32) == "Plain not.. ♥♣♦: 1-3"  # no space or "/" before the ".."
+    assert mod.fit_label("Lucky Queen: 1+", 1.0, 0.32) == "Luck..: 1+"
+    assert mod.fit_label("Lucky Queen: 1+", 0.2, 0.32) == "..: 1+"
+
+
+def test_card_names_show_their_popup_when_hovered(lua, tmp_path):
+    rt, mod = lua
+    rt.execute(FONT)
+    query = ("between 1 and 3 not enhanced 2 or 3 or 4 or 6 or 7 or 8 or 10 or jack or queen or ace"
+             " of hearts or clubs or diamonds")
+    mod.update(1.0)
+    answer(lua, tmp_path, targets=(), queries=(query,))
+    name = rt.eval("G.GAME.calculatro.cards[1].label")
+    assert name == "Plain not 5/9/K ♥♣♦: 1-3"
+    rt.eval("G.GAME.calculatro.cards[1]").about = "Count: between 1 and 3"
+    mod.update(0.1)
+    # Cut to fit at full size in the odds panel, and in the editor's list.
+    cell = find(rt, f"calculatro_name_{query}")
+    assert cell.config.collideable and cell.config.calculatro_popup.name == name
+    shown = "".join(t.split("@")[0] for t in rt.execute(TEXTS)(cell).values())
+    assert shown == "Plain not 5.. [ui_1 0,1][ui_1 2,1][ui_1 1,1]: 1-3"
+    assert click(lua, "calculatro_open") and click(lua, "calculatro_tab_cards")
+    assert find(rt, f"calculatro_name_{query}").config.calculatro_popup.about == "Count: between 1 and 3"
+    # Hovering it shows the full name and what it means, above it.
+    rt.execute("UIElement = {hover = function(self) HOVERED = self end}")
+    hover_with = rt.execute("""return function(mod, about)
+        local e = {config = {calculatro_popup = {name = 'Plain not 5/9/K \\226\\153\\165: 1-3', about = about}}}
+        mod.hover_popups(e)
+        e:hover()
+        assert(HOVERED == e)
+        return e
+    end""")
+    e = hover_with(mod, "Count: between 1 and 3\nSpecial: no enhancement")
+    assert e.config.h_popup_config.align == "tm"
+    assert list(rt.execute(TEXTS)(e.config.h_popup).values()) == [
+        "Plain not 5/9/K @light", "[ui_1 0,1]", ": 1-3@light",
+        "Count: @muted", "between 1 and 3@light", "Special: @muted", "no enhancement@light"]
+    # Queries added before there were popups have just their name.
+    assert list(rt.execute(TEXTS)(hover_with(mod, None).config.h_popup).values()) == [
+        "Plain not 5/9/K @light", "[ui_1 0,1]", ": 1-3@light"]
 
 
 def test_tracked_cards_page_five_at_a_time(lua, tmp_path):
     rt, mod = cards_tab(lua, tmp_path, queries=("queen", "king", "ace", "jack", "spade"))
     assert find(rt, "calculatro_page") is None  # one page: no page cycle
-    set_builder(lua, "rank", "10")
+    assert click(lua, "calculatro_rank_10")
     assert click(lua, "calculatro_add")  # shows the new query's page
     assert option(rt, "page") == "Page 2/2"
     assert find(rt, "calculatro_remove_at least 1 10") and find(rt, "calculatro_remove_queen") is None

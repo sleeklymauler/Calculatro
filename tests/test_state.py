@@ -60,9 +60,9 @@ G = {
   UIT = {ROOT = 'ROOT', R = 'R', C = 'C', T = 'T', B = 'B', O = 'O'},
   ASSET_ATLAS = {ui_1 = 'ui_1', ui_2 = 'ui_2'},
   SETTINGS = {colourblind_option = false},
-  C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted', WHITE = 'white',
-       GREEN = 'green', RED = 'red', BLUE = 'blue', ORANGE = 'orange', GREY = 'grey', L_BLACK = 'l_black',
-       CLEAR = 'clear', BLACK = {0.2, 0.4, 0.6, 1},
+  C = {UI = {TEXT_LIGHT = 'light', BACKGROUND_INACTIVE = 'stale'}, JOKER_GREY = 'muted',
+       WHITE = 'white', GREEN = 'green', RED = 'red', BLUE = 'blue', ORANGE = 'orange', GREY = 'grey',
+       L_BLACK = 'l_black', CLEAR = 'clear', BLACK = {0.2, 0.4, 0.6, 1},
        DYN_UI ={MAIN = 'main', BOSS_MAIN = 'boss_main', BOSS_DARK = 'boss_dark'}},
   FUNCS = {},
   -- Panel space: from 3.35 (under the consumables' label) to 6.2 (above the raised hand).

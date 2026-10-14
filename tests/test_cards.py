@@ -68,8 +68,8 @@ def matches(text: str, c: Card, rules: Rules = Rules()) -> bool:
     ("2 red seals", "Red Seal card: at least 2"),
     ("any seal", "Sealed card: at least 1"),
     ("sealed cards", "Sealed card: at least 1"),
-    ("polychrome", "Polychrome card: at least 1"),
-    ("holo", "Holographic card: at least 1"),
+    ("polychrome", "Poly card: at least 1"),
+    ("holo", "Holo card: at least 1"),
     ("exactly 1 foil", "Foil card: exactly 1"),
     ("edition", "Edition card: at least 1"),
     ("enhanced", "Enhanced card: at least 1"),
@@ -97,6 +97,49 @@ def matches(text: str, c: Card, rules: Rules = Rules()) -> bool:
     ("one queen", "Queen: at least 1"),
     ("two twos", "2: at least 2"),
     ("two of hearts", "2♥: at least 1"),
+    # Ranges.
+    ("between 1 and 3 queens", "Queen: between 1 and 3"),
+    ("1-3 queens", "Queen: between 1 and 3"),
+    ("0 to 2 hearts", "Heart: between 0 and 2"),
+    ("between two and four aces", "Ace: between 2 and 4"),
+    ("2-2 queens", "Queen: exactly 2"),
+    ("3-1 queens", None),
+    # Several ranks or suits, and groups of ranks.
+    ("queen or king", "Q/K: at least 1"),
+    ("2+ queens or kings", "Q/K: at least 2"),
+    ("2, 3 or 5", "2/3/5: at least 1"),
+    ("jack, queen or king", "J-K: at least 1"),
+    ("2 or 3 or 4 or 5", "2-5: at least 1"),
+    ("10 or 4 of spades", "4/T ♠: at least 1"),
+    # Named by the ranks left out when that's shorter.
+    ("2, 3, 4, 6, 7, 8, 10, jack, queen or ace", "not 5/9/K: at least 1"),
+    ("2, 3, 4, 5, 6, 7, 8, 9, 10, jack, queen or king of hearts", "2-K ♥: at least 1"),  # a run is shorter still
+    ("2, 3, 4, 5, 7, 8, 9, 10, jack, queen, king or ace", "not 6: at least 1"),
+    ("2, 4, 6 or 8", "2/4/6/8: at least 1"),
+    ("even", "Even: at least 1"),
+    ("odd hearts", "Odd ♥: at least 1"),
+    ("fibonacci cards", "Fib: at least 1"),
+    ("non-face cards", "Non-face: at least 1"),
+    ("2+ non-face of spades", "Non-face ♠: at least 2"),
+    ("hearts or diamonds", "♥♦: at least 1"),
+    ("red cards", "♥♦: at least 1"),
+    ("black suits", "♠♣: at least 1"),
+    ("not hearts", "♠♣♦: at least 1"),
+    ("queen of hearts or diamonds", "Q♥♦: at least 1"),
+    ("1-3 even of red suits", "Even ♥♦: between 1 and 3"),
+    ("queen or king of not hearts", "Q/K ♠♣♦: at least 1"),
+    ("queen or purple", None),
+    ("black", None),
+    # Negated modifiers.
+    ("not sealed", "No Seal card: at least 1"),
+    ("unsealed", "No Seal card: at least 1"),
+    ("unenhanced queens", "Plain Queen: at least 1"),
+    ("not lucky", "No Lucky card: at least 1"),
+    ("non-foil hearts", "No Foil Heart: at least 1"),
+    ("at most 2 not red seal", "No Red Seal card: at most 2"),
+    ("not edition", "No Edition card: at least 1"),
+    ("no seal", "Sealed card: none"),
+    ("not", None),
 ])
 def test_parse(text, label):
     if label is None:
@@ -119,6 +162,51 @@ def test_match_rules():
     assert matches("5 of spades", wild)
     assert matches("face of spades", card(12, "Spades")) and not matches("face of spades", card(12, "Hearts"))
     assert not matches("face of spades", card(9, "Spades")) and matches("face of hearts", card(13, "Clubs", "m_wild"))
+
+
+def test_rank_groups_and_sets():
+    assert [r for r in range(2, 15) if matches("even", card(r, "Clubs"))] == [2, 4, 6, 8, 10]
+    assert [r for r in range(2, 15) if matches("odd", card(r, "Clubs"))] == [3, 5, 7, 9, 14]
+    assert [r for r in range(2, 15) if matches("fibonacci", card(r, "Clubs"))] == [2, 3, 5, 8, 14]
+    assert [r for r in range(2, 15) if matches("queen or king", card(r, "Clubs"))] == [12, 13]
+    # Stone Cards have no rank, so they're in no group but non-face (as the game sees it).
+    stone = card(4, "Clubs", "m_stone")
+    assert not matches("even", stone) and not matches("4 or 10", stone) and matches("non-face", stone)
+    assert matches("non-face", card(5, "Hearts")) and not matches("non-face", card(11, "Hearts"))
+    assert matches("non-face", card(11, "Hearts", debuff=True))
+    pareidolia = Rules(pareidolia=True)
+    assert not matches("non-face", card(5, "Hearts"), pareidolia)
+    assert matches("non-face", card(5, "Hearts", debuff=True), pareidolia)
+
+
+def test_suit_sets():
+    wild = card(5, "Hearts", "m_wild")
+    assert matches("red cards", card(5, "Diamonds")) and not matches("red cards", card(5, "Spades"))
+    assert matches("not hearts", card(5, "Clubs")) and not matches("not hearts", card(5, "Hearts"))
+    # A Wild Card is every suit, so it's one of the others too; a Stone Card is none.
+    assert matches("not hearts", wild) and matches("black suits", wild)
+    assert not matches("hearts or diamonds", card(5, "Hearts", "m_stone"))
+    # With Smeared, a Heart is also a Diamond.
+    assert matches("not hearts", card(5, "Hearts"), Rules(smeared=True))
+    assert matches("queen or king of spades or clubs", card(13, "Clubs"))
+    assert not matches("queen or king of spades or clubs", card(13, "Hearts"))
+
+
+def test_negated_modifiers():
+    plain = card(12, "Hearts")
+    lucky = card(12, "Hearts", "m_lucky", seal="Red", edition="foil")
+    assert matches("not sealed", plain) and not matches("unsealed", lucky)
+    assert matches("unenhanced", plain) and not matches("not enhanced", lucky)
+    assert matches("not lucky", plain) and not matches("not lucky", lucky)
+    assert matches("not red seal", card(12, "Hearts", seal="Gold")) and not matches("not red seal", lucky)
+    assert matches("not edition", plain) and not matches("non-foil", lucky)
+    assert matches("not sealed queen or king of hearts", plain)
+    assert not matches("not sealed queen or king of hearts", card(11, "Hearts"))
+
+
+def test_ranges_count():
+    q = parse_query("between 1 and 3 queens")
+    assert [k for k in range(6) if q.accepts(k)] == [1, 2, 3]
 
 
 def test_smeared_suits():
@@ -179,7 +267,9 @@ def brute(query, pool, draws, rules: Rules = Rules()) -> Fraction:
 
 @pytest.mark.parametrize("text", ["queen", "2+ hearts", "no face cards", "exactly 1 spade",
                                   "at most 1 club", "2 of clubs", "3+ face", "2+ lucky",
-                                  "no red seals", "foil hearts", "exactly 1 enhanced", "polychrome"])
+                                  "no red seals", "foil hearts", "exactly 1 enhanced", "polychrome",
+                                  "between 1 and 2 queen or king", "1-3 even of hearts or diamonds",
+                                  "at most 2 not sealed", "0-1 non-face"])
 def test_matches_brute_force(text):
     rng = random.Random(text)
     query = parse_query(text)
@@ -195,7 +285,8 @@ def test_matches_brute_force(text):
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
 @pytest.mark.parametrize("text", ["no face cards", "3+ face", "exactly 2 face", "at most 1 face",
-                                  "lucky face", "2+ hearts", "queen", "5 of clubs"])
+                                  "lucky face", "2+ hearts", "queen", "5 of clubs", "1-2 non-face",
+                                  "between 1 and 3 not hearts"])
 def test_matches_brute_force_with_rules(text, rules):
     rng = random.Random(text)
     query = parse_query(text)
