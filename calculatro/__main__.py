@@ -185,12 +185,15 @@ def run_watch(source: StateSource, write: Callable[[str], None],
 
     A state asking for a best-discard search (`GameState.search`, with a number
     not seen before) starts one in a job of its own. Only a change to what it
-    depends on (`search_basis`) cancels it, not selecting cards. Its result goes
-    on every payload (`overlay.search`) until that changes.
+    depends on (`search_basis`, or the row's target) cancels it, not selecting
+    cards; if the state still asks for it, it starts again. Its result goes on
+    every payload (`overlay.search`) until that changes, and the mod drops its
+    copy once a payload comes without it.
     """
     job: Job[tuple[str, dict]] | None = None
     searching: Job[Search] | None = None
-    search_for: tuple[GameState, GameState, str, int] | None = None  # basis, state, key, nonce
+    search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
+    # basis, state, key, nonce, target
     found: dict | None = None  # the finished search's result, for the panel
     seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
     base: dict | None = None  # the latest payload, before the search's result goes on it
@@ -219,10 +222,15 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     def start_search(state: GameState) -> None:
         nonlocal searching, search_for, found, seen
         basis = search_basis(state)
-        if search_for is not None and search_for[0] != basis:
+        if search_for is not None and (search_for[0] != basis
+                                       or search_target(state, search_for[2]) != search_for[4]):
+            # What it was worked out from has changed (or the row's target, as
+            # for "Any target" when a hand is added): drop it, and search again
+            # if the mod is still asking (it stops once it has a reply), so it
+            # isn't left waiting for one.
             if searching is not None:
                 searching.cancel()
-            searching = search_for = found = None
+            searching = search_for = found = seen = None
         if state.search is None:
             return
         key, nonce = state.search
@@ -232,8 +240,8 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         seen = request
         if searching is not None:
             searching.cancel()
-        searching, search_for, found = None, (basis, state, key, nonce), None
         target = search_target(state, key)
+        searching, search_for, found = None, (basis, state, key, nonce, target), None
         if target is None:
             found = overlay.search(key, nonce, None)
         else:
@@ -264,7 +272,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 show(overlay.odds(state, None))
                 pending = ""
         if searching is not None and searching.wait(0):
-            _, searched, key, nonce = search_for
+            _, searched, key, nonce, _ = search_for
             result = searching.result()
             searching, found = None, overlay.search(key, nonce, result)
             write(format_search(searched, key, result))

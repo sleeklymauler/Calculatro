@@ -31,9 +31,9 @@ local Calculatro = {
     -- with every snapshot; the one waiting for the app's reply; and the
     -- options the last reply found, which the search button cycles through.
     search_nonce = 0,
-    request = nil,   -- {key, nonce}
+    request = nil,   -- {key, nonce}, until it's answered or dropped
     searching = nil, -- {key, nonce, hand = the hand's cards when it was asked for}
-    found = nil,     -- {key, options = {{hand indices, 0-based}, ...}, index, hand}
+    found = nil,     -- {key, nonce, options = {{hand indices, 0-based}, ...}, index, hand}
 }
 
 ---------------------------------------------------------------------------
@@ -877,24 +877,47 @@ function Calculatro.search(key)
     Calculatro.elapsed = Calculatro.interval  -- send it with the next frame's snapshot
 end
 
--- The app's reply to a search (on every odds payload until the hand changes).
--- One that arrives while the cards can't be selected for a discard (a Tarot
--- is choosing its cards) is kept without selecting anything (index 0), and the
--- button's next click selects its first option.
+local function same_options(a, b)
+    if type(a) ~= 'table' or #a ~= #b then return false end
+    for i, option in ipairs(b) do
+        if type(a[i]) ~= 'table' or #a[i] ~= #option then return false end
+        for j, index in ipairs(option) do
+            if a[i][j] ~= index then return false end
+        end
+    end
+    return true
+end
+
+-- The app's reply to a search, on every odds payload while it still stands:
+-- once one comes without it (or with other options, worked out again), what
+-- it was worked out from has changed (a Tarot changed a card, a joker was
+-- sold), so its options are dropped and the button asks again. A reply that
+-- arrives while the cards can't be selected for a discard (a Tarot is choosing
+-- its cards) is kept without selecting anything (index 0), and the button's
+-- next click selects its first option.
 function Calculatro.receive_search(reply)
+    local found = Calculatro.found
+    if found and not (type(reply) == 'table' and reply.nonce == found.nonce
+                      and same_options(reply.options, found.options)) then
+        Calculatro.found = nil
+    end
     local searching = Calculatro.searching
     if type(reply) ~= 'table' or not searching or reply.nonce ~= searching.nonce then return end
-    Calculatro.searching = nil
+    Calculatro.searching, Calculatro.request = nil, nil
     local options = reply.options or {}
     if #options == 0 or not same_hand(searching.hand) then return end
     local apply = Calculatro.can_search()
-    Calculatro.found = { key = searching.key, options = options, index = apply and 1 or 0, hand = searching.hand }
+    Calculatro.found = { key = searching.key, nonce = searching.nonce, options = options,
+                         index = apply and 1 or 0, hand = searching.hand }
     if apply then Calculatro.select(options[1], searching.hand) end
 end
 
--- A search, or its options, only stand while the hand they're for does.
+-- A search, or its options, only stand while the hand they're for does. The
+-- request goes with the search, so the app doesn't search a hand that's gone.
 function Calculatro.check_search()
-    if Calculatro.searching and not same_hand(Calculatro.searching.hand) then Calculatro.searching = nil end
+    if Calculatro.searching and not same_hand(Calculatro.searching.hand) then
+        Calculatro.searching, Calculatro.request = nil, nil
+    end
     if Calculatro.found and not same_hand(Calculatro.found.hand) then Calculatro.found = nil end
 end
 
@@ -2394,6 +2417,7 @@ function Calculatro.update(dt)
     Calculatro.elapsed = Calculatro.elapsed + dt
     Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
     guard('round', Calculatro.check_round)
+    guard('search', Calculatro.check_search)  -- before the snapshot, which sends its request
     if Calculatro.elapsed >= Calculatro.interval then
         Calculatro.elapsed = 0
         guard('snapshot', Calculatro.write_snapshot)
@@ -2402,7 +2426,6 @@ function Calculatro.update(dt)
         Calculatro.odds_elapsed = 0
         guard('reading odds', Calculatro.read_odds)
     end
-    guard('search', Calculatro.check_search)
     guard('panel', Calculatro.refresh_panel)
 end
 

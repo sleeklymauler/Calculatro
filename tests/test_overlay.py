@@ -1544,7 +1544,7 @@ def test_search_button_cycles_through_options(lua, tmp_path):
     assert message(rt) is None
     assert click(lua, "calculatro_search_Pair")
     assert selected(rt) == [0] and message(rt) == "1/3"
-    assert read_state(tmp_path).search == ("Pair", 1)
+    assert read_state(tmp_path).search is None  # answered, so no longer asked for
     # Another row's button asks for its own.
     assert click(lua, "calculatro_search_Three of a Kind")
     assert read_state(tmp_path).search == ("Three of a Kind", 2) and message(rt) == "Searching..."
@@ -1578,6 +1578,48 @@ def test_search_dropped_for_another_hand(lua, tmp_path):
     assert message(rt) is None and mod.found is None
 
 
+def test_search_options_dropped_once_the_app_stops_sending_them(lua, tmp_path):
+    """The app sends a search's result with every payload until what it was worked out from changes (a Tarot
+    changing a card in place, a joker sold), which the mod can't tell from the hand's card objects."""
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0], [1]])
+    mod.update(0.1)
+    assert message(rt) == "1/2" and mod.found is not None
+    rt.execute("G.hand.cards[1].base.id = 13")
+    mod.update(0.3)
+    reply(tmp_path)  # the app's payloads for the changed state come without it
+    mod.update(0.1)
+    assert mod.found is None and message(rt) is None
+    assert click(lua, "calculatro_search_Pair")  # asks the app again rather than cycling the old options
+    assert read_state(tmp_path).search == ("Pair", 2) and message(rt) == "Searching..."
+
+
+def test_search_options_dropped_when_worked_out_again(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0], [1]])
+    mod.update(0.1)
+    state = read_state(tmp_path)
+    _, payload = cli.calculate(state, *cli.tracked(state))
+    payload["search"] = overlay.search("Pair", 1, Search([[1]], Fraction(1)))
+    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    mod.update(0.1)
+    assert mod.found is None
+
+
+def test_search_request_goes_with_the_search(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    assert read_state(tmp_path).search == ("Pair", 1)
+    rt.execute("table.remove(G.hand.cards, 5)")  # the hand it was for is gone
+    mod.update(0.3)
+    assert mod.searching is None and read_state(tmp_path).search is None
+
+
 def using_tarot(rt):
     rt.execute("G.STATE = G.STATES.PLAY_TAROT; G.TAROT_INTERRUPT = G.STATES.SELECTING_HAND")
 
@@ -1605,7 +1647,7 @@ def test_search_reply_during_tarot_waits_for_a_click(lua, tmp_path):
     mod.update(0.1)
     assert click(lua, "calculatro_search_Pair")
     assert selected(rt) == [0] and message(rt) == "1/2"
-    assert read_state(tmp_path).search == ("Pair", 1)
+    assert read_state(tmp_path).search is None
 
 
 def test_search_reply_during_tarot_keeping_the_hand_first(lua, tmp_path):

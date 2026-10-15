@@ -241,7 +241,8 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
         source.queue.append(hand_state(3, selected=(2,)))  # the search's own selection
         wait_for(lambda: sent[-1]["id"] == "s:3" and "targets" in sent[-1])
         assert all(p.get("search") == reply for p in sent if p["id"] == "s:3")
-        source.queue.append(hand_state(4, ranks=(9, 9, 5)))  # a new hand: the result goes
+        # A new hand: the result goes (the mod stopped asking once it had it).
+        source.queue.append(hand_state(4, ranks=(9, 9, 5), search=None))
         wait_for(lambda: sent[-1]["id"] == "s:4" and "targets" in sent[-1])
         assert not any("search" in p for p in sent if p["id"] == "s:4")
         assert calls == ["s:1"]  # the same request isn't searched again
@@ -270,6 +271,84 @@ def test_new_hand_cancels_search(monkeypatch):
         wait_for(lambda: "search" in sent[-1])
         assert cancelled.wait(5)  # the cancelled search's thread may not have finished yet
         assert sent[-1]["search"] == {"nonce": 2, "key": "Pair", "options": [[]]}
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_search_started_again_when_its_basis_changes(monkeypatch):
+    """A change the hand's card objects don't show (a Tarot changing a card in place, a joker sold) cancels the
+    search; the mod is still waiting for its reply, so it runs again on the new state rather than never answering."""
+    calls = []
+
+    def search(state, target, cancel):
+        calls.append(state.id)
+        if state.id == "s:2":
+            return Search([[0]], Fraction(1))
+        while not cancel.is_set():
+            time.sleep(0.001)
+        raise Cancelled
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: calls == ["s:1"])
+        source.queue.append(hand_state(2, ranks=(9, 9, 3)))  # the same request, a card changed
+        wait_for(lambda: "search" in sent[-1])
+        assert sent[-1]["search"] == {"nonce": 1, "key": "Pair", "options": [[0]]}
+        assert calls == ["s:1", "s:2"]
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_finished_search_dropped_and_redone_when_its_basis_changes(monkeypatch):
+    calls = []
+
+    def search(state, target, cancel):
+        calls.append(state.id)
+        return Search([[len(calls)]], Fraction(1))
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: sent and "search" in sent[-1])
+        # The mod had stopped asking: the result goes, and isn't worked out again.
+        source.queue.append(replace(hand_state(2, search=None), hand_size=4))
+        wait_for(lambda: sent[-1]["id"] == "s:2" and "targets" in sent[-1])
+        assert not any("search" in p for p in sent if p["id"] == "s:2") and calls == ["s:1"]
+        # Still asking (it hadn't read the reply yet): worked out again.
+        source.queue.append(replace(hand_state(3), hand_size=5))
+        wait_for(lambda: "search" in sent[-1])
+        assert sent[-1]["search"]["options"] == [[2]] and calls == ["s:1", "s:3"]
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_any_target_search_follows_its_hands(monkeypatch):
+    calls = []
+
+    def search(state, target, cancel):
+        calls.append((state.id, target.hands))
+        return Search([[0]], Fraction(1))
+
+    def at(n, hands, cards=()):
+        return replace(hand_state(n, search=("Any target", 1)), tracked_hands=hands, tracked_cards=list(cards))
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent = FakeSource(at(1, ["Pair", "Flush"])), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: sent and "search" in sent[-1])
+        source.queue.append(at(2, ["Pair", "Flush"], ["2+ queens"]))  # another row: it stands
+        wait_for(lambda: sent[-1]["id"] == "s:2" and "targets" in sent[-1])
+        assert all("search" in p for p in sent if p["id"] == "s:2") and len(calls) == 1
+        source.queue.append(at(3, ["Pair", "Flush", "Straight"]))  # another hand: searched again
+        wait_for(lambda: len(calls) == 2 and "search" in sent[-1])
+        assert calls[1][0] == "s:3" and set(calls[1][1]) == {"Pair", "Flush", "Straight"}
     finally:
         stopped.set()
         t.join(5)
