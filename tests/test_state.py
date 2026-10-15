@@ -12,7 +12,7 @@ from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.rules import Rules
 from calculatro.source import FileStateSource
-from calculatro.state import SCHEMA, GameState, Joker, SchemaMismatch
+from calculatro.state import SCHEMA, GameState, Joker, MalformedState, SchemaMismatch
 
 lupa = pytest.importorskip("lupa")
 
@@ -351,6 +351,55 @@ def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
     path.write_text(json.dumps({"schema": SCHEMA + 1, "in_run": False}))
     assert FileStateSource(path).poll() is None
     assert "update the app" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw", [
+    [],
+    "snapshot",
+    {"schema": SCHEMA, "in_run": True, "hand": [None]},
+    {"schema": SCHEMA, "in_run": True, "tracked": ["Pair"]},
+    {"schema": SCHEMA, "in_run": True, "jokers": ["j_joker"]},
+])
+def test_malformed_snapshot_raises(raw):
+    with pytest.raises(MalformedState):
+        GameState.from_json(raw)
+
+
+def test_malformed_snapshot_skipped_until_a_valid_one(lua, tmp_path, capsys):
+    """Valid JSON of the wrong shape is skipped with one message, not fatal."""
+    _, mod = lua
+    path = tmp_path / "calculatro_state.json"
+    source = FileStateSource(path)
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:1", "in_run": True, "hand": [None]}))
+    assert source.poll() is None
+    assert source.poll() is None  # unchanged: not read again
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:2", "in_run": True, "hand": [None]}))
+    assert source.poll() is None  # the same error is reported once
+    assert capsys.readouterr().err.count("isn't a valid snapshot") == 1
+
+    mod.update(1.0)
+    state = source.poll()
+    assert state is not None and state.in_run and len(state.hand) == 5
+
+
+def test_select_limit_zero_kept():
+    raw = {"schema": SCHEMA, "in_run": True}
+    assert GameState.from_json(raw).select_limit == 5  # missing: the game's default
+    assert GameState.from_json({**raw, "select_limit": 0}).select_limit == 0
+
+
+def test_poll_tolerates_a_locked_file(tmp_path, monkeypatch):
+    path = tmp_path / "calculatro_state.json"
+    path.write_text(json.dumps({"schema": SCHEMA, "in_run": False}))
+    source = FileStateSource(path)
+
+    def locked(*args, **kwargs):
+        raise PermissionError
+
+    monkeypatch.setattr(type(path), "stat", locked)
+    assert source.poll() is None
+    monkeypatch.undo()
+    assert source.poll() is not None
 
 
 def test_launch_command(lua, tmp_path):

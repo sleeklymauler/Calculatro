@@ -94,6 +94,10 @@ class SchemaMismatch(ValueError):
         self.schema = schema
 
 
+class MalformedState(ValueError):
+    """A snapshot of the right schema whose fields don't have the shapes it says."""
+
+
 @dataclass(frozen=True)
 class GameState:
     in_run: bool
@@ -124,9 +128,24 @@ class GameState:
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
+        """Parse a snapshot.
+
+        Raises SchemaMismatch for one of another schema, and MalformedState for
+        one whose fields aren't what the schema says (a hand-edited file or a
+        bug in the mod). Only shapes are checked, not ranges.
+        """
+        if not isinstance(d, dict):
+            raise MalformedState(f"snapshot is a {type(d).__name__}, not an object")
         schema = d.get("schema")
         if schema != SCHEMA:
             raise SchemaMismatch(schema)
+        try:
+            return cls._parse(d)
+        except (TypeError, AttributeError, KeyError, ValueError) as e:
+            raise MalformedState(f"{type(e).__name__}: {e}") from e
+
+    @classmethod
+    def _parse(cls, d: dict[str, Any]) -> GameState:
         if not d.get("in_run"):
             return cls(in_run=False, id=d.get("id"))
         tracked = d.get("tracked") or {}
@@ -149,7 +168,7 @@ class GameState:
                     for j in (d.get("jokers") or []) if j.get("key")],
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
-            select_limit=d.get("select_limit") or 5,
+            select_limit=d.get("select_limit", 5),  # 0 stays 0
             search=_search(d.get("search")),
         )
 
