@@ -1578,6 +1578,64 @@ def test_search_dropped_for_another_hand(lua, tmp_path):
     assert message(rt) is None and mod.found is None
 
 
+def using_tarot(rt):
+    rt.execute("G.STATE = G.STATES.PLAY_TAROT; G.TAROT_INTERRUPT = G.STATES.SELECTING_HAND")
+
+
+def deselect_all(rt):
+    rt.execute("for _, card in ipairs(G.hand.cards) do card.highlighted = false end")
+
+
+def test_search_reply_during_tarot_waits_for_a_click(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    # A Tarot is used before the reply arrives, its cards chosen by hand.
+    using_tarot(rt)
+    deselect_all(rt)
+    rt.execute("G.hand.cards[5].highlighted = true")
+    reply_search(tmp_path, [[0], [1]])
+    mod.update(0.1)
+    assert selected(rt) == [4] and message(rt) is None
+    assert mod.searching is None and not find(rt, "calculatro_search_Pair").config.button
+    mod.search("Pair")  # inert while the Tarot is used, even with options to cycle through
+    assert selected(rt) == [4]
+    # Back to selecting, the next click selects the best, without asking the app again.
+    rt.execute("G.STATE = G.STATES.SELECTING_HAND; G.hand.cards[5].highlighted = false")
+    mod.update(0.1)
+    assert click(lua, "calculatro_search_Pair")
+    assert selected(rt) == [0] and message(rt) == "1/2"
+    assert read_state(tmp_path).search == ("Pair", 1)
+
+
+def test_search_reply_during_tarot_keeping_the_hand_first(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    using_tarot(rt)
+    deselect_all(rt)
+    reply_search(tmp_path, [[], [1]])
+    mod.update(0.1)
+    assert selected(rt) == [] and message(rt) is None  # not "1/2": nothing was selected for it
+    rt.execute("G.STATE = G.STATES.SELECTING_HAND")
+    mod.update(0.1)
+    assert click(lua, "calculatro_search_Pair")
+    assert selected(rt) == [] and message(rt) == "1/2"
+
+
+def test_search_options_not_cycled_during_tarot(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[0], [1]])
+    mod.update(0.1)
+    assert selected(rt) == [0]
+    using_tarot(rt)
+    mod.update(0.1)
+    mod.search("Pair")
+    assert selected(rt) == [0]
+
+
 def test_search_keeps_the_bells_forced_card(lua, tmp_path):
     rt, mod = lua
     search_ready(lua, tmp_path)

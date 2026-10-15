@@ -862,14 +862,14 @@ end
 
 -- The search button of the row `key`.
 function Calculatro.search(key)
+    if not Calculatro.can_search() then return end
     local found = Calculatro.found
     if found and found.key == key and same_hand(found.hand) then
-        local current = is_selected(found.options[found.index], found.hand)
+        local current = found.index > 0 and is_selected(found.options[found.index], found.hand)
         found.index = current and found.index % #found.options + 1 or 1
         Calculatro.select(found.options[found.index], found.hand)
         return
     end
-    if not Calculatro.can_search() then return end
     Calculatro.found = nil
     Calculatro.search_nonce = Calculatro.search_nonce + 1
     Calculatro.request = { key = key, nonce = Calculatro.search_nonce }
@@ -878,14 +878,18 @@ function Calculatro.search(key)
 end
 
 -- The app's reply to a search (on every odds payload until the hand changes).
+-- One that arrives while the cards can't be selected for a discard (a Tarot
+-- is choosing its cards) is kept without selecting anything (index 0), and the
+-- button's next click selects its first option.
 function Calculatro.receive_search(reply)
     local searching = Calculatro.searching
     if type(reply) ~= 'table' or not searching or reply.nonce ~= searching.nonce then return end
     Calculatro.searching = nil
     local options = reply.options or {}
     if #options == 0 or not same_hand(searching.hand) then return end
-    Calculatro.found = { key = searching.key, options = options, index = 1, hand = searching.hand }
-    Calculatro.select(options[1], searching.hand)
+    local apply = Calculatro.can_search()
+    Calculatro.found = { key = searching.key, options = options, index = apply and 1 or 0, hand = searching.hand }
+    if apply then Calculatro.select(options[1], searching.hand) end
 end
 
 -- A search, or its options, only stand while the hand they're for does.
@@ -899,7 +903,8 @@ end
 function Calculatro.search_message()
     if Calculatro.searching then return 'Searching...' end
     local found = Calculatro.found
-    if not found or not same_hand(found.hand) or not is_selected(found.options[found.index], found.hand) then
+    if not found or found.index == 0 or not same_hand(found.hand)
+        or not is_selected(found.options[found.index], found.hand) then
         return nil
     end
     if #found.options > 1 then return found.index .. '/' .. #found.options end
