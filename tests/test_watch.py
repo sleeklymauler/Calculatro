@@ -166,6 +166,26 @@ def test_new_state_cancels_running_odds(monkeypatch):
     assert not any("odds A" in w for w in writes)
 
 
+def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
+    """A bug in the odds doesn't stop the app: it's logged (once while it repeats), the panel gets odds without
+    values rather than waiting on them, and the next state is calculated as usual."""
+    def odds(st, t, q, cancel):
+        if st.blind != "C":
+            raise ValueError("boom")
+        return "odds C", {"odds": "C"}
+
+    monkeypatch.setattr(cli, "calculate", odds)
+    source, sent, writes = FakeSource(state("A"), state("B"), state("C")), [], []
+    end = time.monotonic() + 5
+    cli.run_watch(source, writes.append, sent.append, patience=0.05, poll_interval=0.005,
+                  stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
+    assert sent[-1] == {"odds": "C"}
+    answers = [p for p in sent if not p.get("pending")]
+    assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "id": None, "targets": [], "cards": []}] * 2
+    assert writes[0].endswith("\n" + cli.ODDS_FAILED) and writes[1].endswith("\n" + cli.ODDS_FAILED)
+    assert capsys.readouterr().err.count("ValueError: boom") == 1
+
+
 def test_summary_only_without_targets(monkeypatch):
     writes: list[str] = []
     cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,
@@ -349,6 +369,29 @@ def test_any_target_search_follows_its_hands(monkeypatch):
         source.queue.append(at(3, ["Pair", "Flush", "Straight"]))  # another hand: searched again
         wait_for(lambda: len(calls) == 2 and "search" in sent[-1])
         assert calls[1][0] == "s:3" and set(calls[1][1]) == {"Pair", "Flush", "Straight"}
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_failed_search_answered_without_options(monkeypatch, capsys):
+    """A search that fails is logged and answered with no options, so the mod's button comes back; another click
+    (a new nonce) searches again."""
+    def search(state, target, cancel):
+        if state.search[1] == 1:
+            raise ValueError("boom")
+        return Search([[0]], Fraction(1))
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: sent and "search" in sent[-1])
+        assert sent[-1]["search"] == {"nonce": 1, "key": "Pair", "options": []}
+        assert "ValueError: boom" in capsys.readouterr().err
+        source.queue.append(hand_state(2, search=("Pair", 2)))
+        wait_for(lambda: sent[-1].get("search", {}).get("nonce") == 2)
+        assert sent[-1]["search"]["options"] == [[0]]
     finally:
         stopped.set()
         t.join(5)

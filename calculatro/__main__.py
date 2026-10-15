@@ -7,6 +7,7 @@ import argparse
 import os
 import sys
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import replace
 from fractions import Fraction
@@ -152,6 +153,7 @@ def format_search(state: GameState, key: str, found: Search) -> str:
 CALCULATING = "Calculating odds..."
 NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
 WAITING_FOR_HAND = "Odds once you're selecting cards."
+ODDS_FAILED = "Couldn't calculate the odds (the error is on stderr)."
 
 
 def settled(state: GameState) -> bool:
@@ -190,8 +192,14 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     cards; if the state still asks for it, it starts again. Its result goes on
     every payload (`overlay.search`) until that changes, and the mod drops its
     copy once a payload comes without it.
+
+    A calculation or search that fails (a bug, not a cancellation) is logged on
+    stderr, once while the same error repeats, and answered as if there were
+    nothing to show: the panel gets odds without values, a search no options,
+    so neither is left waiting. The next state is calculated as usual.
     """
     job: Job[tuple[str, dict]] | None = None
+    job_state: GameState | None = None  # the state the job is for
     searching: Job[Search] | None = None
     search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
     # basis, state, key, nonce, target
@@ -202,6 +210,14 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     deadline = 0.0
     unsent: dict | None = None  # the latest payload, until the panel gets it
     retry_at = 0.0
+    last_error = ""  # the latest failure's traceback, so a repeated one is logged once
+
+    def failed(what: str, error: Exception) -> None:
+        nonlocal last_error
+        text = "".join(traceback.format_exception(error))
+        if text != last_error:
+            print(f"{what} failed:\n{text}", file=sys.stderr, end="", flush=True)
+            last_error = text
 
     def send(payload: dict) -> None:
         nonlocal unsent, retry_at
@@ -265,6 +281,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 pending = ""
             elif targets or queries:
                 show(overlay.pending(state))
+                job_state = state
                 job = Job(lambda cancel, state=state, targets=targets, queries=queries:
                           calculate(state, targets, queries, cancel))
                 deadline = time.monotonic() + patience
@@ -274,9 +291,14 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 pending = ""
         if searching is not None and searching.wait(0):
             _, searched, key, nonce, _ = search_for
-            result = searching.result()
+            try:
+                result = searching.result()
+            except Exception as e:
+                failed(f"Best discard search for {key}", e)
+                result = None
             searching, found = None, overlay.search(key, nonce, result)
-            write(format_search(searched, key, result))
+            if result is not None:
+                write(format_search(searched, key, result))
             if base is not None:
                 show(base)
         if job is None:
@@ -286,7 +308,11 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         if pending:
             timeout = max(0.0, min(timeout, deadline - time.monotonic()))
         if job.wait(timeout):
-            out, payload = job.result()
+            try:
+                out, payload = job.result()
+            except Exception as e:
+                failed(f"Odds for snapshot {job_state.id}", e)
+                out, payload = ODDS_FAILED, overlay.odds(job_state, None)
             if pending:
                 write(pending + ("\n" + out if out else ""))
             elif out:
