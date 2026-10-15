@@ -28,6 +28,15 @@ def test_one_instance():
     assert not process.claim_instance(name)
 
 
+def test_instance_claimed_again_once_the_first_exits():
+    """One that wasn't first doesn't keep the name held after the first exits."""
+    name = f"Local\\CalculatroTest-{uuid.uuid4()}"
+    assert process.claim_instance(name)
+    assert not process.claim_instance(name)
+    process._kernel32.CloseHandle(process._mutexes.pop())  # as if the first exited
+    assert process.claim_instance(name)
+
+
 def run_main(monkeypatch, tmp_path, first: bool):
     """`watch` started by hand: the panel callback it would run with, and its console output."""
     monkeypatch.setattr(process, "claim_instance", lambda: first)

@@ -19,6 +19,8 @@ _kernel32.WaitForSingleObject.restype = wintypes.DWORD
 _kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 _kernel32.CreateMutexW.restype = wintypes.HANDLE
 _kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+_kernel32.CloseHandle.restype = wintypes.BOOL
+_kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 _mutexes: list[int] = []  # held until the app exits
 
@@ -33,9 +35,14 @@ def exited(pid: int) -> Callable[[], bool]:
 
 
 def claim_instance(name: str = INSTANCE_MUTEX) -> bool:
-    """Whether this is the only app holding `name`; it's held until the app exits."""
+    """Whether this is the only app holding `name`; if so, it's held until the app
+    exits. Otherwise it's let go at once, so the one holding it can't be outlived
+    by a second that keeps the next app from claiming it."""
     handle = _kernel32.CreateMutexW(None, False, name)
     if not handle:
         return True  # can't tell; better to run twice than not at all
+    if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+        _kernel32.CloseHandle(handle)
+        return False
     _mutexes.append(handle)
-    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+    return True
