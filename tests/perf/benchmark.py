@@ -19,6 +19,9 @@ once a change is known to be intended. --save writes timings and results as
 JSON (with -k, it adds them to the file); test_perf.py checks timings against
 tests/perf/baseline.json, this machine's own and not committed. --compare
 adds a column from such a file. See docs/performance/README.md.
+
+Exits with status 1 if a result was not as expected or had no expected
+result (unless --update-expected wrote it), else 0.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import json
 import statistics
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Timer
 
@@ -122,14 +126,25 @@ def markdown(results: dict[str, dict], before: dict[str, dict] | None) -> str:
     return "\n".join(lines)
 
 
+def positive(kind: type) -> Callable[[str], float]:
+    """An argparse type: a number of `kind` above 0."""
+    def parse(text: str):
+        value = kind(text)
+        if value <= 0:
+            raise argparse.ArgumentTypeError(f"must be above 0, not {text}")
+        return value
+    parse.__name__ = kind.__name__  # argparse names the type in its "invalid ... value" errors
+    return parse
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-k", action="append", default=[],
                         help="only scenarios whose id contains this text (repeat to require several)")
-    parser.add_argument("--repeat", type=int, default=5, help="most runs per scenario (default 5)")
-    parser.add_argument("--budget", type=float, default=20.0,
+    parser.add_argument("--repeat", type=positive(int), default=5, help="most runs per scenario (default 5)")
+    parser.add_argument("--budget", type=positive(float), default=20.0,
                         help="stop repeating a scenario once its runs add up to this many seconds (default 20)")
-    parser.add_argument("--timeout", type=float, default=120.0,
+    parser.add_argument("--timeout", type=positive(float), default=120.0,
                         help="cancel a run after this many seconds (default 120)")
     parser.add_argument("--save", type=Path, help="write the results to this JSON file")
     parser.add_argument("--rerun-noisy", action="store_true",
@@ -160,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Engine: {engine_path()}", flush=True)
     expected = load_expected()
     width = max((len(s.id) for s in scenarios), default=0)
+    wrong = 0
     for s in scenarios:
         r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
         line = f"{s.id:<{width}}  {cell(r):>22}  runs={r['runs']}"
@@ -171,8 +187,10 @@ def main(argv: list[str] | None = None) -> int:
         if "probability" in r:
             if s.id not in expected:
                 line += "  NO EXPECTED RESULT"
+                wrong += 1
             elif r["probability"] != expected[s.id]:
                 line += "  NOT AS EXPECTED"
+                wrong += 1
         print(line, flush=True)
 
     settings = {"repeat": args.repeat, "budget": args.budget, "timeout": args.timeout}
@@ -190,6 +208,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.markdown:
         print()
         print(markdown(results, before))
+    if wrong and not args.update_expected:
+        print(f"{wrong} result{'s' if wrong > 1 else ''} not as expected, or with no expected result.")
+        return 1
     return 0
 
 

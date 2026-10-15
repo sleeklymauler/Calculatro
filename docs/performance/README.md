@@ -51,7 +51,8 @@ time `search.best_discards` instead, a click on a row's search button (see
   scenarios are the exception: they clear every cache before each run, to
   time the first odds for a newly tracked target or a new joker.
 - A run is cancelled after `--timeout` seconds (default 120) and shown as
-  "> 120 s".
+  "> 120 s". A timeout doesn't change the exit status. `--repeat`,
+  `--budget` and `--timeout` must be above 0.
 - `--save FILE` writes the results as JSON: each run's time, the mean,
   median and standard deviation, and the exact probability. `--compare FILE`
   shows a saved run alongside and flags any result that differs.
@@ -78,7 +79,8 @@ machine:
 
 - `expected.json` is committed: each scenario's exact probability. Every
   benchmark run is checked against it too, and flags a result that's "NOT
-  AS EXPECTED" (or has "NO EXPECTED RESULT", for a new scenario). Once a
+  AS EXPECTED" (or has "NO EXPECTED RESULT", for a new scenario), and then
+  exits with status 1 (unless `--update-expected` wrote them). Once a
   change is checked to be intended, write the new results there:
 
   ```
