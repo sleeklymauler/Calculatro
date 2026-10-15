@@ -27,7 +27,9 @@ return function(node)  -- text nodes of a UI definition, in order, as 'text@colo
   local out = {}       -- the arrow drawn in boxes as '->@colour', and other drawn icons as '[name]'
   local function walk(n)
     if n.config and n.config.glyph then out[#out + 1] = '[' .. n.config.glyph .. ']'; return end
-    if n.n == G.UIT.T then out[#out + 1] = n.config.text .. '@' .. tostring(n.config.colour) end
+    if n.n == G.UIT.T and n.config.text ~= '' then  -- the title row's empty message slot shows nothing
+      out[#out + 1] = n.config.text .. '@' .. tostring(n.config.colour)
+    end
     if n.n == G.UIT.R and n.nodes[1] and n.nodes[1].n == G.UIT.B then
       out[#out + 1] = '->@' .. tostring(n.nodes[1].config.colour)
     end
@@ -503,6 +505,63 @@ def test_panel_shows_current_odds(lua, tmp_path):
     boxes = rt.eval("#BOXES")
     mod.update(0.1)
     assert rt.eval("#BOXES") == boxes  # unchanged: not rebuilt
+
+
+
+def test_new_odds_update_the_panel_in_place(lua, tmp_path):
+    """Rebuilding the panel takes the game tens of milliseconds, a hitch each time the odds change: when only the odds
+    values or the title row's message change, the panel keeps its box and lays it out again."""
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=())  # the two 9s are selected: Discard values
+    mod.update(0.1)
+    boxes = rt.eval("#BOXES")
+    rt.execute("RECALCULATED = 0; BOXES[#BOXES].recalculate = function() RECALCULATED = RECALCULATED + 1 end")
+    before = panel_texts(rt)
+
+    rt.execute("G.hand.cards[1].highlighted = true")  # the Queen of Hearts too
+    mod.update(0.2)  # new snapshot
+    mod.update(0.4)  # no answer yet
+    assert panel_texts(rt)[2] == "Calculating...@muted"
+    answer(lua, tmp_path, queries=())
+    mod.update(0.1)
+    after = panel_texts(rt)
+    assert "Calculating...@muted" not in after and after != before
+    assert rt.eval("#BOXES") == boxes  # the same box throughout
+    assert rt.eval("RECALCULATED") >= 1
+    assert after == rebuilt_panel_texts(lua)
+
+
+def rebuilt_panel_texts(lua) -> list[str]:
+    """The panel's text when built afresh for the current odds."""
+    rt, mod = lua
+    mod.panel_layout = None  # forces a rebuild
+    mod.panel_key = None
+    mod.refresh_panel()
+    return panel_texts(rt)
+
+
+def test_panel_remembers_how_it_fit(lua, tmp_path):
+    """Fitting columns under the consumables tries a box per row count; a layout that's been fitted is built once."""
+    rt, mod = lua
+    mod.update(1.0)
+    targets = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+               "straight flush", "royal", "five of a kind", "flush house")
+    rt.execute("G.hand.cards[3].highlighted = false; G.hand.cards[4].highlighted = false")
+    answer(lua, tmp_path, targets=targets, queries=())
+    mod.update(0.1)
+    expected = columns(rt, rt.eval("BOXES[#BOXES]").definition)
+    rt.execute("G.hand.cards[1].highlighted = true")  # Discard values and their arrows: another layout
+    mod.update(0.2)
+    answer(lua, tmp_path, targets=targets, queries=())
+    mod.update(0.1)
+    rt.execute("G.hand.cards[1].highlighted = false")  # back to the first one
+    mod.update(0.2)
+    answer(lua, tmp_path, targets=targets, queries=())
+    before = rt.eval("#BOXES")
+    mod.update(0.1)
+    assert rt.eval("#BOXES") - before == 1
+    assert columns(rt, rt.eval("BOXES[#BOXES]").definition) == expected
 
 
 COLUMNS = r"""
@@ -1480,3 +1539,17 @@ def test_search_keeps_the_bells_forced_card(lua, tmp_path):
     reply_search(tmp_path, [[0, 2]])
     mod.update(0.1)
     assert selected(rt) == [0, 2]
+
+
+def test_building_the_panel_registers_each_object_once(lua, tmp_path):
+    """The game registers an element again each time it lays it out, twice where text is shrunk to fit a cell, and
+    removing it unregisters it once: the copy left behind kept every old panel alive, until the heap passed the
+    game's 300 MB ceiling and it collected garbage every frame. A panel build leaves one entry per object."""
+    rt, mod = lua
+    rt.execute("A, B, C = {'A'}, {'B'}, {'C'}; G.MOVEABLES = {A, B, A, C, B}; G.STAGE_OBJECTS = {{}, {B, B, C}}")
+    answer(lua, tmp_path)
+    mod.update(1.0)
+    assert panel_texts(rt) is not None
+    names = rt.eval("function(list) local out = {} for i, v in ipairs(list) do out[i] = v[1] end return out end")
+    assert list(names(rt.eval("G.MOVEABLES")).values()) == ["A", "B", "C"]
+    assert list(names(rt.eval("G.STAGE_OBJECTS[2]")).values()) == ["B", "C"]

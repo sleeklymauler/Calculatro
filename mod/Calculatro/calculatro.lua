@@ -1380,7 +1380,13 @@ end
 -- sections are left out. Each row is a function building it.
 local function sections(model, colours)
     local C = G.C
-    local function value(text, colour) return label(text or '-', model.stale and colours.stale or colour) end
+    -- Odds values carry an id (config.calculatro_value), by which
+    -- refresh_panel updates them in place.
+    local function value(text, colour, id)
+        local node = label(text or '-', model.stale and colours.stale or colour)
+        node.config.calculatro_value = id
+        return node
+    end
     -- Discard values are green when better than keeping the hand, red when worse.
     local function trend_colour(t)
         return (t.trend == 1 and C.GREEN) or (t.trend == -1 and C.RED) or C.UI.TEXT_LIGHT
@@ -1393,9 +1399,9 @@ local function sections(model, colours)
             name.config.calculatro_strike = t.banned
             return row({
                 cell(NAME_W, 'cl', name),
-                cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT)),
+                cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT, 'keep:' .. t.key)),
                 t.discard and arrow(colours.muted) or blank(ARROW_CELL_W),
-                cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour)),
+                cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour, 'discard:' .. t.key)),
                 search_cell(t, colours),
                 t.removable and remove_cell(t.key, { 'remove_hand', t.key }) or blank(REMOVE_W),
             }, { calculatro_anim = 'hand:' .. t.key })
@@ -1405,7 +1411,7 @@ local function sections(model, colours)
         cards[#cards + 1] = function()
             return row({
                 card_name_cell(c, CARD_NAME_W - EDIT_W),
-                cell(DISCARD_W, 'cr', value(c.discard, trend_colour(c))),
+                cell(DISCARD_W, 'cr', value(c.discard, trend_colour(c), 'card:' .. c.key)),
                 search_cell(c, colours),
                 edit_cell(c, colours),
                 remove_cell(c.key, { 'remove_card', c.key }),
@@ -1530,11 +1536,12 @@ function Calculatro.definition(model, per)
                model.can_add and { 'open' } or nil,
                { id = 'calculatro_open', w = 0.3, colour = C.BLUE, off_colour = C.UI.BACKGROUND_INACTIVE }),
     } }
-    local message = model.message and label(model.message, colours.muted, SCALE * 0.85)
+    local message = label(model.message or '', colours.muted, SCALE * 0.85)
     local body = {}
     if #list > 0 then
         local message_w = math.max(width - TITLE_W - PLUS_W, MESSAGE_W)
-        body[1] = row({ title(), plus, message and cell(message_w, 'cr', message) or blank(message_w) }, TITLE_ROW)
+        message.config.calculatro_value = 'message'
+        body[1] = row({ title(), plus, cell(message_w, 'cr', message) }, TITLE_ROW)
         body[2] = inset(column_nodes)
     else
         body[1] = row({ title(), plus }, TITLE_ROW)
@@ -2093,6 +2100,35 @@ Calculatro.steady_buttons = steady_buttons
 -- popup_definition) above them while hovered, through the game's own hover
 -- popups (Node:hover, h_popup). It's built anew each time: removing a popup
 -- removes its suit icons' sprites too.
+-- Balatro registers an element in G.MOVEABLES and G.STAGE_OBJECTS each time
+-- it lays it out (UIElement:set_values runs Moveable.init), and it lays out a
+-- container with a maxw or maxh twice when its contents don't fit, to shrink
+-- them: everything in a cell whose text is shrunk is registered twice.
+-- Removing an element unregisters it once, so the entry left behind keeps it,
+-- and through the definition's button_UIE links its whole box, alive. The
+-- panel is rebuilt so often that this filled the heap past the game's 300 MB
+-- ceiling, beyond which it collects garbage every frame (nuGC) and runs at a
+-- few frames a second. Run after building a box: keeps each object's first
+-- entry.
+local function register_once()
+    local stages = G.STAGE_OBJECTS
+    for _, list in ipairs({ G.MOVEABLES or false, stages and stages[G.STAGE] or false }) do
+        if list then
+            local seen, n, len = {}, 0, #list
+            for i = 1, len do
+                local v = list[i]
+                if not seen[v] then
+                    seen[v] = true
+                    n = n + 1
+                    list[n] = v
+                end
+            end
+            for i = n + 1, len do list[i] = nil end
+        end
+    end
+end
+Calculatro.register_once = register_once
+
 local function hover_popups(e)
     local popup = e.config and e.config.calculatro_popup
     if popup then
@@ -2101,7 +2137,10 @@ local function hover_popups(e)
             self.config.h_popup_config = { align = 'tm', offset = { x = 0, y = -0.1 }, parent = self }
             UIElement.hover(self)
             local box = self.children and self.children.h_popup
-            if box and box.UIRoot then deepen_shadows(box.UIRoot) end
+            if box and box.UIRoot then
+                register_once()
+                deepen_shadows(box.UIRoot)
+            end
         end
     end
     for _, child in ipairs(ui_children(e)) do hover_popups(child) end
@@ -2116,6 +2155,7 @@ local function build_panel(definition)
         definition = definition,
         config = { align = 'tm', offset = { x = 0, y = -Calculatro.panel_lift() }, major = G.deck, bond = 'Strong', can_collide = true },
     }
+    register_once()
     -- 'tm' centres it above the deck; shift it to line up with the deck's
     -- right edge, so extra columns grow leftwards over the empty play area.
     panel.alignment.offset.x = (G.deck.T.w - panel.T.w) / 2
@@ -2130,25 +2170,139 @@ local function build_panel(definition)
     return panel
 end
 
--- Rebuilds the panel when what it shows changes; removes it outside blinds,
--- closing the editor. The odds fill each column with as many rows as keep it
--- clear of the consumables before starting the next; a box's size is only
--- known once it's built, so it tries each section in one column, then one
--- fewer row per column, and so on.
+-- Removes a box built by the mod. The game unregisters each of its
+-- elements with a search of G.MOVEABLES and G.STAGE_OBJECTS, about 600
+-- elements in lists of over a thousand: 20 ms for the panel. Instead, it
+-- removes the box with empty lists in their place and then drops everything
+-- removed from them in one pass (with any duplicates; see register_once).
+local function remove_box(box)
+    local stages = G.STAGE_OBJECTS
+    local moveables, staged = G.MOVEABLES, stages and stages[G.STAGE]
+    if moveables then G.MOVEABLES = {} end
+    if staged then stages[G.STAGE] = {} end
+    local ok, err = pcall(box.remove, box)
+    if moveables then G.MOVEABLES = moveables end
+    if staged then stages[G.STAGE] = staged end
+    for _, list in ipairs({ moveables or false, staged or false }) do
+        if list then
+            local seen, n, len = {}, 0, #list
+            for i = 1, len do
+                local v = list[i]
+                if not seen[v] and not (type(v) == 'table' and v.REMOVED) then
+                    seen[v] = true
+                    n = n + 1
+                    list[n] = v
+                end
+            end
+            for i = n + 1, len do list[i] = nil end
+        end
+    end
+    if not ok then error(err, 0) end
+end
+
+-- What of the odds panel's model changes its layout: everything but the
+-- odds values (their text and colour), whether they're stale, and the title
+-- row's message, which refresh_panel updates in place. Whether a target hand
+-- has a Discard value is layout: its arrow comes and goes with it.
+local VALUE_FIELDS = { keep = true, discard = true, trend = true }
+local function layout_key(model)
+    local function rows(list)
+        local out = array()
+        for i, r in ipairs(list) do
+            local copy = { has_discard = r.discard ~= nil or nil }
+            for k, v in pairs(r) do
+                if not VALUE_FIELDS[k] then copy[k] = v end
+            end
+            out[i] = copy
+        end
+        return out
+    end
+    local empty = #model.targets == 0 and #model.cards == 0
+    return encode({ targets = rows(model.targets), cards = rows(model.cards), can_add = model.can_add,
+                    message = empty and model.message or nil })
+end
+Calculatro.layout_key = layout_key
+
+-- The value nodes' configs in a definition, by id (config.calculatro_value).
+-- A box's elements share their definition's configs.
+local function values_of(node, out)
+    out = out or {}
+    local id = node.config and node.config.calculatro_value
+    if id then out[id] = node.config end
+    for _, child in ipairs(node.nodes or {}) do values_of(child, out) end
+    return out
+end
+
+-- Puts the values of `definition` (the panel's layout) into the panel:
+-- their text and colour, laying the box out again if any text changed.
+-- Laying it out again doesn't register its elements again (see
+-- register_once), unlike building it.
+local function update_values(panel, definition)
+    local live, changed = panel.calculatro_values, false
+    for id, config in pairs(values_of(definition)) do
+        local now = live[id]
+        if now then
+            if now.text ~= config.text then
+                now.text, changed = config.text, true
+            end
+            now.colour = config.colour
+        end
+    end
+    if changed and panel.recalculate then panel:recalculate() end
+end
+
+-- How many rows per column the panel fitted with, by layout and room:
+-- trying out a layout means building a box for it.
+Calculatro.fits, Calculatro.fit_count = {}, 0
+local MAX_FITS = 64
+
+local function build_odds(model, layout, max_h)
+    local fit_key = layout .. '@' .. string.format('%.3f', max_h or -1)
+    local per = Calculatro.fits[fit_key] or math.max(1, Calculatro.row_count(model))
+    local definition = Calculatro.definition(model, per)
+    local panel = build_panel(definition)
+    while max_h and panel.T.h > max_h and per > 1
+            and Calculatro.column_count(model, per - 1) <= Calculatro.max_columns do
+        remove_box(panel)
+        per = per - 1
+        definition = Calculatro.definition(model, per)
+        panel = build_panel(definition)
+    end
+    if not Calculatro.fits[fit_key] then
+        if Calculatro.fit_count >= MAX_FITS then Calculatro.fits, Calculatro.fit_count = {}, 0 end
+        Calculatro.fits[fit_key], Calculatro.fit_count = per, Calculatro.fit_count + 1
+    end
+    panel.calculatro_values, panel.calculatro_per = values_of(definition), per
+    return panel
+end
+
+-- Rebuilds the panel when its layout changes, and only updates its values
+-- when they're all that changed (most often, the odds); removes it outside
+-- blinds, closing the editor. The odds fill each column with as many rows
+-- as keep it clear of the consumables before starting the next; a box's
+-- size is only known once it's built, so it tries each section in one
+-- column, then one fewer row per column, and so on (remembered in
+-- Calculatro.fits).
 function Calculatro.refresh_panel()
     if G.FUNCS then G.FUNCS.calculatro_button = Calculatro.button_pressed end
     local shown = Calculatro.visible and Calculatro.in_blind()
     if not shown then Calculatro.editor = nil end
     local model = shown and (Calculatro.editor and Calculatro.editor_model() or Calculatro.panel_model()) or nil
     local key = model and encode(model)
+    local layout = model and not model.editor and layout_key(model) or key
     local panel = Calculatro.panel
     if panel and panel.REMOVED then panel = nil end  -- the game removes it with the run
-    if panel and key == Calculatro.panel_key and Calculatro.panel_major == G.deck then return end
+    local same_place = panel and Calculatro.panel_major == G.deck
+    if same_place and key == Calculatro.panel_key then return end
+    if same_place and layout == Calculatro.panel_layout and not model.editor then
+        update_values(panel, Calculatro.definition(model, panel.calculatro_per))
+        Calculatro.panel_key = key
+        return
+    end
     -- The new panel animates from where this one is drawn.
-    local from = panel and panel.UIRoot and Calculatro.panel_major == G.deck
-        and Calculatro.drawn_layout(panel, Calculatro.clock) or nil
-    if panel then panel:remove() end
-    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = nil, nil, nil
+    local from = panel and panel.UIRoot and same_place and Calculatro.drawn_layout(panel, Calculatro.clock) or nil
+    if panel then remove_box(panel) end
+    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_layout, Calculatro.panel_major = nil, nil, nil, nil
     if not model then return end
 
     if model.editor then
@@ -2162,21 +2316,11 @@ function Calculatro.refresh_panel()
             panel:align_to_major()
             panel:hard_set_VT()
         end
-        Calculatro.animate(panel, from)
-        Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = panel, key, G.deck
-        return
-    end
-    local max_h = Calculatro.max_panel_height()
-    local per = math.max(1, Calculatro.row_count(model))
-    panel = build_panel(Calculatro.definition(model, per))
-    while max_h and panel.T.h > max_h and per > 1
-            and Calculatro.column_count(model, per - 1) <= Calculatro.max_columns do
-        panel:remove()
-        per = per - 1
-        panel = build_panel(Calculatro.definition(model, per))
+    else
+        panel = build_odds(model, layout, Calculatro.max_panel_height())
     end
     Calculatro.animate(panel, from)
-    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_major = panel, key, G.deck
+    Calculatro.panel, Calculatro.panel_key, Calculatro.panel_layout, Calculatro.panel_major = panel, key, layout, G.deck
 end
 
 function Calculatro.key_pressed(key)
