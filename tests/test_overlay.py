@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from fractions import Fraction
 
@@ -20,7 +21,7 @@ from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
 
-lupa = pytest.importorskip("lupa")
+pytest.importorskip("lupa")
 
 TEXTS = r"""
 return function(node)  -- text nodes of a UI definition, in order, as 'text@colour', icons as '[atlas x,y]',
@@ -440,14 +441,15 @@ def test_write_fails_softly(tmp_path, monkeypatch):
 # --- Lua side --------------------------------------------------------------
 
 def test_decode_round_trip(lua):
-    _, mod = lua
+    rt, mod = lua
+    lua_error = sys.modules[type(rt).__module__].LuaError  # each lupa runtime has its own
     text = ' {"s":"a\\"b\\\\c\\n\\t\\/\\u00e9\\u4e2d","n":-1.5e2,"i":42,"t":true,"f":false,\n' \
            '  "list":[1,"x",{"k":"v"}],"empty":[]} '
     decoded = mod.decode(text)
     assert json.loads(mod.encode(decoded)) == json.loads(text)  # "empty" stays an array
     assert decoded.s == 'a"b\\c\n\t/é中'
     for bad in ['{"a":1', '{"a" 1}', '[1,]', '"open', '{"a":nul}', '1 2']:
-        with pytest.raises(lupa.LuaError):
+        with pytest.raises(lua_error):
             mod.decode(bad)
 
 

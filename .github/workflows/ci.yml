@@ -1,7 +1,9 @@
 # Lint and tests on every pull request, and on pushes to main that change more
 # than docs. The tests run on the oldest Python pyproject.toml supports and the
-# one releases bundle. The performance tests aren't run: shared runners' timings
-# are too noisy.
+# one releases bundle. The performance tests' timings aren't checked (shared
+# runners' are too noisy), but their exact results are, for all but the slowest
+# scenarios (tests/perf/test_expected.py). The mod's Lua tests run under LuaJIT,
+# the game's Lua, as well as lupa's default Lua.
 name: CI
 
 on:

@@ -74,6 +74,12 @@ the mean in `tests/perf/baseline.json` (+0.1 s). These tests are marked
 .venv\Scripts\python -m pytest -m perf
 ```
 
+A plain `pytest` (and so CI) checks the exact results without timings
+(`tests/perf/test_expected.py`): every scenario but the slowest, the ones
+in its `SLOW` set, whose mean is 0.5 s or more. Add a new scenario to
+`SLOW` if it's that slow. It also checks that every scenario has an
+expected result.
+
 The two files are kept apart because only one of them is the same on every
 machine:
 

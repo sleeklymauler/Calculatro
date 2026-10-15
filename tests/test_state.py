@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from calculatro.rules import Rules
 from calculatro.source import FileStateSource
 from calculatro.state import SCHEMA, GameState, Joker, MalformedState, SchemaMismatch
 
-lupa = pytest.importorskip("lupa")
+pytest.importorskip("lupa")
 
 MOD = Path(__file__).resolve().parents[1] / "mod" / "Calculatro" / "calculatro.lua"
 
@@ -113,9 +114,11 @@ end
 """
 
 
-@pytest.fixture
-def lua(tmp_path):
-    rt = lupa.LuaRuntime()
+# The game runs LuaJIT (Lua 5.1) and lupa's default runtime is a newer Lua, so the
+# mod's tests run in both: a 5.2+ feature fails in the LuaJIT run.
+@pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])
+def lua(request, tmp_path):
+    rt = importlib.import_module(request.param).LuaRuntime()
     rt.execute(MOCK_G)
     save_dir = str(tmp_path).replace("\\", "/")
     rt.execute(f"love = {{filesystem = {{getSaveDirectory = function() return '{save_dir}' end}}}}")

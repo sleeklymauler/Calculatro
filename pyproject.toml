@@ -20,7 +20,9 @@ packages = ["calculatro"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not perf'"
+# No faulthandler: on Windows, LuaJIT raises Lua errors as SEH exceptions, which it reports
+# as "Windows fatal exception" thousands of times in the mod's LuaJIT tests.
+addopts = "-m 'not perf' -p no:faulthandler"
 markers = ["perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)"]
 
 [tool.ruff]
