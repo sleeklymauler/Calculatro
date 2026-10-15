@@ -251,6 +251,20 @@ def test_odds_without_selection(lua):
     ]
 
 
+def test_odds_on_the_last_hand(lua):
+    # With no discards and no hand after this one, nothing is drawn after the
+    # selection: it's the hand to be played, so there are no discard odds.
+    rt, _ = lua
+    rt.execute("G.GAME.current_round.hands_left = 1; G.GAME.current_round.discards_left = 0")
+    state = GameState.from_json(snapshot_json(lua))
+    assert state.selected
+    assert odds(state, [get_target("trips")]).splitlines() == [
+        "Odds (current hand, drawing 3):",
+        "  Three of a Kind   80.00%",
+        "Last hand, with no discards left: nothing is drawn after it.",
+    ]
+
+
 def test_odds_cards_only(lua):
     out = odds(GameState.from_json(snapshot_json(lua)), [], [parse_query("3+ queens")])
     assert out.splitlines() == [

@@ -53,7 +53,8 @@ def _pct(p: Fraction) -> str:
 
 def format_report(report: Report) -> str:
     """The report as text: target hands, then card queries under "In hand"."""
-    hint = "Select cards in game to see the odds after discarding them."
+    hint = ("Select cards in game to see the odds after discarding them." if report.redraw
+            else "Last hand, with no discards left: nothing is drawn after it.")
     rows = [(row.name, row.keep, row.discard) for row in report.targets]
     cards = [(row.query.label, row.keep, row.discard) for row in report.cards]
     width = max(len(name) for name, _, _ in rows + cards)

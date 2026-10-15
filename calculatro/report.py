@@ -10,6 +10,7 @@ from threading import Event
 from .cards import CardQuery
 from .engine import evaluate_cards, evaluate_discard
 from .hands import Target, combine
+from .search import can_redraw
 from .state import Card, GameState
 
 
@@ -35,13 +36,16 @@ class Report:
     discarded: list[Card]  # the selection; empty if nothing is selected
     discard_draws: int  # cards drawn after discarding it
     discards_left: int
+    redraw: bool = True  # False on the last hand with no discards: nothing is drawn after it
 
 
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
                  cancel: Event | None = None) -> Report | None:
     """Odds of the target hands and card queries for keeping the hand vs.
     discarding the in-game selection. None outside a run, with an empty hand,
-    or with nothing to calculate.
+    or with nothing to calculate. With no way left to throw cards away and draw
+    (`can_redraw`), the selection is the hand to be played, so there are no
+    discard odds.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
@@ -52,11 +56,12 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     card_keep = [evaluate_cards(state, q, []) for q in queries]
     keep_draws = (keep or card_keep)[0].draws
 
-    selected = state.selected
+    redraw = can_redraw(state)
+    selected = state.selected if redraw else []
     if not selected:
         rows = [TargetOdds(name, k.probability, None) for (name, _), k in zip(named, keep)]
         cards = [CardOdds(q, k.probability, None) for q, k in zip(queries, card_keep)]
-        return Report(rows, cards, keep_draws, [], 0, state.discards_left)
+        return Report(rows, cards, keep_draws, [], 0, state.discards_left, redraw)
 
     after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
     card_after = [evaluate_cards(state, q, selected) for q in queries]
