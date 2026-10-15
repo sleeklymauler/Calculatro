@@ -20,7 +20,9 @@ local Calculatro = {
     state_id = nil,  -- id of the last snapshot written
     changed_at = 0,  -- clock when it was written
     ack_id = nil,    -- id the odds file last answered (pending or done)
-    odds = nil,      -- last finished odds from this session
+    odds = nil,      -- last finished odds from this session and round
+    round = nil,     -- G.GAME.round, and Calculatro.seq when it last changed
+    round_seq = 0,
     odds_raw = nil,
     visible = true,
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open
@@ -765,9 +767,26 @@ local function own_id(id)
     return type(id) == 'string' and id:sub(1, #prefix) == prefix
 end
 
+-- Odds are for one round's hand: once another round starts (G.GAME.round
+-- counts the blinds played), those for snapshots taken before it are dropped,
+-- so the panel shows '-' rather than the last round's odds while the first
+-- hand is dealt (the app only answers once it is). Snapshots after
+-- `round_seq` were taken in this round; checked before each snapshot.
+local function this_round(id)
+    local seq = own_id(id) and tonumber(id:match(':(%d+)$'))
+    return seq and seq > Calculatro.round_seq or false
+end
+
+function Calculatro.check_round()
+    local round = G and G.GAME and G.GAME.round
+    if round == Calculatro.round then return end
+    Calculatro.round, Calculatro.round_seq = round, Calculatro.seq
+    if Calculatro.odds and not this_round(Calculatro.odds.id) then Calculatro.odds = nil end
+end
+
 -- The app answers each snapshot first with {id, pending = true}, then with
 -- the odds once they're calculated. Odds left over from an earlier game
--- session are ignored.
+-- session or round are ignored.
 function Calculatro.read_odds()
     local f = io.open(save_path('calculatro_odds.json'), 'rb')
     if not f then return end
@@ -780,7 +799,7 @@ function Calculatro.read_odds()
         return
     end
     Calculatro.ack_id = odds.id
-    if not odds.pending then Calculatro.odds = odds end
+    if not odds.pending and this_round(odds.id) then Calculatro.odds = odds end
     Calculatro.receive_search(odds.search)
 end
 
@@ -2352,6 +2371,7 @@ function Calculatro.update(dt)
     Calculatro.clock = Calculatro.clock + dt
     Calculatro.elapsed = Calculatro.elapsed + dt
     Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
+    guard('round', Calculatro.check_round)
     if Calculatro.elapsed >= Calculatro.interval then
         Calculatro.elapsed = 0
         guard('snapshot', Calculatro.write_snapshot)

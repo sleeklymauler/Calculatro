@@ -268,7 +268,7 @@ def test_new_hand_cancels_search(monkeypatch):
         wait_for(lambda: any("targets" in p for p in sent))
         source.queue.append(hand_state(2, ranks=(9, 9, 5), search=("Pair", 2)))
         wait_for(lambda: "search" in sent[-1])
-        assert cancelled.is_set()
+        assert cancelled.wait(5)  # the cancelled search's thread may not have finished yet
         assert sent[-1]["search"] == {"nonce": 2, "key": "Pair", "options": [[]]}
     finally:
         stopped.set()

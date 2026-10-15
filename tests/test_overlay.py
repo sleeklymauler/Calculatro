@@ -851,6 +851,31 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert not any(t.endswith("@stale") for t in texts) and "Calculating...@muted" not in texts
 
 
+def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):
+    """While a blind's first hand is dealt the app sends no odds: the panel shows '-', not the last round's."""
+    rt, mod = lua
+    rt.execute("G.GAME.round = 1")
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=())
+    late = (tmp_path / "calculatro_odds.json").read_text(encoding="utf-8")
+    mod.update(0.1)
+    assert "80.0%@light" in panel_texts(rt)
+    rt.execute("G.GAME.round = 2; G.hand.cards[1].highlighted = true")
+    mod.update(0.2)  # the next blind's snapshot; the app acknowledges it
+    overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert not any("%" in t for t in texts) and texts.count("-@light") == 6
+    (tmp_path / "calculatro_odds.json").write_text(late, encoding="utf-8")  # the last round's, arriving late
+    mod.update(0.3)
+    texts = panel_texts(rt)
+    assert not any("%" in t for t in texts) and texts[2] == "Calculating...@muted"
+    answer(lua, tmp_path, queries=())  # once the hand is dealt
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert any(t.endswith("%@light") for t in texts) and "Calculating...@muted" not in texts
+
+
 STRUCK = r"""
 return function(node)  -- text struck through (hands the boss won't let score), in order
   local out = {}
