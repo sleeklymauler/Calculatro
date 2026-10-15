@@ -150,6 +150,16 @@ def format_search(state: GameState, key: str, found: Search) -> str:
 
 CALCULATING = "Calculating odds..."
 NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
+WAITING_FOR_HAND = "Odds once you're selecting cards."
+
+
+def settled(state: GameState) -> bool:
+    """Whether the hand is the player's to choose from: odds are only worth
+    working out while selecting cards (or with no state given, as in a
+    hand-written file). While cards are being dealt, a played hand scores or a
+    pack is open, the hand changes card by card, and each snapshot's odds would
+    be thrown away by the next."""
+    return state.state in (None, "SELECTING_HAND")
 RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
 ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updates the in-game "
                    "panel: this one only shows the odds here.")
@@ -168,7 +178,8 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     a placeholder line, then follow directly below it.
 
     `panel` receives the payloads for the mod's odds panel: a `pending` one as
-    soon as a state arrives, then its odds. It returns False if it couldn't
+    soon as a state arrives, then its odds (only the pending one while the
+    hand isn't `settled`). It returns False if it couldn't
     deliver one; that payload is then sent again every RETRY seconds until it
     is, or a newer one replaces it.
 
@@ -238,7 +249,12 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 job.cancel()
             job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
             targets, queries = tracked(state)
-            if targets or queries:
+            if (targets or queries) and state.in_run and not settled(state):
+                # The panel keeps the last odds, greyed out, until the hand settles.
+                write(pending + "\n" + WAITING_FOR_HAND)
+                show(overlay.pending(state))
+                pending = ""
+            elif targets or queries:
                 show(overlay.pending(state))
                 job = Job(lambda cancel, state=state, targets=targets, queries=queries:
                           calculate(state, targets, queries, cancel))

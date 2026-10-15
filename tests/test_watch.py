@@ -86,8 +86,9 @@ class FakeSource:
         return self.queue.pop(0) if self.queue else None
 
 
-def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",)) -> GameState:
-    return GameState(in_run=True, state=name, tracked_hands=list(tracked_hands))
+def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str = "SELECTING_HAND") -> GameState:
+    """A state told apart by its blind's name."""
+    return GameState(in_run=True, state=game_state, blind=name, tracked_hands=list(tracked_hands))
 
 
 def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
@@ -101,10 +102,27 @@ def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
     return writes
 
 
+def test_no_odds_until_the_hand_settles(monkeypatch):
+    """While cards are dealt (or a played hand scores, or a pack is open) the hand changes card by card: no odds are
+    calculated, and the panel is told they're pending, until the player is selecting cards again."""
+    calculated: list[str] = []
+    source = FakeSource(state("A", game_state="DRAW_TO_HAND"), state("B", game_state="HAND_PLAYED"), state("C"))
+    sent: list[dict] = []
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (calculated.append(st.blind) or f"odds {st.blind}",
+                                                                     {"odds": st.blind}))
+    writes: list[str] = []
+    end = time.monotonic() + 5
+    cli.run_watch(source, writes.append, sent.append, patience=0.05, poll_interval=0.005,
+                  stop=lambda: any("odds C" in w for w in writes) or time.monotonic() > end)
+    assert calculated == ["C"]
+    assert writes[0].endswith("\n" + cli.WAITING_FOR_HAND) and writes[1].endswith("\n" + cli.WAITING_FOR_HAND)
+    assert [p.get("pending") for p in sent[:2]] == [True, True] and sent[-1] == {"odds": "C"}
+
+
 def test_fast_odds_print_with_summary(monkeypatch):
-    writes = watch(FakeSource(state("A")), lambda st, t, q, cancel: f"odds {st.state}",
+    writes = watch(FakeSource(state("A")), lambda st, t, q, cancel: f"odds {st.blind}",
                    lambda w: len(w) == 1, monkeypatch)
-    assert "State: A" in writes[0] and writes[0].endswith("\nodds A")
+    assert "Blind: A" in writes[0] and writes[0].endswith("\nodds A")
 
 
 def test_slow_odds_print_summary_first(monkeypatch):
@@ -120,7 +138,7 @@ def test_slow_odds_print_summary_first(monkeypatch):
         return len(writes) == 2
 
     writes = watch(FakeSource(state("A")), slow, done, monkeypatch)
-    assert "State: A" in writes[0] and writes[0].endswith("\n" + cli.CALCULATING)
+    assert "Blind: A" in writes[0] and writes[0].endswith("\n" + cli.CALCULATING)
     assert writes[1] == "odds A"
 
 
@@ -129,7 +147,7 @@ def test_new_state_cancels_running_odds(monkeypatch):
     cancelled = threading.Event()
 
     def odds(st, t, q, cancel):
-        if st.state == "B":
+        if st.blind == "B":
             return "odds B"
         while not cancel.is_set():
             time.sleep(0.001)
@@ -137,14 +155,14 @@ def test_new_state_cancels_running_odds(monkeypatch):
         raise Cancelled
 
     def done(writes):
-        if len(writes) == 1 and not source.queue and "State: B" not in writes[0]:
+        if len(writes) == 1 and not source.queue and "Blind: B" not in writes[0]:
             source.queue.append(state("B"))  # the game moves on while A is still calculating
         return any("odds B" in w for w in writes)
 
     writes = watch(source, odds, done, monkeypatch)
     assert cancelled.wait(5)
     assert writes[0].endswith(cli.CALCULATING)
-    assert "State: B" in writes[1] and writes[1].endswith("\nodds B")
+    assert "Blind: B" in writes[1] and writes[1].endswith("\nodds B")
     assert not any("odds A" in w for w in writes)
 
 
@@ -152,7 +170,7 @@ def test_summary_only_without_targets(monkeypatch):
     writes: list[str] = []
     cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,
                   stop=lambda: bool(writes))
-    assert len(writes) == 1 and "State: A" in writes[0] and writes[0].endswith(cli.NOTHING_TRACKED)
+    assert len(writes) == 1 and "Blind: A" in writes[0] and writes[0].endswith(cli.NOTHING_TRACKED)
 
 
 def test_tracked_skips_unknown_repeated_and_overflowing():
