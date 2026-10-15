@@ -532,6 +532,28 @@ def test_new_odds_update_the_panel_in_place(lua, tmp_path):
     assert after == rebuilt_panel_texts(lua)
 
 
+def test_updating_values_makes_no_sprites(lua, tmp_path):
+    """The suit icons in card query labels are sprites, which the game keeps track of until they're removed: an update
+    of the values in place must not make new ones it then throws away, or every change of odds would leak some."""
+    rt, mod = lua
+    rt.execute("SPRITES = 0; local make = Sprite; function Sprite(...) SPRITES = SPRITES + 1; return make(...) end")
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=("QS", "at most 1 heart"))
+    mod.update(0.1)
+    boxes, sprites = rt.eval("#BOXES"), rt.eval("SPRITES")
+    assert sprites >= 2
+    before = panel_texts(rt)
+
+    for highlighted in ("true", "false", "true"):  # the Queen of Hearts too, or not
+        rt.execute(f"G.hand.cards[1].highlighted = {highlighted}")
+        mod.update(0.2)  # new snapshot
+        answer(lua, tmp_path, queries=("QS", "at most 1 heart"))
+        mod.update(0.1)
+    assert panel_texts(rt) != before
+    assert rt.eval("#BOXES") == boxes  # the same box throughout
+    assert rt.eval("SPRITES") == sprites
+
+
 def rebuilt_panel_texts(lua) -> list[str]:
     """The panel's text when built afresh for the current odds."""
     rt, mod = lua

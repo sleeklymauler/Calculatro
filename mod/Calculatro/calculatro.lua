@@ -1091,13 +1091,20 @@ local SUIT_PATTERN = '\226\153[\160-\166]'
 -- row, which would make the row taller too.
 local ICON_SIZE, ICON_PAD, ICON_GAP = 0.18, 0.015, 0.035
 
+-- Set while building a definition only for its values (values_definition):
+-- suit icons are then left without their sprite, since the game keeps every
+-- sprite made until it's removed, and that definition is never built.
+local values_only = false
+
 local function suit_icon(x)
-    local atlas = G.ASSET_ATLAS['ui_' .. (G.SETTINGS.colourblind_option and 2 or 1)]
-    local sprite = Sprite(0, 0, ICON_SIZE, ICON_SIZE, atlas, { x = x, y = 1 })
-    sprite.states.drag.can, sprite.states.hover.can, sprite.states.collide.can = false, false, false
-    local tile = { n = G.UIT.C, config = { align = 'cm', padding = ICON_PAD, r = 0.03, colour = G.C.WHITE }, nodes = {
-        { n = G.UIT.O, config = { object = sprite, can_collide = false } },
-    } }
+    local icon = {}
+    if not values_only then
+        local atlas = G.ASSET_ATLAS['ui_' .. (G.SETTINGS.colourblind_option and 2 or 1)]
+        local sprite = Sprite(0, 0, ICON_SIZE, ICON_SIZE, atlas, { x = x, y = 1 })
+        sprite.states.drag.can, sprite.states.hover.can, sprite.states.collide.can = false, false, false
+        icon[1] = { n = G.UIT.O, config = { object = sprite, can_collide = false } }
+    end
+    local tile = { n = G.UIT.C, config = { align = 'cm', padding = ICON_PAD, r = 0.03, colour = G.C.WHITE }, nodes = icon }
     return { n = G.UIT.C, config = { align = 'cm', padding = 0, minw = ICON_SIZE + 2 * (ICON_PAD + ICON_GAP) }, nodes = { tile } }
 end
 
@@ -2270,6 +2277,16 @@ local function update_values(panel, definition)
     if changed and panel.recalculate then panel:recalculate() end
 end
 
+-- The panel's definition for `model`, made only to read its values from:
+-- without the sprites a box would need (see values_only).
+local function values_definition(model, per)
+    values_only = true
+    local ok, definition = pcall(Calculatro.definition, model, per)
+    values_only = false
+    if not ok then error(definition, 0) end
+    return definition
+end
+
 -- How many rows per column the panel fitted with, by layout and room:
 -- trying out a layout means building a box for it.
 Calculatro.fits, Calculatro.fit_count = {}, 0
@@ -2314,7 +2331,7 @@ function Calculatro.refresh_panel()
     local same_place = panel and Calculatro.panel_major == G.deck
     if same_place and key == Calculatro.panel_key then return end
     if same_place and layout == Calculatro.panel_layout and not model.editor then
-        update_values(panel, Calculatro.definition(model, panel.calculatro_per))
+        update_values(panel, values_definition(model, panel.calculatro_per))
         Calculatro.panel_key = key
         return
     end
