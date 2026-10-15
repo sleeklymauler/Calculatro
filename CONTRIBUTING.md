@@ -79,7 +79,7 @@ Run them before and after changing the engine or the search. See [docs/performan
 ## Things to keep in mind
 
 - **No cheating.** The mod must never export anything the player can't see: the deck goes out as a sorted multiset
-  (no draw order), and face-down cards only as a sorted pool. Odds have to come from what's on screen.
+  (no draw order), merged with the face-down cards so which cards are face down doesn't show. Odds have to come from what's on screen.
 - **The mod runs on LuaJIT (Lua 5.1)**, while the tests use a newer Lua, so avoid Lua 5.2+ features. The mod may
   not assign globals, and reads only the game's and LuaJIT's (`tests/test_lua_globals.py`).
 - **JSON shapes are versioned.** If you change what the state or odds file contains, bump the schema on both

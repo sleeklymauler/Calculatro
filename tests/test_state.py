@@ -135,12 +135,12 @@ def test_snapshot_parses(lua):
     assert state.blind == "Big Blind"
     assert [c.short() for c in state.hand] == ["Q♥", "Q♠", "9♣", "9♦", "??"]
     assert state.hand[2].seal == "Red" and state.hand[3].edition == "foil"
-    assert len(state.deck) == 4 and len(state.discard) == 1
+    assert len(state.unseen) == 5 and state.deck_size == 4 and len(state.discard) == 1
     assert state.jokers == [Joker("j_four_fingers"), Joker("j_smeared", debuff=True)]
     assert state.rules == Rules(four_fingers=True)  # a debuffed joker has no effect
     assert "Jokers: j_four_fingers, j_smeared (debuffed)" in summarize(state)
     assert state.selected == [2, 3]
-    assert [c.short() for c in state.hidden_pool] == ["2♥"]
+    assert state.hidden == 1 and "2♥" in [c.short() for c in state.unseen]
 
 
 def test_snapshot_sends_what_is_tracked(lua):
@@ -182,7 +182,7 @@ def test_snapshot_sends_the_bells_forced_card(lua):
     # Only hand cards say whether they're forced.
     rt.execute("G.deck.cards[1].ability.forced_selection = true")
     raw = snapshot_json(lua)
-    assert not any("forced" in c for c in raw["deck"])
+    assert not any("forced" in c for c in raw["unseen"])
     rt.execute("G.GAME.blind.disabled = true")
     assert not GameState.from_json(snapshot_json(lua)).bell
 
@@ -258,8 +258,8 @@ def test_odds_cards_only(lua):
 
 def test_counts_exclude_stone_and_wild(lua):
     state = GameState.from_json(snapshot_json(lua))
-    assert state.rank_counts() == {"Queen": 1, "Ace": 1, "10": 1}
-    assert state.suit_counts() == {"Clubs": 1, "Diamonds": 1}
+    assert state.rank_counts() == {"Queen": 1, "Ace": 1, "10": 1, "2": 1}
+    assert state.suit_counts() == {"Clubs": 1, "Diamonds": 1, "Hearts": 1}
 
 
 def test_empty_areas_encode_as_arrays(lua):
@@ -271,9 +271,24 @@ def test_empty_areas_encode_as_arrays(lua):
 
 def test_deck_order_not_leaked(lua):
     rt, mod = lua
-    before = snapshot_json(lua)["deck"]
+    before = snapshot_json(lua)["unseen"]
     rt.execute("local c = G.deck.cards; c[1], c[4] = c[4], c[1]")
-    assert snapshot_json(lua)["deck"] == before
+    assert snapshot_json(lua)["unseen"] == before
+
+
+def test_face_down_cards_not_told_from_the_deck(lua):
+    # Which unseen card is face down in hand isn't public, so swapping it with
+    # a deck card (selected or not) must give the same snapshot.
+    rt, _ = lua
+    before = snapshot_json(lua)
+    rt.execute("""local hand, deck = G.hand.cards, G.deck.cards
+                  hand[5], deck[1] = deck[1], hand[5]
+                  hand[5].facing, deck[1].facing = 'back', 'front'""")
+    assert snapshot_json(lua) == before
+    rt.execute("G.hand.cards[5].highlighted = true")
+    after = snapshot_json(lua)
+    assert after["unseen"] == before["unseen"] and after["hand"][4] == {"hidden": True, "highlighted": True}
+    assert "deck" not in after and "hidden_pool" not in after
 
 
 def test_not_in_run(lua):
@@ -290,7 +305,7 @@ def test_update_writes_file_only_on_change(lua, tmp_path):
     mod.update(1.0)
     state = FileStateSource(path).read()
     assert state is not None and len(state.hand) == 5
-    assert "Deck (4 cards remaining)" in summarize(state)
+    assert "Unseen (4 cards in deck, 1 face down in hand)" in summarize(state)
 
     path.write_text("sentinel")
     mod.update(1.0)  # unchanged state: no rewrite

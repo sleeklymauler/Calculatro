@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 7,
+    schema = 8,
     odds_schema = 5,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -660,18 +660,15 @@ local function sorted_cards(cards)
     return out
 end
 
-local function sorted_deck(area)
-    return sorted_cards(area_cards(area, false))
-end
-
--- Identities of face-down hand cards. The player can't tell which is which,
--- but knows they come from the unseen pool, so the engine treats them like
--- undrawn deck cards.
-local function hidden_pool(area)
+-- The cards the player hasn't seen: the undrawn deck and the face-down hand
+-- cards, merged and sorted, so neither which cards are face down nor which
+-- were just drawn face down leaks (the game's View Deck counts them together
+-- too). The face-down count is public, from the hand's `{hidden = true}`.
+local function unseen_pool()
     local cards = array()
-    if area and area.cards then
-        for _, card in ipairs(area.cards) do
-            if card.facing == 'back' then
+    for _, area in ipairs({ G.deck, G.hand }) do
+        for _, card in ipairs(area.cards or {}) do
+            if area == G.deck or card.facing == 'back' then
                 local info = card_info(card, false)
                 info.highlighted = nil
                 cards[#cards + 1] = info
@@ -719,8 +716,7 @@ function Calculatro.snapshot()
         discards_used = round.discards_used or 0,
         hand = area_cards(G.hand, true, true),
         played = area_cards(G.play, true),
-        deck = sorted_deck(G.deck),
-        hidden_pool = hidden_pool(G.hand),
+        unseen = unseen_pool(),
         discard = area_cards(G.discard, false),
         jokers = jokers,
         tracked = tracked,

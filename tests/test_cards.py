@@ -304,7 +304,7 @@ def test_pareidolia_from_game_state():
     # and with Pareidolia it is unless debuffed.
     hand = [card(12, "Hearts", debuff=True), card(2, "Clubs", highlighted=True)]
     deck = [card(3, "Clubs"), card(4, "Clubs", debuff=True), card(5, "Spades", "m_stone"), card(13, "Hearts")]
-    state = GameState(in_run=True, hand_size=2, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=2, hand=hand, unseen=deck)
     face = parse_query("face")
     assert evaluate_cards(state, face, state.selected).probability == Fraction(1, 4)
     with_joker = replace(state, jokers=[Joker("j_pareidolia")])
@@ -317,7 +317,7 @@ def test_kept_cards_count():
     # The final hand is the kept cards and the draw: keeping two queens makes "a queen" certain.
     hand = [card(12, "Hearts"), card(12, "Spades"), card(2, "Clubs", highlighted=True)]
     deck = [card(12, "Clubs")] + [card(r, "Diamonds") for r in range(3, 8)]
-    state = GameState(in_run=True, hand_size=3, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=3, hand=hand, unseen=deck)
     assert evaluate_cards(state, parse_query("queen"), state.selected).probability == 1
     out = evaluate_cards(state, parse_query("3+ queens"), state.selected)
     assert out.draws == 1 and out.probability == Fraction(1, 6)
@@ -331,12 +331,12 @@ def final_hand_brute(state: GameState, query, discard: list[int]) -> Fraction:
     selection is played), then which unseen cards the face-down kept ones and the draw are."""
     kept = [c for i, c in enumerate(state.hand) if i not in discard]
     hooked = min(2, len(kept)) if state.hook and discard and state.discards_left <= 0 else 0
-    pool = state.deck + state.hidden_pool
+    pool = state.unseen
     total, outcomes = Fraction(0), 0
     for taken in combinations(range(len(kept)), hooked):
         left = [c for i, c in enumerate(kept) if i not in taken]
         known = [c for c in left if not c.hidden]
-        draws = min(state.hand_size - len(left), len(state.deck))
+        draws = min(state.hand_size - len(left), state.deck_size)
         for unseen in combinations(pool, len(left) - len(known) + draws):
             total += query.accepts(sum(query.filter.test(c, state.rules) for c in known + list(unseen)))
             outcomes += 1
@@ -356,7 +356,7 @@ def test_final_hand_matches_brute_force(text, blind):
         hidden_pool = []
         if blind == "The House":
             hidden_pool, hand = hand[3:], hand[:3] + [Card(hidden=True)] * 2
-        state = GameState(in_run=True, hand_size=5, hand=hand, deck=cards[5:], hidden_pool=hidden_pool,
+        state = GameState(in_run=True, hand_size=5, hand=hand, unseen=cards[5:] + hidden_pool,
                           blind=blind, discards_left=0 if blind == "The Hook" else 1, hands_left=2)
         for discard in ([], [0], [1, 3], [0, 2, 4]):
             assert evaluate_cards(state, query, discard).probability == final_hand_brute(state, query, discard)

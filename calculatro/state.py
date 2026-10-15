@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 7
+SCHEMA = 8
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -108,9 +108,10 @@ class GameState:
     discards_used: int = 0  # this round
     hand: list[Card] = field(default_factory=list)
     played: list[Card] = field(default_factory=list)
-    deck: list[Card] = field(default_factory=list)
+    # Cards the player hasn't seen: the undrawn deck and the face-down hand
+    # cards together, since which are which isn't public (see `deck_size`).
+    unseen: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
-    hidden_pool: list[Card] = field(default_factory=list)  # identities of face-down hand cards
     jokers: list[Joker] = field(default_factory=list)
     # What the player tracks, set in the mod's panel: hand names ("Three of a
     # Kind") and card queries for `cards.parse_query` ("at least 2 queen").
@@ -142,9 +143,8 @@ class GameState:
             discards_used=d.get("discards_used") or 0,
             hand=_cards(d.get("hand")),
             played=_cards(d.get("played")),
-            deck=_cards(d.get("deck")),
+            unseen=_cards(d.get("unseen")),
             discard=_cards(d.get("discard")),
-            hidden_pool=_cards(d.get("hidden_pool")),
             jokers=[Joker(j["key"], bool(j.get("debuff", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
             tracked_hands=_strings(tracked.get("hands")),
@@ -188,10 +188,20 @@ class GameState:
         """Indices of hand cards currently highlighted in game."""
         return [i for i, c in enumerate(self.hand) if c.highlighted]
 
+    @property
+    def hidden(self) -> int:
+        """How many hand cards are face down."""
+        return sum(c.hidden for c in self.hand)
+
+    @property
+    def deck_size(self) -> int:
+        """Cards left to draw: the unseen ones not face down in hand."""
+        return len(self.unseen) - self.hidden
+
     def rank_counts(self) -> Counter[str]:
-        """Remaining deck cards per rank (stone cards excluded)."""
-        return Counter(c.rank for c in self.deck if c.rank and not c.is_stone)
+        """Unseen cards per rank (stone cards excluded)."""
+        return Counter(c.rank for c in self.unseen if c.rank and not c.is_stone)
 
     def suit_counts(self) -> Counter[str]:
-        """Remaining deck cards per suit (stone and wild cards excluded)."""
-        return Counter(c.suit for c in self.deck if c.suit and not c.is_stone and not c.is_wild)
+        """Unseen cards per suit (stone and wild cards excluded)."""
+        return Counter(c.suit for c in self.unseen if c.suit and not c.is_stone and not c.is_wild)

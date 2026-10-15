@@ -30,14 +30,15 @@ def summarize(state: GameState) -> str:
     suits = state.suit_counts()
     rank_line = "  ".join(f"{RANK_SHORT.get(r, r)}:{ranks[r]}" for r in RANK_ORDER)
     suit_line = "  ".join(f"{SUIT_SHORT[s]}:{suits[s]}" for s in SUITS)
-    special = len(state.deck) - sum(ranks.values())
+    special = len(state.unseen) - sum(ranks.values())
     jokers = ", ".join(j.key + (" (debuffed)" if j.debuff else "") for j in state.jokers)
     lines = [
         f"State: {state.state}   Blind: {state.blind or '-'}"
         f"{' (disabled)' if state.blind_disabled else ''}",
         f"Hand size: {state.hand_size}   Hands left: {state.hands_left}   Discards left: {state.discards_left}",
         f"Hand ({len(state.hand)}): {' '.join(c.short() for c in state.hand)}",
-        f"Deck ({len(state.deck)} cards remaining)",
+        f"Unseen ({state.deck_size} cards in deck"
+        + (f", {state.hidden} face down in hand)" if state.hidden else ")"),
         f"  Ranks: {rank_line}",
         f"  Suits: {suit_line}" + (f"   (+{special} stone)" if special else ""),
         f"Discard pile: {len(state.discard)}   Jokers: {jokers or '-'}",

@@ -194,7 +194,7 @@ def hand_state(n: int, selected=(), search=("Pair", 1), ranks=(9, 9, 2)) -> Game
     hand = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base", highlighted=i in selected)
             for i, (r, s) in enumerate(zip(ranks, SUITS))]
     deck = [Card(rank=str(r), rank_id=r, suit="Hearts", enhancement="c_base") for r in range(3, 7)]
-    return GameState(in_run=True, id=f"s:{n}", hand_size=3, discards_left=1, hand=hand, deck=deck,
+    return GameState(in_run=True, id=f"s:{n}", hand_size=3, discards_left=1, hand=hand, unseen=deck,
                      tracked_hands=["Pair"], search=search)
 
 

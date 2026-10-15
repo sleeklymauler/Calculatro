@@ -62,7 +62,7 @@ def random_state(rng: random.Random, hand=8, deck=14, **kw) -> GameState:
     cards = [card(r, s) for s in SUITS for r in range(2, 15)]
     rng.shuffle(cards)
     return GameState(**{"in_run": True, "hand_size": hand, "discards_left": 3, "hand": cards[:hand],
-                        "deck": cards[hand:hand + deck], **kw})
+                        "unseen": cards[hand:hand + deck], **kw})
 
 
 TARGETS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House"]
@@ -93,7 +93,7 @@ def test_wild_stone_and_debuffed_cards():
             card(7, "Hearts", debuff=True), card(12, "Hearts"), card(3, "Hearts"), card(3, "Diamonds"),
             card(13, "Spades")]
     deck = [card(r, s) for s in ("Hearts", "Clubs") for r in range(6, 13)]
-    state = GameState(in_run=True, hand_size=8, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=8, discards_left=1, hand=hand, unseen=deck)
     for name in ("Flush", "Pair", "Two Pair", "Straight"):
         check(state, get_target(name))
 
@@ -112,7 +112,7 @@ def test_face_down_cards_are_interchangeable():
     hidden = [card(11, "Spades"), card(13, "Hearts")]
     hand = state.hand[:6] + [Card(hidden=True), Card(hidden=True)]
     for blind in ("The House", "The Mark"):
-        s = replace(state, hand=hand, hidden_pool=hidden, blind=blind)
+        s = replace(state, hand=hand, unseen=state.unseen + hidden, blind=blind)
         for name in ("Pair", "Three of a Kind", "Flush"):
             for option in check(s, get_target(name)):
                 # The leftmost face-down cards, never a choice between them.
@@ -132,13 +132,13 @@ def test_ties_go_to_fewest_cards_then_lowest_ranks():
     # Pair in hand: keeping wins outright.
     hand = [card(9, "Hearts"), card(9, "Spades"), card(2, "Clubs"), card(13, "Diamonds")]
     deck = [card(r, "Clubs") for r in range(3, 9)]
-    state = GameState(in_run=True, hand_size=4, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=4, discards_left=1, hand=hand, unseen=deck)
     assert best_discards(state, get_target("Pair")).options[0] == []
     # Only Clubs left to draw: throwing away the 3 other cards makes a Flush
     # certain, and so does throwing away more, but that's more cards.
     hand = [card(9, "Hearts"), card(2, "Clubs"), card(13, "Clubs"), card(4, "Spades"), card(10, "Diamonds")]
     deck = [card(r, "Clubs") for r in range(5, 9)] + [card(11, "Clubs")]
-    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, unseen=deck)
     found = best_discards(state, get_target("Flush"))
     assert found.probability == 1
     assert found.options == [[0, 3, 4], [0, 1, 3, 4], [0, 2, 3, 4], [0, 1, 2, 3, 4]]  # the 2 before the King
@@ -148,7 +148,7 @@ def test_ties_in_size_keep_higher_ranks():
     # Only Stone Cards to draw: no discard can make a Pair, so they all tie.
     hand = [card(14, "Hearts"), card(3, "Spades"), card(9, "Clubs")]
     deck = [card(5, "Hearts", "m_stone")] * 3
-    state = GameState(in_run=True, hand_size=3, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=3, discards_left=1, hand=hand, unseen=deck)
     found = best_discards(state, get_target("Pair"))
     assert found.probability == 0
     assert found.options[:4] == [[], [1], [2], [0]]
@@ -158,7 +158,7 @@ def test_ties_in_size_keep_higher_ranks():
 def test_identical_cards_are_one_option():
     hand = [card(3, "Spades"), card(3, "Spades"), card(3, "Spades"), card(14, "Hearts")]
     deck = [card(14, r) for r in ("Spades", "Clubs")] + [card(2, "Hearts")] * 3
-    state = GameState(in_run=True, hand_size=4, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=4, discards_left=1, hand=hand, unseen=deck)
     options = check(state, get_target("Two Pair"))
     # Any of the 3s would do: only the leftmost are offered.
     threes = [[i for i in o if i < 3] for o in options]
@@ -210,7 +210,7 @@ def test_shared_work_gives_the_same_odds(jokers, blind, names):
     rng.shuffle(cards)
     hand = cards[:6] + [Card(hidden=True)] * 2
     state = GameState(in_run=True, hand_size=8, hands_left=3, discards_left=0 if blind == "The Hook" else 2,
-                      hand=hand, deck=cards[8:], hidden_pool=cards[6:8], blind=blind,
+                      hand=hand, unseen=cards[6:], blind=blind,
                       jokers=[Joker(j) for j in jokers])
     if blind == "Cerulean Bell":
         state = replace(state, hand=[replace(c, forced=i == 1) for i, c in enumerate(hand)])
@@ -233,7 +233,7 @@ def enhanced_state(rng: random.Random, **kw) -> GameState:
         return replace(c, enhancement=rng.choice(["c_base"] * 4 + ["m_lucky", "m_wild", "m_stone"]),
                        seal=rng.choice([None] * 3 + ["Red"]), debuff=rng.random() < 0.1)
     state = random_state(rng, deck=10, **kw)
-    return replace(state, hand=[vary(c) for c in state.hand], deck=[vary(c) for c in state.deck])
+    return replace(state, hand=[vary(c) for c in state.hand], unseen=[vary(c) for c in state.unseen])
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -247,7 +247,7 @@ def test_card_queries_keep_matching_cards():
     # Throwing a queen away for one draw can only lose one: keep them, throw the rest.
     hand = [card(12, "Hearts"), card(2, "Clubs"), card(12, "Spades"), card(3, "Clubs"), card(4, "Clubs")]
     deck = [card(12, "Clubs")] + [card(r, "Diamonds") for r in range(5, 12)]
-    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, unseen=deck)
     assert check(state, parse_query("3+ queens")) == [[1, 3, 4]]
     # At most one: throwing both away is certain, as only one is left to draw.
     assert check(state, parse_query("at most 1 queen"))[0] == [0, 2]
@@ -259,7 +259,7 @@ def test_card_queries_with_bosses(blind):
     state = enhanced_state(rng, blind=blind)
     if blind in ("The House", "The Mark"):
         state = replace(state, hand=state.hand[:6] + [Card(hidden=True)] * 2,
-                        hidden_pool=[card(11, "Spades"), card(13, "Hearts")])
+                        unseen=state.unseen + [card(11, "Spades"), card(13, "Hearts")])
     if blind == "Cerulean Bell":
         state = replace(state, hand=[replace(c, forced=i == 2) for i, c in enumerate(state.hand)])
     for text in ("king", "2+ face cards", "at most 1 heart", "between 1 and 2 hearts"):

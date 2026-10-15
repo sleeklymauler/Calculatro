@@ -942,10 +942,10 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
         draws = 0
     else:
         draws = state.hand_size - len(kept) + hooked
-    draws = max(0, min(draws, len(state.deck)))
+    draws = max(0, min(draws, state.deck_size))
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
-                    len(kept) - len(kept_known), draws, state.deck + state.hidden_pool,
-                    len(state.hidden_pool) if state.mark else 0, hooked)
+                    len(kept) - len(kept_known), draws, state.unseen,
+                    state.hidden if state.mark else 0, hooked)
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],

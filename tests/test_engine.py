@@ -552,7 +552,7 @@ def test_qq99_example():
     hand = [card(12, "Hearts"), card(12, "Spades"), card(9, "Clubs"), card(9, "Diamonds"),
             card(2, "Hearts"), card(7, "Clubs")]
     deck = [c for c in full_deck() if c not in hand]
-    state = GameState(in_run=True, hand_size=6, hand=hand, deck=deck)
+    state = GameState(in_run=True, hand_size=6, hand=hand, unseen=deck)
     trips = get_target("trips")
 
     keep_both = evaluate_discard(state, trips, [4, 5])
@@ -572,14 +572,14 @@ def test_hidden_cards_drawn_from_unseen_pool():
     hand = [card(12, "Hearts"), card(12, "Spades"), Card(hidden=True)]
     hidden_identity = [card(12, "Clubs")]
     deck = [card(r, "Diamonds") for r in range(2, 8)]
-    state = GameState(in_run=True, hand_size=3, hand=hand, deck=deck, hidden_pool=hidden_identity)
+    state = GameState(in_run=True, hand_size=3, hand=hand, unseen=deck + hidden_identity)
     # Keeping everything: the face-down card is one unknown card out of 7.
     assert evaluate_discard(state, get_target("trips"), []).probability == Fraction(1, 7)
 
 
 def test_short_deck_limits_draws():
     hand = [card(5, "Hearts")]
-    state = GameState(in_run=True, hand_size=8, hand=hand, deck=[card(5, "Spades")])
+    state = GameState(in_run=True, hand_size=8, hand=hand, unseen=[card(5, "Spades")])
     out = evaluate_discard(state, get_target("pair"), [])
     assert out.draws == 1 and out.probability == 1
 
@@ -588,7 +588,7 @@ def serpent_state(hand_cards: int, deck_cards: int = 10, **kw) -> GameState:
     """A Serpent round after a discard: 8-card hand size, a Queen of Spades among `deck_cards`."""
     hand = [card(r, "Hearts") for r in range(2, 2 + hand_cards)]
     deck = [card(12, "Spades")] + [card(r, "Clubs") for r in range(2, 1 + deck_cards)]
-    return GameState(in_run=True, hand_size=8, hand=hand, deck=deck, blind="The Serpent",
+    return GameState(in_run=True, hand_size=8, hand=hand, unseen=deck, blind="The Serpent",
                      discards_used=1, **kw)
 
 
@@ -712,7 +712,7 @@ def mark_state(**kw) -> GameState:
     """The Mark: a King and a face-down card in hand; the unseen face cards are two Kings."""
     hand = [card(13, "Diamonds"), Card(hidden=True)]
     deck = [card(13, "Hearts"), card(2, "Clubs"), card(3, "Clubs"), card(4, "Clubs")]
-    return GameState(in_run=True, hand_size=2, hand=hand, deck=deck, hidden_pool=[card(13, "Spades")],
+    return GameState(in_run=True, hand_size=2, hand=hand, unseen=deck + [card(13, "Spades")],
                      blind="The Mark", **kw)
 
 
@@ -839,7 +839,7 @@ def bell_state(**kw) -> GameState:
     hand = [card(10, "Hearts"), card(11, "Hearts"), card(12, "Hearts"), card(13, "Hearts"),
             card(2, "Spades", forced=True, highlighted=True)]
     deck = [card(14, "Hearts"), card(3, "Clubs"), card(4, "Clubs")]
-    return GameState(in_run=True, hand_size=5, hand=hand, deck=deck, blind="Cerulean Bell", **kw)
+    return GameState(in_run=True, hand_size=5, hand=hand, unseen=deck, blind="Cerulean Bell", **kw)
 
 
 def test_bell_keeps_the_forced_card():
@@ -878,12 +878,12 @@ def hook_state(**kw) -> GameState:
     deck = [card(r, s) for r, s in ((9, "Clubs"), (12, "Spades"), (12, "Clubs"), (4, "Hearts"),
                                      (6, "Hearts"), (13, "Hearts"), (3, "Spades"), (14, "Hearts"))]
     return GameState(**{"in_run": True, "hand_size": 6, "discards_left": 0, "hands_left": 2, "blind": "The Hook",
-                        "hand": hand, "deck": deck, "hidden_pool": [card(7, "Hearts")], **kw})
+                        "hand": hand, "unseen": deck + [card(7, "Hearts")], **kw})
 
 
 def test_the_hook_takes_two_kept_cards_when_playing():
     state = hook_state()
-    pool = state.deck + state.hidden_pool
+    pool = state.unseen
     kept = [2, 3, 4, 5]  # after playing the 2 and the 5
     for target in map(get_target, ("Pair", "Three of a Kind", "Two Pair", "Flush", "Full House")):
         expected = Fraction(0)
@@ -907,4 +907,4 @@ def test_the_hook_only_after_a_play():
     # It takes what's left when that's fewer than 2.
     out = evaluate_discard(state, trips, [0, 1, 2, 3, 4])
     assert out.draws == 6
-    assert out.probability == probability(trips, [], state.deck + state.hidden_pool, 6)
+    assert out.probability == probability(trips, [], state.unseen, 6)

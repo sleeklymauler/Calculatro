@@ -3,7 +3,7 @@
 Each scenario is one odds row as `__main__.odds` computes it: a game state, the
 in-game selection to discard, and a target (several targets are combined into
 the "Any target" row). States are built like the mod exports them, with
-face-down cards hidden in hand and their identities in `hidden_pool`, so the
+face-down cards hidden in hand and their identities among the `unseen`, so the
 timings include everything `evaluate_discard` does.
 
 "Unknown cards" are the cards the engine treats as drawn: kept face-down cards
@@ -33,6 +33,15 @@ import calculatro.hands
 from calculatro.engine import evaluate_discard
 from calculatro.hands import Target, combine, get_target
 from calculatro.state import SUITS, Card, GameState, Joker
+
+
+def _unseen(deck, hidden: list[Card]) -> dict[str, list[Card]]:
+    """GameState's fields for the undrawn deck and the face-down cards' identities:
+    one `unseen` list, or, in older versions, `deck` and `hidden_pool`."""
+    deck = sorted(deck, key=lambda c: (c.suit, c.rank_id))
+    if "unseen" in GameState.__dataclass_fields__:
+        return {"unseen": deck + hidden}
+    return {"deck": deck, "hidden_pool": hidden}
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
 _RANKS = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}
@@ -134,8 +143,7 @@ class Scenario:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
             in_run=True, hand_size=len(HAND), hands_left=4, discards_left=3,
-            hand=hand, deck=sorted(cards.values(), key=lambda c: (c.suit, c.rank_id)),
-            hidden_pool=hand_cards[known:], jokers=[Joker(k) for k in JOKERS[self.jokers]],
+            hand=hand, **_unseen(cards.values(), hand_cards[known:]), jokers=[Joker(k) for k in JOKERS[self.jokers]],
             blind=self.situation.blind,
         )
         return state, list(range(self.situation.kept, known))
@@ -194,8 +202,7 @@ class BestDiscard:
             hand[0] = replace(hand[0], forced=True)
         return GameState(
             in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
-            hand=hand, deck=sorted(cards.values(), key=lambda c: (c.suit, c.rank_id)),
-            hidden_pool=hand_cards[known:], jokers=[Joker(k) for k in JOKERS[self.jokers]],
+            hand=hand, **_unseen(cards.values(), hand_cards[known:]), jokers=[Joker(k) for k in JOKERS[self.jokers]],
             blind=self.hand.blind,
         )
 

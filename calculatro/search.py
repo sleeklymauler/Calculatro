@@ -245,7 +245,7 @@ def _relabelled(state: GameState, target: Target) -> Callable[[list[int]], objec
                 rest.append(k)
         return out, rest
 
-    unseen, _ = by_label(labels(state.deck + state.hidden_pool))  # the same for every discard
+    unseen, _ = by_label(labels(state.unseen))  # the same for every discard
 
     def key(discard: list[int]) -> object:
         thrown = set(discard)
