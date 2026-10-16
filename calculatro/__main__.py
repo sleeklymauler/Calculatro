@@ -39,7 +39,8 @@ def summarize(state: GameState) -> str:
         f"Hand size: {state.hand_size}   Hands left: {state.hands_left}   Discards left: {state.discards_left}",
         f"Hand ({len(state.hand)}): {' '.join(c.short() for c in state.hand)}",
         f"Unseen ({state.deck_size} cards in deck"
-        + (f", {state.hidden} face down in hand)" if state.hidden else ")"),
+        + (f", {state.hidden} face down in hand" if state.hidden else "")
+        + (f", {state.discarded_hidden} discarded face down" if state.discarded_hidden else "") + ")",
         f"  Ranks: {rank_line}",
         f"  Suits: {suit_line}" + (f"   (+{special} stone)" if special else ""),
         f"Discard pile: {len(state.discard)}   Jokers: {jokers or '-'}",

@@ -308,6 +308,26 @@ def test_face_down_cards_not_told_from_the_deck(lua):
     assert "deck" not in after and "hidden_pool" not in after
 
 
+def test_face_down_discards_not_told_from_the_deck(lua):
+    # The game doesn't turn a face-down card up when it's discarded (View Deck
+    # still counts it as unplayed), so which unseen card it was isn't public:
+    # swapping it with a deck card must give the same snapshot.
+    rt, _ = lua
+    rt.execute("""local c = table.remove(G.deck.cards, 1)
+                  c.facing = 'back'
+                  G.discard.cards[2] = c""")
+    before = snapshot_json(lua)
+    assert before["discard"][1] == {"hidden": True, "highlighted": False}
+    rt.execute("""local deck, discard = G.deck.cards, G.discard.cards
+                  discard[2], deck[1] = deck[1], discard[2]
+                  discard[2].facing, deck[1].facing = 'back', 'front'""")
+    assert snapshot_json(lua) == before
+    state = GameState.from_json(before)
+    assert len(state.unseen) == 5 and "Q♣" in [c.short() for c in state.unseen]
+    assert (state.deck_size, state.hidden, state.discarded_hidden) == (3, 1, 1)
+    assert "(3 cards in deck, 1 face down in hand, 1 discarded face down)" in summarize(state)
+
+
 def test_not_in_run(lua):
     rt, _ = lua
     rt.execute("G.STAGE = G.STAGES.MAIN_MENU")

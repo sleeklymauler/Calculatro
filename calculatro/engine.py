@@ -917,7 +917,7 @@ class _Discard:
     hidden_kept: int
     draws: int
     pool: list[Card]  # unseen cards: undrawn deck + face-down hand cards
-    marked: int  # face-down hand cards known to be face cards (The Mark), discarded or not
+    marked: int  # face-down cards known to be face cards (The Mark): in hand, discarded now or before
     hooked: int = 0  # kept cards The Hook throws away at random before the draw
 
 
@@ -945,7 +945,7 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
     draws = max(0, min(draws, state.deck_size))
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
                     len(kept) - len(kept_known), draws, state.unseen,
-                    state.hidden if state.mark else 0, hooked)
+                    state.hidden + state.discarded_hidden if state.mark else 0, hooked)
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],

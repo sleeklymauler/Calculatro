@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 8,
+    schema = 9,
     odds_schema = 5,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -660,14 +660,16 @@ local function sorted_cards(cards)
     return out
 end
 
--- The cards the player hasn't seen: the undrawn deck and the face-down hand
--- cards, merged and sorted, so neither which cards are face down nor which
+-- The cards the player hasn't seen: the undrawn deck and the face-down cards
+-- in hand or discarded (the game doesn't turn those up), merged and sorted, so
+-- neither which cards are face down or were discarded face down, nor which
 -- were just drawn face down leaks (the game's View Deck counts them together
--- too). The face-down count is public, from the hand's `{hidden = true}`.
+-- too). The face-down counts are public, from the hand's and the discard
+-- pile's `{hidden = true}`.
 local function unseen_pool()
     local cards = array()
-    for _, area in ipairs({ G.deck, G.hand }) do
-        for _, card in ipairs(area.cards or {}) do
+    for _, area in ipairs({ G.deck, G.hand, G.discard }) do
+        for _, card in ipairs(area and area.cards or {}) do
             if area == G.deck or card.facing == 'back' then
                 local info = card_info(card, false)
                 info.highlighted = nil
@@ -717,7 +719,7 @@ function Calculatro.snapshot()
         hand = area_cards(G.hand, true, true),
         played = area_cards(G.play, true),
         unseen = unseen_pool(),
-        discard = area_cards(G.discard, false),
+        discard = area_cards(G.discard, true),
         jokers = jokers,
         tracked = tracked,
         select_limit = G.hand.config.highlighted_limit or 5,

@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 8
+SCHEMA = 9
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -25,7 +25,7 @@ class Card:
     edition: str | None = None
     seal: str | None = None
     debuff: bool = False
-    hidden: bool = False  # face-down in hand: identity unknown to the player
+    hidden: bool = False  # face down in hand or discarded face down: identity unknown to the player
     highlighted: bool = False  # selected in hand
     forced: bool = False  # Cerulean Bell: part of every play and discard
 
@@ -112,8 +112,8 @@ class GameState:
     discards_used: int = 0  # this round
     hand: list[Card] = field(default_factory=list)
     played: list[Card] = field(default_factory=list)
-    # Cards the player hasn't seen: the undrawn deck and the face-down hand
-    # cards together, since which are which isn't public (see `deck_size`).
+    # Cards the player hasn't seen: the undrawn deck and the face-down cards in
+    # hand or discarded together, since which are which isn't public (see `deck_size`).
     unseen: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
     jokers: list[Joker] = field(default_factory=list)
@@ -213,9 +213,14 @@ class GameState:
         return sum(c.hidden for c in self.hand)
 
     @property
+    def discarded_hidden(self) -> int:
+        """How many cards were discarded face down: the game doesn't turn them up."""
+        return sum(c.hidden for c in self.discard)
+
+    @property
     def deck_size(self) -> int:
-        """Cards left to draw: the unseen ones not face down in hand."""
-        return len(self.unseen) - self.hidden
+        """Cards left to draw: the unseen ones not face down in hand or the discard pile."""
+        return len(self.unseen) - self.hidden - self.discarded_hidden
 
     def rank_counts(self) -> Counter[str]:
         """Unseen cards per rank (stone cards excluded)."""

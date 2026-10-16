@@ -577,6 +577,24 @@ def test_hidden_cards_drawn_from_unseen_pool():
     assert evaluate_discard(state, get_target("trips"), []).probability == Fraction(1, 7)
 
 
+def test_face_down_discards_stay_unseen():
+    # A Queen of Clubs was discarded face down: the player doesn't know which
+    # unseen card it was, so it's one of the 7 unseen cards that can't be drawn.
+    hand = [card(12, "Hearts"), card(12, "Spades")]
+    unseen = [card(r, "Diamonds") for r in range(2, 8)] + [card(12, "Clubs")]
+    state = GameState(in_run=True, hand_size=3, hand=hand, unseen=unseen, discard=[Card(hidden=True)])
+    out = evaluate_discard(state, get_target("trips"), [])
+    assert state.deck_size == 6 and out.draws == 1 and out.probability == Fraction(1, 7)
+
+
+def test_mark_face_down_discards_are_face_cards():
+    # The Mark: a King was discarded face down, so it's one of the 2 unseen
+    # Kings, and the other is among the 4 cards left to draw.
+    state = replace(mark_state(), hand=[card(13, "Diamonds")], hand_size=2, discard=[Card(hidden=True)])
+    out = evaluate_discard(state, get_target("pair"), [])
+    assert out.draws == 1 and out.probability == Fraction(1, 4)
+
+
 def test_short_deck_limits_draws():
     hand = [card(5, "Hearts")]
     state = GameState(in_run=True, hand_size=8, hand=hand, unseen=[card(5, "Spades")])
