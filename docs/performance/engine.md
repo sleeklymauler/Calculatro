@@ -20,7 +20,7 @@ second pass.
   counted on its own: a card counts towards every requirement whose keys it
   matches.
 - **Unknown cards are one draw.** Kept face-down cards are treated as drawn
-  from the unseen pool (`unseen`: undrawn deck + face-down hand cards). By symmetry the
+  from the unseen pool (`unseen`: undrawn deck + face-down cards in hand or discarded). By symmetry the
   distribution is the same, so "unknown cards" = face-down cards kept + cards
   drawn after the discard.
 - **Except under The Mark.** Its face-down cards are known to be face cards,

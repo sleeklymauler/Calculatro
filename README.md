@@ -8,7 +8,7 @@
   - Also supports the secret hands: five of a kind, flush house, and flush five.
 - Calculate the probability of drawing specific card types (e.g. 2+ red seals, exactly 1 Lucky card, at most 3 face cards, etc.) for a given discard selection.
 - Find the optimal discard selection for a target hand.
-- No cheating. The deck is exported by the mod to the app as a multiset: draw order is never leaked, and face-down cards in hand are hidden. All probabilities could be calculated by hand by the player, as all information needed to do so is already available in-game.
+- No cheating. The deck is exported by the mod to the app as a multiset: draw order is never leaked, and face-down cards, in hand or discarded, are hidden. All probabilities could be calculated by hand by the player, as all information needed to do so is already available in-game.
 - Joker aware: probabilities are accurate when using Jokers like **Four Fingers**, **Shortcut**, **Smeared Joker**, and **Pareidolia**. See [docs/jokers.md](docs/jokers.md#rules-that-matter-to-calculatro).
 - Boss blind aware:
   - Strikes out hands that can't score when facing **The Eye** or **The Mouth**.
@@ -68,11 +68,17 @@ other files there alone: they're Balatro's settings and saves.
 
 Choose what to track in game: press the `+` beside "CALCULATRO" on the panel above the deck. Its Hands tab
 toggles target hands; its Cards tab builds card counts (a count, ranks, suits and a special) and lists the
-tracked ones; hovering over one shows its full name and what it means. Done goes back to the odds, and the `x` on a row stops tracking it. Targets last for the run (they're saved
+tracked ones; hovering over one shows its full name and what it means, and its pencil loads it back into the
+builder to edit (Add becomes Save). Done goes back to the odds, and the `x` on a row stops tracking it. Targets last for the run (they're saved
 with it) and a new run starts with none. The `+` is greyed out once the panel is full (3 columns of 6 rows).
 
 Select the cards you're considering discarding in game; Calculatro shows the odds after discarding them.
 Target odds are shown for keeping your hand vs. discarding the selection; card counts show the odds after discarding.
+With no discards left, the odds are for playing the selection instead, as you draw after that too; on your last
+hand nothing more is drawn, so there are no discard odds ('-').
+
+The green magnifier on a row selects the discard with the best odds for it. If several are equally good, the panel
+shows "1/n" and clicking again cycles through them; "Keep hand" means keeping your hand is best.
 
 The panel is only shown while playing a blind (not in the shop, blind select, booster packs or menus, nor while
 a played hand is scored); press `C` to hide or show it. A discard's odds are green when they beat keeping the

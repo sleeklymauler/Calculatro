@@ -2,7 +2,7 @@
 
 The final hand is the kept known cards plus `m` cards drawn uniformly without
 replacement from the unseen pool: the undrawn deck plus any face-down cards
-in hand, which are equally unknown to the player. Kept face-down cards are
+in hand or discarded, which are equally unknown to the player. Kept face-down cards are
 modelled as part of that draw, since by symmetry it's the same distribution.
 The Mark's face-down cards are known to be face cards, so there the draw is
 weighted by how many face cards it has; see _mark_split.
@@ -73,7 +73,8 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
                 reuse: Reuse | None = None) -> Fraction:
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
 
-    With The Mark, `marked` of the pool's cards are face down in hand, so they
+    With The Mark, `marked` of the pool's cards are face down (in hand or
+    discarded), so they
     are known to be face cards (`flipped_by_mark`), and `marked_kept` of them
     are among the `draws`. The other draws come from the rest of the pool.
 
@@ -916,7 +917,7 @@ class _Discard:
     kept_known: list[Card]
     hidden_kept: int
     draws: int
-    pool: list[Card]  # unseen cards: undrawn deck + face-down hand cards
+    pool: list[Card]  # unseen cards: undrawn deck + face-down cards in hand or discarded
     marked: int  # face-down cards known to be face cards (The Mark): in hand, discarded now or before
     hooked: int = 0  # kept cards The Hook throws away at random before the draw
 
@@ -1059,7 +1060,8 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
     """P(`have` plus the number of matching cards among `draws` random cards from
     `pool` satisfies `query`).
 
-    With The Mark, `marked` of the pool's cards are face down in hand, so they
+    With The Mark, `marked` of the pool's cards are face down (in hand or
+    discarded), so they
     are known to be face cards, and `marked_kept` of them are among the
     `draws`. The other draws come from the rest of the pool; see _mark_split.
     """

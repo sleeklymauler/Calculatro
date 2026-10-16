@@ -58,15 +58,16 @@ file: if the game already started one, this one only prints. To see your changes
 ## Tests and lint
 
 ```pwsh
-.venv\Scripts\python -m pytest       # everything but the performance tests
+.venv\Scripts\python -m pytest       # everything but the performance timings and slowest scenarios
 .venv\Scripts\ruff check .           # lint (--fix applies the safe fixes)
 ```
 
-The tests cover the app, and run the mod's real Lua (via `lupa`) against a mocked game: the exported snapshot, the
-panel and its animation, and a lint of the mod's globals. So most mod changes can be tested without the game, but
+The tests cover the app, and run the mod's real Lua (via `lupa`, under both LuaJIT and a newer Lua) against a mocked
+game: the exported snapshot, the panel and its animation, and a lint of the mod's globals. So most mod changes can be tested without the game, but
 please also try them in game, and on a 16:9 screen if you can, since the panel's layout and shadows aren't covered.
 
-Performance tests are separate:
+A plain `pytest` also checks the exact results of the performance scenarios, bar the slowest, without timing them.
+The full performance tests are separate:
 
 ```pwsh
 .venv\Scripts\python tests\perf\benchmark.py                                # time the engine on a set of game situations
@@ -80,7 +81,7 @@ Run them before and after changing the engine or the search. See [docs/performan
 
 - **No cheating.** The mod must never export anything the player can't see: the deck goes out as a sorted multiset
   (no draw order), merged with the face-down cards so which cards are face down doesn't show. Odds have to come from what's on screen.
-- **The mod runs on LuaJIT (Lua 5.1)**, while the tests use a newer Lua, so avoid Lua 5.2+ features. The mod may
+- **The mod runs on LuaJIT (Lua 5.1)**, so avoid Lua 5.2+ features: the Lua tests run under LuaJIT too. The mod may
   not assign globals, and reads only the game's and LuaJIT's (`tests/test_lua_globals.py`).
 - **JSON shapes are versioned.** If you change what the state or odds file contains, bump the schema on both
   sides (`SCHEMA` in `state.py` with `schema` in `calculatro.lua`, `overlay.SCHEMA` with `odds_schema`).
