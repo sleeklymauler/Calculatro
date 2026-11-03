@@ -17,7 +17,7 @@ from .state import Card, GameState
 @dataclass(frozen=True)
 class TargetOdds:
     name: str
-    keep: Fraction  # keeping the hand (drawing only to refill it)
+    keep: Fraction  # keeping the hand, drawing nothing
     discard: Fraction | None  # discarding the selection; None if nothing is selected
 
 
@@ -32,7 +32,6 @@ class CardOdds:
 class Report:
     targets: list[TargetOdds]  # "Any target" first when there are several
     cards: list[CardOdds]  # card queries over the final hand
-    keep_draws: int  # cards drawn when keeping the hand
     discarded: list[Card]  # the selection; empty if nothing is selected
     discard_draws: int  # cards drawn after discarding it
     discards_left: int
@@ -54,14 +53,13 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         named.insert(0, ("Any target", combine(targets)))
     keep = [evaluate_discard(state, t, [], cancel) for _, t in named]
     card_keep = [evaluate_cards(state, q, []) for q in queries]
-    keep_draws = (keep or card_keep)[0].draws
 
     redraw = can_redraw(state)
     selected = state.selected if redraw else []
     if not selected:
         rows = [TargetOdds(name, k.probability, None) for (name, _), k in zip(named, keep)]
         cards = [CardOdds(q, k.probability, None) for q, k in zip(queries, card_keep)]
-        return Report(rows, cards, keep_draws, [], 0, state.discards_left, redraw)
+        return Report(rows, cards, [], 0, state.discards_left, redraw)
 
     after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
     card_after = [evaluate_cards(state, q, selected) for q in queries]
@@ -69,4 +67,4 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     rows = [TargetOdds(name, k.probability, a.probability)
             for (name, _), k, a in zip(named, keep, after)]
     cards = [CardOdds(q, k.probability, a.probability) for q, k, a in zip(queries, card_keep, card_after)]
-    return Report(rows, cards, keep_draws, first.discarded, first.draws, state.discards_left)
+    return Report(rows, cards, first.discarded, first.draws, state.discards_left)

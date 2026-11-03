@@ -580,26 +580,42 @@ def test_hidden_cards_drawn_from_unseen_pool():
 def test_face_down_discards_stay_unseen():
     # A Queen of Clubs was discarded face down: the player doesn't know which
     # unseen card it was, so it's one of the 7 unseen cards that can't be drawn.
-    hand = [card(12, "Hearts"), card(12, "Spades")]
+    hand = [card(12, "Hearts"), card(12, "Spades"), card(9, "Clubs")]
     unseen = [card(r, "Diamonds") for r in range(2, 8)] + [card(12, "Clubs")]
     state = GameState(in_run=True, hand_size=3, hand=hand, unseen=unseen, discard=[Card(hidden=True)])
-    out = evaluate_discard(state, get_target("trips"), [])
+    out = evaluate_discard(state, get_target("trips"), [2])
     assert state.deck_size == 6 and out.draws == 1 and out.probability == Fraction(1, 7)
 
 
 def test_mark_face_down_discards_are_face_cards():
     # The Mark: a King was discarded face down, so it's one of the 2 unseen
     # Kings, and the other is among the 4 cards left to draw.
-    state = replace(mark_state(), hand=[card(13, "Diamonds")], hand_size=2, discard=[Card(hidden=True)])
-    out = evaluate_discard(state, get_target("pair"), [])
+    state = replace(mark_state(), hand=[card(13, "Diamonds"), card(9, "Clubs")], hand_size=2,
+                    discard=[Card(hidden=True)])
+    out = evaluate_discard(state, get_target("pair"), [1])
     assert out.draws == 1 and out.probability == Fraction(1, 4)
 
 
 def test_short_deck_limits_draws():
-    hand = [card(5, "Hearts")]
+    hand = [card(5, "Hearts"), card(9, "Clubs")]
     state = GameState(in_run=True, hand_size=8, hand=hand, unseen=[card(5, "Spades")])
-    out = evaluate_discard(state, get_target("pair"), [])
+    out = evaluate_discard(state, get_target("pair"), [1])
     assert out.draws == 1 and out.probability == 1
+
+
+@pytest.mark.parametrize("serpent", [False, True])
+def test_keeping_a_short_hand_draws_nothing(serpent):
+    # Hanged Man or a bigger hand size leaves the hand short: the game only
+    # refills it after a play or discard, so keeping it draws nothing.
+    hand = [card(2, "Spades"), card(5, "Hearts"), card(9, "Clubs")]
+    unseen = [card(r, s) for r in range(2, 15) for s in ("Hearts", "Diamonds") if (r, s) != (5, "Hearts")]
+    state = GameState(in_run=True, hand_size=8, hand=hand, unseen=unseen,
+                      blind="The Serpent" if serpent else None, discards_used=int(serpent))
+    keep = evaluate_discard(state, get_target("pair"), [])
+    assert keep.draws == 0 and keep.probability == 0
+    assert evaluate_cards(state, parse_query("heart"), []).probability == 1
+    # Discarding refills it: up to the hand size, or The Serpent's 3.
+    assert evaluate_discard(state, get_target("pair"), [0]).draws == (3 if serpent else 6)
 
 
 def serpent_state(hand_cards: int, deck_cards: int = 10, **kw) -> GameState:
@@ -634,19 +650,17 @@ def test_serpent_draws_at_most_the_deck():
 
 def test_serpent_keeping_a_short_hand_draws_nothing():
     # After a play or discard, its 3 cards were the round's draw until the next one.
-    for counters in ({"hands_played": 1, "discards_used": 0}, {"hands_played": 0, "discards_used": 1}):
+    for counters in ({"hands_played": 1, "discards_used": 0}, {"hands_played": 0, "discards_used": 1},
+                     {"hands_played": 0, "discards_used": 0}):
         state = replace(serpent_state(5), **counters)
         assert evaluate_discard(state, get_target("pair"), []).draws == 0
-    # The round's first deal fills the hand as usual.
-    state = replace(serpent_state(5), discards_used=0)
-    assert evaluate_discard(state, get_target("pair"), []).draws == 3
 
 
 def test_disabled_serpent_fills_the_hand():
     state = serpent_state(8, blind_disabled=True)
     assert evaluate_discard(state, get_target("pair"), [0]).draws == 1
     assert evaluate_discard(state, get_target("pair"), [0, 1, 2, 3, 4]).draws == 5
-    assert evaluate_discard(replace(serpent_state(5), blind_disabled=True), get_target("pair"), []).draws == 3
+    assert evaluate_discard(replace(serpent_state(5), blind_disabled=True), get_target("pair"), [0]).draws == 4
 
 
 def is_face(c: Card) -> bool:
@@ -874,9 +888,12 @@ def test_no_forced_card_without_the_bell(change):
     state = replace(bell_state(), **change)
     assert evaluate_discard(state, get_target("Royal Flush"), []).probability == 0  # nothing to draw
     assert evaluate_discard(state, get_target("Royal Flush"), [4]).probability == Fraction(1, 3)
-    state = replace(state, hand_size=6)
-    assert evaluate_discard(state, get_target("Royal Flush"), []).probability == Fraction(1, 3)
-    assert evaluate_discard(replace(bell_state(), hand_size=6), get_target("Royal Flush"), []).probability == 0
+    # With 6 cards the 2 can be left out of the play, unless the Bell forces it
+    # (after a draw it forces a random card: here one of the 5 that isn't the 2).
+    def six(state):
+        return replace(state, hand=state.hand + [card(5, "Diamonds")], hand_size=6)
+    assert evaluate_discard(six(state), get_target("Royal Flush"), [5]).probability == Fraction(1, 3)
+    assert evaluate_discard(six(bell_state()), get_target("Royal Flush"), [5]).probability == Fraction(5, 18)
 
 
 def test_full_deck_flush_five_speed():

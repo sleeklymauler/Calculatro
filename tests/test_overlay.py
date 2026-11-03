@@ -341,7 +341,7 @@ def test_payloads(lua, tmp_path):
         "schema": overlay.SCHEMA, "id": state.id,
         "targets": [
             {"key": "Any target", "keep": "100%", "discard": "100%", "trend": 0},
-            {"key": "Three of a Kind", "keep": "80.0%", "discard": "100%", "trend": 1},
+            {"key": "Three of a Kind", "keep": "20.0%", "discard": "100%", "trend": 1},
             {"key": "Pair", "keep": "100%", "discard": "100%", "trend": 0},
         ],
         # Kept, the queens are face cards and the nines two nines.
@@ -357,13 +357,13 @@ def test_payloads(lua, tmp_path):
     # On the last hand nothing is drawn after the selection, so the panel shows '-'.
     last_hand = GameState(**{**out_of_discards.__dict__, "hands_left": 1})
     payload = overlay.odds(last_hand, build_report(last_hand, [get_target("trips")], [parse_query("no face")]))
-    assert payload["targets"] == [{"key": "Three of a Kind", "keep": "80.0%"}]
+    assert payload["targets"] == [{"key": "Three of a Kind", "keep": "20.0%"}]
     assert payload["cards"] == [{"key": "no face"}]
     unselected = GameState(**{**state.__dict__, "hand": [c.__class__(**{**c.__dict__, "highlighted": False})
                                                           for c in state.hand]})
     payload = overlay.odds(unselected, build_report(unselected, [get_target("trips")]))
     assert "message" not in payload
-    assert payload["targets"] == [{"key": "Three of a Kind", "keep": "80.0%"}]
+    assert payload["targets"] == [{"key": "Three of a Kind", "keep": "20.0%"}]
     assert overlay.odds(state, None) == {"schema": overlay.SCHEMA, "id": state.id, "targets": [], "cards": []}
 
 
@@ -499,7 +499,7 @@ def test_panel_shows_current_odds(lua, tmp_path):
         "CALCULATRO@light", "+@light",
         "Hands@muted", "Keep@muted", "Discard@muted",
         "Any target@light", "100%@light", "->@muted", "100%@light", "[search]",  # can't be removed
-        "Trips@light", "80.0%@light", "->@muted", "100%@green", "[search]", "[x]",
+        "Trips@light", "20.0%@light", "->@muted", "100%@green", "[search]", "[x]",
         "Pair@light", "100%@light", "->@muted", "100%@light", "[search]", "[x]",
         "In hand@muted", "Discard@muted",  # a column of their own
         "9: 0-1@light", "100%@green", "[search]", "[edit]", "[x]",
@@ -767,7 +767,7 @@ def test_panel_without_selection(lua, tmp_path):
     mod.update(0.1)
     assert panel_texts(rt) == [
         "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
-        "Trips@light", "80.0%@light", "-@light", "[search]", "[x]",
+        "Trips@light", "20.0%@light", "-@light", "[search]", "[x]",
         "In hand@muted", "Discard@muted", "9: 0-1@light", "-@light", "[search]", "[edit]", "[x]",
     ]
 
@@ -871,10 +871,10 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
     mod.update(0.1)
     texts = panel_texts(rt)
-    assert "80.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
+    assert "20.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert "80.0%@stale" in texts and texts[2] == "Calculating...@muted"  # beside the title
+    assert "20.0%@stale" in texts and texts[2] == "Calculating...@muted"  # beside the title
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
@@ -889,7 +889,7 @@ def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):
     answer(lua, tmp_path, queries=())
     late = (tmp_path / "calculatro_odds.json").read_text(encoding="utf-8")
     mod.update(0.1)
-    assert "80.0%@light" in panel_texts(rt)
+    assert "20.0%@light" in panel_texts(rt)
     rt.execute("G.GAME.round = 2; G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # the next blind's snapshot; the app acknowledges it
     overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
@@ -951,7 +951,7 @@ def test_panel_strikes_out_hands_the_boss_bans(lua, tmp_path, blind, banned):
     assert [r for r in rows if r.split("@")[0] in names] == [
         f"{name}@{'muted' if name in banned else 'light'}" for name in names]
     # The odds are still shown, as usual.
-    assert "80.0%@light" in rows and not any(r.endswith("@stale") or r.startswith("-@") for r in rows)
+    assert "20.0%@light" in rows and not any(r.endswith("@stale") or r.startswith("-@") for r in rows)
 
 
 def test_panel_strikes_out_hands_once_played(lua, tmp_path):

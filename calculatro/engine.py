@@ -935,12 +935,13 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
     hooked = _hooked(state, discard)
     kept = [c for i, c in enumerate(state.hand) if i not in discard_set]
     kept_known = [c for c in kept if not c.hidden]
-    if state.serpent and discard:
-        draws = 3  # however many were discarded, and even past the hand size
-    elif state.serpent and (state.hands_played or state.discards_used):
-        # Its draw after the last play or discard was the last until the next one.
-        # (Mid-draw, the rest of those 3 are missed.)
+    if not discard:
+        # The game only draws after a play or discard (or at the round's start,
+        # but odds are only asked for once the hand is dealt), so a hand left
+        # short by a consumable or a bigger hand size stays short.
         draws = 0
+    elif state.serpent:
+        draws = 3  # however many were discarded, and even past the hand size
     else:
         draws = state.hand_size - len(kept) + hooked
     draws = max(0, min(draws, state.deck_size))

@@ -215,20 +215,20 @@ def test_rules_from_jokers():
 
 def test_odds_for_selection(lua):
     state = GameState.from_json(snapshot_json(lua))
-    # Hand holds 5 of 8. Keeping it draws 3 of the 4-card deck, so 4 of the 5
-    # unseen cards (Q♣ A* St T♦ 2♥, counting the face-down one) end up in hand:
-    # trips needs Q♣, 4 in 5. Discarding 99 draws the whole deck: Q♣ guaranteed.
+    # Hand holds 5 of 8, but keeping it draws nothing (the game only refills it
+    # after a play or discard): trips needs the face-down card to be Q♣, 1 in the
+    # 5 unseen (Q♣ A* St T♦ 2♥). Discarding 99 draws the whole deck: Q♣ guaranteed.
     # Card queries count the final hand too: a third queen is the same Q♣, and
     # the nines are only in hand if kept.
     out = odds(state, [get_target("trips"), get_target("pair")], [parse_query("3+ queens"),
                                                                   parse_query("at most 1 nine")])
     assert out.splitlines() == [
-        "Odds: keep hand (draw 3)  ->  discard 9♣ 9♦ and draw 4",
+        "Odds: keep hand  ->  discard 9♣ 9♦ and draw 4",
         "  Any target         100.00%  ->  100.00%",
-        "  Three of a Kind     80.00%  ->  100.00%",
+        "  Three of a Kind     20.00%  ->  100.00%",
         "  Pair               100.00%  ->  100.00%",
         "  In hand:",
-        "  Queen: at least 3   80.00%  ->  100.00%",
+        "  Queen: at least 3   20.00%  ->  100.00%",
         "  9: at most 1         0.00%  ->  100.00%",
     ]
 
@@ -238,14 +238,14 @@ def test_odds_without_selection(lua):
     rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = nil end")
     state = GameState.from_json(snapshot_json(lua))
     assert odds(state, [get_target("trips")], [parse_query("3+ queens")]).splitlines() == [
-        "Odds (current hand, drawing 3):",
-        "  Three of a Kind     80.00%",
+        "Odds (current hand):",
+        "  Three of a Kind     20.00%",
         "  In hand:",
-        "  Queen: at least 3   80.00%",
+        "  Queen: at least 3   20.00%",
         "Select cards in game to see the odds after discarding them.",
     ]
     assert odds(state, [], [parse_query("queen")]).splitlines() == [
-        "Odds (current hand, drawing 3):",
+        "Odds (current hand):",
         "  Queen: at least 1  100.00%",
         "Select cards in game to see the odds after discarding them.",
     ]
@@ -259,8 +259,8 @@ def test_odds_on_the_last_hand(lua):
     state = GameState.from_json(snapshot_json(lua))
     assert state.selected
     assert odds(state, [get_target("trips")]).splitlines() == [
-        "Odds (current hand, drawing 3):",
-        "  Three of a Kind   80.00%",
+        "Odds (current hand):",
+        "  Three of a Kind   20.00%",
         "Last hand, with no discards left: nothing is drawn after it.",
     ]
 
@@ -268,8 +268,8 @@ def test_odds_on_the_last_hand(lua):
 def test_odds_cards_only(lua):
     out = odds(GameState.from_json(snapshot_json(lua)), [], [parse_query("3+ queens")])
     assert out.splitlines() == [
-        "Odds: keep hand (draw 3)  ->  discard 9♣ 9♦ and draw 4",
-        "  Queen: at least 3   80.00%  ->  100.00%",
+        "Odds: keep hand  ->  discard 9♣ 9♦ and draw 4",
+        "  Queen: at least 3   20.00%  ->  100.00%",
     ]
 
 

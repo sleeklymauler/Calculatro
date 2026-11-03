@@ -67,15 +67,12 @@ def format_report(report: Report) -> str:
     # Card queries count the final hand like targets, but are labelled apart.
     body = lines_of(rows) + (["  In hand:"] if rows and cards else []) + lines_of(cards)
 
-    draws = report.keep_draws
     if not report.discarded:
-        lines = ["Odds (current hand" + (f", drawing {draws}" if draws else "") + "):"]
-        return "\n".join([*lines, *body, hint])
+        return "\n".join(["Odds (current hand):", *body, hint])
 
     discarded = " ".join(c.short() for c in report.discarded)
-    keep_desc = "keep hand" + (f" (draw {draws})" if draws else "")
     discard_desc = f"discard {discarded} and draw {report.discard_draws}"
-    lines = [f"Odds: {keep_desc}  ->  {discard_desc}", *body]
+    lines = [f"Odds: keep hand  ->  {discard_desc}", *body]
     if report.discards_left <= 0:
         lines.append("  (no discards left this round)")
     return "\n".join(lines)
