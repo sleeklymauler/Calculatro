@@ -376,8 +376,17 @@ function Calculatro.reset_builder()
 end
 Calculatro.reset_builder()
 
+-- Whether the special is Stone (not negated). Stone Cards have no rank or
+-- suit, so ranks and suits then count as any: the chips and the rank cycle
+-- are inert and shown as any, but keep their choices for another special.
+local function stone_only()
+    local b = Calculatro.builder
+    return OPTIONS.special[b.special].query == 'stone' and not b.negate
+end
+
 -- The chosen ranks, lowest first, and suits, in SUITS order: empty for any.
 local function chosen_ranks()
+    if stone_only() then return {} end
     local ids = {}
     for r = 2, 14 do
         if Calculatro.builder.ranks[r] then ids[#ids + 1] = r end
@@ -386,6 +395,7 @@ local function chosen_ranks()
 end
 
 local function chosen_suits()
+    if stone_only() then return {} end
     local list = {}
     for _, s in ipairs(SUITS) do
         if Calculatro.builder.suits[s] then list[#list + 1] = s end
@@ -535,6 +545,7 @@ end
 function Calculatro.cycle(field, dir)
     local b = Calculatro.builder
     if field == 'preset' then
+        if stone_only() then return end
         -- From ranks that aren't a preset, as if from Any.
         local i = ((preset_index() or 1) - 1 + dir) % #OPTIONS.preset + 1
         b.ranks = {}
@@ -557,12 +568,14 @@ function Calculatro.cycle(field, dir)
 end
 
 -- The rank and suit chips. Turning off the last suit turns them all back
--- on: no suits means any, as all of them does.
+-- on: no suits means any, as all of them does. Both are inert under Stone.
 function Calculatro.toggle_rank(r)
+    if stone_only() then return end
     Calculatro.builder.ranks[r] = not Calculatro.builder.ranks[r] or nil
 end
 
 function Calculatro.toggle_suit(s)
+    if stone_only() then return end
     local b = Calculatro.builder
     b.suits[s] = not b.suits[s] or nil
     if next(b.suits) == nil then b.suits = all_suits() end
@@ -1134,7 +1147,8 @@ local ICON_SIZE, ICON_PAD, ICON_GAP = 0.18, 0.015, 0.035
 -- sprite made until it's removed, and that definition is never built.
 local values_only = false
 
-local function suit_icon(x)
+-- `tile_colour` is the tile's colour (default: white).
+local function suit_icon(x, tile_colour)
     local icon = {}
     if not values_only then
         local atlas = G.ASSET_ATLAS['ui_' .. (G.SETTINGS.colourblind_option and 2 or 1)]
@@ -1142,7 +1156,8 @@ local function suit_icon(x)
         sprite.states.drag.can, sprite.states.hover.can, sprite.states.collide.can = false, false, false
         icon[1] = { n = G.UIT.O, config = { object = sprite, can_collide = false } }
     end
-    local tile = { n = G.UIT.C, config = { align = 'cm', padding = ICON_PAD, r = 0.03, colour = G.C.WHITE }, nodes = icon }
+    local tile = { n = G.UIT.C, config = { align = 'cm', padding = ICON_PAD, r = 0.03, colour = tile_colour or G.C.WHITE },
+                   nodes = icon }
     return { n = G.UIT.C, config = { align = 'cm', padding = 0, minw = ICON_SIZE + 2 * (ICON_PAD + ICON_GAP) }, nodes = { tile } }
 end
 
@@ -1681,12 +1696,14 @@ function Calculatro.editor_model()
     else
         can_add = query and not tracked[query] and Calculatro.can_add_card()
     end
+    -- Under Stone, the chips show any (no ranks, every suit) and are inert.
+    local stone = stone_only()
     local ranks, suits = array(), array()
-    for r = 2, 14 do ranks[#ranks + 1] = { key = r, text = RANKS[r].chip, on = b.ranks[r] or nil } end
-    for i, s in ipairs(SUITS) do suits[i] = { key = s, on = b.suits[s] or nil } end
+    for r = 2, 14 do ranks[#ranks + 1] = { key = r, text = RANKS[r].chip, on = not stone and b.ranks[r] or nil } end
+    for i, s in ipairs(SUITS) do suits[i] = { key = s, on = (stone or b.suits[s]) or nil } end
     model.builder = {
         cmp = cmp.text, count = tostring(b.count), high = cmp.query == 'between' and tostring(b.high) or nil,
-        preset = Calculatro.rank_choice(), ranks = ranks, suits = suits,
+        preset = Calculatro.rank_choice(), ranks = ranks, suits = suits, fixed = stone or nil,
         special = special.text, negate = b.negate or nil, can_negate = special.query and true or nil, add = name,
         can_add = can_add or nil, save = editor.editing and true or nil,
     }
@@ -1769,14 +1786,17 @@ local function cards_tab(model)
         count[#count + 1] = builder_cycle('high', b.high, COUNT_W, true)
     end
     -- The rank chips, under the rank cycle that sets them to its presets.
+    -- Under Stone (b.fixed), they and the suit chips are dark and inert.
+    local chip_text = b.fixed and C.UI.BACKGROUND_INACTIVE or nil
     local ranks = {}
     for _, r in ipairs(b.ranks) do
-        ranks[#ranks + 1] = chip('calculatro_rank_' .. r.key, { plain(r.text) }, r.on, { 'toggle_rank', r.key }, CHIP_W)
+        ranks[#ranks + 1] = chip('calculatro_rank_' .. r.key, { plain(r.text, chip_text) }, r.on,
+                                 not b.fixed and { 'toggle_rank', r.key } or nil, CHIP_W)
     end
     local suits = {}
     for _, s in ipairs(b.suits) do
-        suits[#suits + 1] = chip('calculatro_suit_' .. s.key, { suit_icon(SUIT_ICONS[SUIT_SYMBOLS[s.key]]) }, s.on,
-                                 { 'toggle_suit', s.key }, SUIT_CHIP_W)
+        suits[#suits + 1] = chip('calculatro_suit_' .. s.key, { suit_icon(SUIT_ICONS[SUIT_SYMBOLS[s.key]], chip_text) },
+                                 s.on, not b.fixed and { 'toggle_suit', s.key } or nil, SUIT_CHIP_W)
     end
     local negate = button(
         { plain('not', b.can_negate and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE) },
@@ -1784,7 +1804,7 @@ local function cards_tab(model)
         { id = 'calculatro_negate', w = NOT_W, colour = b.negate and C.BLUE or C.L_BLACK, padded = true })
     local builder = {
         field('Count', count),
-        field('Rank', { builder_cycle('preset', b.preset, OPTION_W, true) }),
+        field('Rank', { builder_cycle('preset', b.preset, OPTION_W, not b.fixed) }),
         row(ranks, { calculatro_anim = 'field:Ranks' }),
         field('Suit', suits),
         field('Special', { negate, builder_cycle('special', b.special, OPTION_W, true) }),

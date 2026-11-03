@@ -215,20 +215,37 @@ def builder_queries(lua, counts, rank_sets=RANK_SETS, suit_sets=SUIT_SETS):
     return [tuple(r.values()) for r in rows.values()]
 
 
+def _with_special(special: str) -> list[Card]:
+    """Cards of every rank and suit that have a builder special ("Bonus", "Red Seal", "Any edition", ...)."""
+    enhancements = {e: f"m_{e.lower()}" for e in ("Bonus", "Mult", "Wild", "Glass", "Steel", "Gold", "Lucky")}
+    editions = {"Foil": "foil", "Holographic": "holo", "Polychrome": "polychrome", "Negative": "negative",
+                "Any edition": "foil"}
+    kwargs = ({"enhancement": enhancements.get(special, "m_bonus" if special == "Enhanced" else "c_base")}
+              | ({"edition": editions[special]} if special in editions else {})
+              | ({"seal": special.removesuffix(" Seal")} if special.endswith(" Seal") else {})
+              | ({"seal": "Red"} if special == "Sealed" else {}))
+    return [Card(rank=str(r), rank_id=r, suit=s, **kwargs) for r in range(2, 15) for s in SUITS]
+
+
 def test_builder_queries_parse_as_labelled(lua):
     # Every preset and some other rank sets, every set of suits, every special
     # and its negation: the app parses the query, names it as the label does,
-    # and matches the cards the chips chose.
+    # and matches the cards the chips chose. Under Stone, ranks and suits are
+    # any, since Stone Cards have none.
     plain = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base") for r in range(2, 15) for s in SUITS]
+    stone = Card(enhancement="m_stone")
     per_set = 2 * len(lua[1].OPTIONS.special) - 1  # each special, and each but Any negated
     rows = iter(builder_queries(lua, [(1, 2)]))
-    for ranks in RANK_SETS:
-        for suits in SUIT_SETS:
+    for chosen_ranks in RANK_SETS:
+        for chosen_suits in SUIT_SETS:
             for query, label, special, negate in (next(rows) for _ in range(per_set)):
+                ranks, suits = chosen_ranks, chosen_suits
+                if special == "Stone" and not negate:
+                    ranks, suits = (), ()
                 if not ranks or len(ranks) == 13:
                     ranks = range(2, 15)
-                any_card = len(ranks) == 13 and len(suits) in (0, 4) and special == "Any"
-                if any_card:
+                any_rank_or_suit = len(ranks) == 13 and len(suits) in (0, 4)
+                if any_rank_or_suit and special == "Any":
                     assert query is False and label is False  # every card matches: nothing to add
                     continue
                 q = parse_query(query)
@@ -238,6 +255,18 @@ def test_builder_queries_parse_as_labelled(lua):
                 expected = [c.rank_id in ranks and (not suits or c.suit in suits) and (special == "Any" or negate)
                             for c in plain]
                 assert [q.filter.test(c, Rules()) for c in plain] == expected, query
+                # A Stone Card only with any suit, any rank or Non-face (it isn't a face card without
+                # Pareidolia), and a special it has, or one it hasn't negated.
+                stone_rank = len(ranks) == 13 or tuple(ranks) == PRESETS[2]
+                has_special = special in ("Any", "Stone", "Enhanced")
+                assert q.filter.test(stone, Rules()) == (stone_rank and len(suits) in (0, 4)
+                                                         and has_special != negate), query
+                # And some card can match it.
+                if special == "Any" or negate:
+                    cards = plain
+                else:
+                    cards = [stone] if special == "Stone" else _with_special(special)
+                assert any(q.filter.test(c, Rules()) for c in cards), query
     assert next(rows, None) is None
     # Every count, with one rank.
     counts = [(1, n) for n in range(1, 9)] + [(2, n) for n in range(9)] + [(3, n) for n in range(8)]
@@ -1233,6 +1262,28 @@ def test_face_cards_take_a_suit(lua, tmp_path):
     for suit in ("Spades", "Clubs", "Diamonds"):
         assert click(lua, f"calculatro_suit_{suit}")
     assert mod.builder_query() == ("at least 1 face of hearts", "Face ♥: 1+")
+
+
+def test_stone_has_no_rank_or_suit(lua, tmp_path):
+    # Stone Cards have no rank or suit, so under Stone the chips and the rank
+    # cycle show any and are inert, but keep their choices for other specials.
+    rt, mod = cards_tab(lua, tmp_path)
+    assert click(lua, "calculatro_rank_12") and click(lua, "calculatro_suit_Hearts")
+    set_builder(lua, "special", "Stone")
+    assert mod.builder_query() == ("at least 1 stone", "Stone card: 1+")
+    assert mod.builder_about() == "In hand: at least 1\nSpecial: Stone"
+    assert option(rt, "preset") == "Any"
+    assert not click(lua, "calculatro_rank_13") and not click(lua, "calculatro_suit_Spades")
+    assert not click(lua, "calculatro_preset_next")
+    texts = panel_texts(rt)
+    assert "Q@stale" in texts and "Q@light" not in texts
+    # Negated, they're back.
+    assert click(lua, "calculatro_negate")
+    assert mod.builder_query()[0] == "at least 1 not stone queen of spades or clubs or diamonds"
+    assert option(rt, "preset") == "Queen"
+    assert click(lua, "calculatro_negate")
+    set_builder(lua, "special", "Wild")
+    assert mod.builder_query()[0] == "at least 1 wild queen of spades or clubs or diamonds"
 
 
 def test_rank_chips_suit_chips_not_and_ranges(lua, tmp_path):
