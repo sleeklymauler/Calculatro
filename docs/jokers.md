@@ -97,12 +97,19 @@ These jokers are all already reflected in the exported `hand_size` (`G.hand.conf
 
 These change the deck or hand outside the draw. Because the exported state is a snapshot, they only matter if we predict across one of these events:
 - Marble Joker adds a Stone card to the deck when a Blind is selected.
-- DNA: if the first hand of the round is a single card, a copy goes into the deck and is drawn to the hand.
+- DNA: if the first hand of the round is a single card, a copy joins the full deck (`G.playing_cards`) and goes straight into the hand, without being drawn. See below: this one is modelled.
 - Certificate adds a random sealed card to the hand when the round begins.
 - Sixth Sense destroys a single 6 played as the first hand of the round.
 - Trading Card destroys a single card used as the first discard of the round.
 - Vampire strips enhancements from scored cards.
 - Midas Mask turns scored face cards into Gold cards.
+
+The engine does predict across one of them: without discards left, a selection is played instead (`engine._discard`), so it sees what follows a play. Only DNA changes what's held after it. The other effects in this list act on cards that are leaving the hand, or at the start of a round.
+
+**DNA** (`card.lua:3501`, in the jokers' `before` step, so not for a hand The Psychic debuffs, the only boss that debuffs a first hand):
+- The refill counts the copy, so a lone card played normally gives the same hand back, with nothing drawn: the odds equal keeping the hand. It's different when other cards move too: The Hook throws away 2 kept cards (never the copy, as it acts first), so 2 are drawn; The Serpent still draws 3; a hand left short is topped up.
+- The effect has no `not context.blueprint`, so every Blueprint or Brainstorm that reaches DNA makes another copy, past the hand size if need be. The mod follows the chains and sends the count as `dna_copies`, since the export hides the jokers' order. With a joker face down (Amber Acorn) the player can't see the order either, so only DNA itself counts, which can undercount.
+- A face-down card's copy comes back face up. One copy is the same as keeping that card face down. **Known limitation:** several copies are the same unknown card, but count as separate unseen cards, which can be well out for hands wanting duplicates (2 copies are always a Pair). `docs/plans/face-down-windows.md` is where this gets fixed.
 
 ### Per-round targets (needed to evaluate these jokers' conditions)
 

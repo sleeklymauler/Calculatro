@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 10,
+    schema = 11,
     odds_schema = 5,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -645,6 +645,49 @@ end
 ---------------------------------------------------------------------------
 -- Snapshot
 ---------------------------------------------------------------------------
+-- Whether the joker at `i` ends up running DNA: itself, or by Blueprint and
+-- Brainstorm copying along a chain (Card:calculate_joker). A debuffed joker does
+-- nothing, so it ends the chain, and a loop never gets anywhere.
+local function runs_dna(cards, i)
+    for _ = 1, #cards do
+        local joker = cards[i]
+        if not joker or joker.debuff then return false end
+        local key = joker.config and joker.config.center_key
+        if key == 'j_dna' then return true end
+        if key == 'j_blueprint' then
+            i = i + 1
+        elseif key == 'j_brainstorm' and i ~= 1 then
+            i = 1
+        else
+            return false
+        end
+    end
+    return false
+end
+
+-- How many copies of a lone first hand DNA would make. With a joker face down
+-- (Amber Acorn) their order is hidden from the player, so it mustn't count here:
+-- each active DNA makes one, and Blueprint and Brainstorm are left out.
+local function dna_copies()
+    local cards = G.jokers and G.jokers.cards or {}
+    local face_down = false
+    for _, joker in ipairs(cards) do
+        face_down = face_down or joker.facing == 'back'
+    end
+    local copies = 0
+    for i, joker in ipairs(cards) do
+        local key = joker.config and joker.config.center_key
+        local runs
+        if face_down then
+            runs = key == 'j_dna' and not joker.debuff
+        else
+            runs = runs_dna(cards, i)
+        end
+        if runs then copies = copies + 1 end
+    end
+    return copies
+end
+
 -- `in_hand`: also says whether Cerulean Bell forces the card into every
 -- play and discard (the player sees it raised and can't unselect it).
 local function card_info(card, hide_face_down, in_hand)
@@ -751,6 +794,7 @@ function Calculatro.snapshot()
         unseen = unseen_pool(),
         discard = area_cards(G.discard, true),
         jokers = jokers,
+        dna_copies = dna_copies(),
         tracked = tracked,
         select_limit = G.hand.config.highlighted_limit or 5,
         search = Calculatro.request,

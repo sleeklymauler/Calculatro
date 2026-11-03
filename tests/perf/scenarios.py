@@ -181,6 +181,7 @@ class Hand:
     blind: str | None = None  # with "Cerulean Bell", the first card is the forced one
     discards: int = 3
     jokers: tuple[Joker, ...] = ()  # besides the scenario's
+    dna_copies: int = 0
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,7 @@ class BestDiscard:
             in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
             hand=hand, **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.hand.jokers), blind=self.hand.blind,
+            **({"dna_copies": self.hand.dna_copies} if self.hand.dna_copies else {}),
         )
 
     target = Scenario.target
@@ -276,6 +278,8 @@ SEARCH_BOSSES = [
     Hand("Best discard: 8 cards, 2 face-down", tuple(HAND), hidden=2, blind="The House"),
     Hand("Best discard: 8 cards, Cerulean Bell", tuple(HAND), blind="Cerulean Bell"),
     Hand("Best discard: 8 cards, The Hook, played", tuple(HAND), blind="The Hook", discards=0),
+    # DNA with a Blueprint copying it: a lone card played comes back twice.
+    Hand("Best discard: 8 cards, DNA + Blueprint, played", tuple(HAND), discards=0, dna_copies=2),
 ]
 # Crimson Heart, with the selection played: see CRIMSON_KEEP_3. With the scenario's jokers, the debuffed
 # joker below comes back and one of the others is debuffed.

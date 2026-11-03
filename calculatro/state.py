@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 10
+SCHEMA = 11
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -118,6 +118,9 @@ class GameState:
     unseen: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
     jokers: list[Joker] = field(default_factory=list)
+    # Copies DNA would make of a lone first hand, with Blueprint and Brainstorm.
+    # The mod works it out, since `jokers` hides their order.
+    dna_copies: int = 0
     # What the player tracks, set in the mod's panel: hand names ("Three of a
     # Kind") and card queries for `cards.parse_query` ("at least 2 queen").
     tracked_hands: list[str] = field(default_factory=list)
@@ -167,6 +170,7 @@ class GameState:
             discard=_cards(d.get("discard")),
             jokers=[Joker(j["key"], bool(j.get("debuff", False)), bool(j.get("perished", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
+            dna_copies=d.get("dna_copies") or 0,
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
             select_limit=d.get("select_limit", 5),  # 0 stays 0

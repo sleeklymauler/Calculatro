@@ -395,6 +395,19 @@ A new layer above `engine._discard`, used by `evaluate_discard` and
    stay unseen as they are now (and marked under The Mark).
 4. **Average** the branches by weight (the law of total probability).
 
+DNA adds to this (`engine._discard`, see `docs/jokers.md`). A lone face-down
+card played as the round's first hand comes back as face-up copies, which today
+are counted as that many separate unseen cards. That's exact for one copy and
+wrong for several, since they're the same card. So:
+
+- With 2 or more copies, the played card must be enumerated **even with no
+  observation**: this is a branch of its own, not evidence.
+- A resolved played card isn't "gone from the draw" under DNA: in that branch
+  its copies are known cards in the final hand. So one copy is only "the same as
+  keeping it" while the card has no evidence.
+- Remove the temporary count, including its extra `marked` under The Mark, and
+  the test that pins it (`test_dna_several_copies_of_a_face_down_card`).
+
 Invariants, asserted in tests:
 
 - Resolving identities changes none of the physical deck size, the hand size,

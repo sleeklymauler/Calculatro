@@ -474,3 +474,57 @@ def test_launch_command(lua, tmp_path):
     (mod_dir / "launch.txt").write_text(r"C:\venv\Scripts\pythonw.exe" "\r\n", encoding="utf-8")
     assert tuple(mod.launch_command(1234)) == (
         r"C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")
+
+
+@pytest.mark.parametrize("jokers, copies", [
+    ([], 0),
+    (["j_joker"], 0),
+    (["j_dna"], 1),
+    (["j_dna", "j_dna"], 2),
+    (["j_blueprint", "j_dna"], 2),  # Blueprint copies the joker to its right
+    (["j_dna", "j_blueprint"], 1),
+    (["j_blueprint", "j_joker", "j_dna"], 1),
+    (["j_blueprint", "j_blueprint", "j_dna"], 3),  # along a chain
+    (["j_dna", "j_brainstorm"], 2),  # Brainstorm copies the leftmost
+    (["j_joker", "j_brainstorm", "j_dna"], 1),
+    (["j_brainstorm", "j_dna"], 1),  # the leftmost Brainstorm has nothing to copy
+    (["j_blueprint", "j_brainstorm", "j_dna"], 1),  # Blueprint -> Brainstorm -> Blueprint: a loop
+    (["j_brainstorm", "j_blueprint", "j_dna"], 2),  # Brainstorm has nothing to copy, but Blueprint reaches DNA
+    (["j_dna", "j_blueprint", "j_blueprint", "j_brainstorm"], 4),  # a chain, by way of Brainstorm, back to DNA
+])
+def test_snapshot_counts_dna_copies(lua, jokers, copies):
+    rt, _ = lua
+    items = ", ".join(f"{{config = {{center_key = '{key}'}}}}" for key in jokers)
+    rt.execute(f"G.jokers.cards = {{{items}}}")
+    snapshot = snapshot_json(lua)
+    assert snapshot["dna_copies"] == copies
+    assert GameState.from_json(snapshot).dna_copies == copies
+
+
+@pytest.mark.parametrize("debuffed, copies", [
+    (0, 1),  # the Blueprint: it does nothing, and DNA still acts alone
+    (1, 0),  # DNA: nothing can copy it either
+])
+def test_snapshot_dna_copies_with_debuffs(lua, debuffed, copies):
+    rt, _ = lua
+    rt.execute(f"""G.jokers.cards = {{{{config = {{center_key = 'j_blueprint'}}}},
+                                      {{config = {{center_key = 'j_dna'}}}}}}
+                   G.jokers.cards[{debuffed + 1}].debuff = true""")
+    assert snapshot_json(lua)["dna_copies"] == copies
+
+
+def test_snapshot_dna_copies_debuffed_link_ends_the_chain(lua):
+    rt, _ = lua
+    rt.execute("""G.jokers.cards = {{config = {center_key = 'j_blueprint'}},
+                                    {config = {center_key = 'j_blueprint'}, debuff = true},
+                                    {config = {center_key = 'j_dna'}}}""")
+    assert snapshot_json(lua)["dna_copies"] == 1
+
+
+@pytest.mark.parametrize("jokers", [["j_blueprint", "j_dna"], ["j_dna", "j_blueprint"]])
+def test_snapshot_dna_copies_hide_the_order_of_face_down_jokers(lua, jokers):
+    # Amber Acorn: the player can't see what Blueprint copies, so it mustn't count.
+    rt, _ = lua
+    items = ", ".join(f"{{config = {{center_key = '{key}'}}, facing = 'back'}}" for key in jokers)
+    rt.execute(f"G.jokers.cards = {{{items}}}")
+    assert snapshot_json(lua)["dna_copies"] == 1

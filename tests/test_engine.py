@@ -1000,3 +1000,136 @@ def test_crimson_heart_works_out_rules_the_target_sees_once(monkeypatch):
         calls.clear()
         evaluate_discard(state, get_target(name), [4, 5])
         assert len(calls) == searched
+
+
+# --- DNA ----------------------------------------------------------------------
+
+def dna_state(**kw) -> GameState:
+    """No Pair in hand, and 7s and 2s among the cards left to draw."""
+    hand = [card(3, "Hearts"), card(5, "Clubs"), card(7, "Spades"), card(9, "Hearts"), card(13, "Diamonds")]
+    deck = [card(7, "Hearts"), card(2, "Clubs"), card(2, "Spades"), card(11, "Diamonds"), card(4, "Spades"),
+            card(9, "Clubs")]
+    return GameState(**{"in_run": True, "hand_size": 5, "discards_left": 0, "hands_left": 2, "hands_played": 0,
+                        "dna_copies": 1, "hand": hand, "unseen": deck, **kw})
+
+
+@pytest.mark.parametrize("name", ["Pair", "Two Pair", "Flush", "Straight"])
+def test_dna_gives_the_hand_back(name):
+    state, target = dna_state(), get_target(name)
+    outcome = evaluate_discard(state, target, [2])
+    assert outcome.draws == 0
+    assert outcome.probability == evaluate_discard(state, target, []).probability
+
+
+def test_dna_card_queries_give_the_hand_back():
+    state = dna_state()
+    for text in ("1+ spades", "at least 2 hearts", "at most 1 king"):
+        query = parse_query(text)
+        assert evaluate_cards(state, query, [2]).probability == evaluate_cards(state, query, []).probability
+
+
+@pytest.mark.parametrize("change, discard", [
+    ({"dna_copies": 0}, [2]),  # no active DNA
+    ({"discards_left": 1}, [2]),  # it's thrown away, not played
+    ({"hands_played": 1}, [2]),  # not the first hand
+    ({"blind": "The Psychic"}, [2]),  # the hand is debuffed, so jokers don't act on it
+    ({}, [1, 2]),  # not a lone card
+])
+def test_dna_only_acts_on_a_lone_first_hand(change, discard):
+    without = replace(dna_state(), dna_copies=0, **{k: v for k, v in change.items() if k != "dna_copies"})
+    state = replace(dna_state(), **change)
+    target = get_target("Pair")
+    assert evaluate_discard(state, target, discard) == evaluate_discard(without, target, discard)
+    assert evaluate_discard(state, target, discard).draws == len(discard)
+
+
+def test_dna_acts_under_a_disabled_psychic():
+    state = dna_state(blind="The Psychic", blind_disabled=True)
+    assert evaluate_discard(state, get_target("Pair"), [2]).draws == 0
+
+
+def test_dna_copies_past_the_hand_size():
+    # With Blueprint, the copies make a Pair of the played card, with nothing drawn.
+    state = dna_state(dna_copies=2)
+    outcome = evaluate_discard(state, get_target("Pair"), [2])
+    assert (outcome.draws, outcome.probability) == (0, 1)
+    assert evaluate_discard(state, get_target("Three of a Kind"), [2]).probability == 0
+    assert evaluate_cards(state, parse_query("at least 2 spades"), [2]).probability == 1
+
+
+def test_dna_short_hand_is_topped_up():
+    # 5 cards in a hand of 6: the copy fills the played card's place, and 1 is drawn.
+    state = dna_state(hand_size=6)
+    outcome = evaluate_discard(state, get_target("Pair"), [2])
+    assert outcome.draws == 1
+    assert outcome.probability == probability(get_target("Pair"), state.hand, state.unseen, 1)
+
+
+def test_dna_under_the_serpent_still_draws_three():
+    state = dna_state(blind="The Serpent")
+    outcome = evaluate_discard(state, get_target("Pair"), [2])
+    assert outcome.draws == 3
+    assert outcome.probability == probability(get_target("Pair"), state.hand, state.unseen, 3)
+
+
+def test_dna_under_the_hook_never_loses_the_copy():
+    # The Hook takes 2 of the 4 kept cards, then the copy arrives, then 2 are drawn.
+    state = dna_state(blind="The Hook")
+    hand, pool = state.hand, state.unseen
+    played, others = hand[2], hand[:2] + hand[3:]
+    for name in ("Pair", "Three of a Kind"):
+        target = get_target(name)
+        picks = [[c for c in others if c not in taken] for taken in combinations(others, 2)]
+        expected = sum(probability(target, [*kept, played], pool, 2) for kept in picks) / len(picks)
+        outcome = evaluate_discard(state, target, [2])
+        assert (outcome.draws, outcome.probability) == (2, expected)
+    query = parse_query("at least 1 spade")  # the only spade in hand is the copy, which always stays
+    assert evaluate_cards(state, query, [2]).probability == 1
+
+
+def test_dna_under_the_hook_copies_of_a_query():
+    state = dna_state(blind="The Hook", dna_copies=2)
+    assert evaluate_cards(state, parse_query("at least 2 spades"), [2]).probability == 1
+
+
+def test_dna_under_cerulean_bell_may_force_the_copy():
+    hand = [replace(c, forced=i == 2) for i, c in enumerate(dna_state().hand)]
+    state = dna_state(blind="Cerulean Bell", hand=hand)
+    target = get_target("Pair")
+    outcome = evaluate_discard(state, target, [2])
+    assert outcome.draws == 0
+    assert outcome.probability == _bell_after_draw(target, [*hand[:2], *hand[3:], hand[2]], state.unseen, 0, Rules(),
+                                                   None)
+
+
+def test_dna_copy_of_a_face_down_card_is_keeping_it():
+    hand = dna_state().hand[:4] + [Card(hidden=True)]
+    state = dna_state(hand=hand, unseen=[*dna_state().unseen, dna_state().hand[4]])
+    for name in ("Pair", "Flush"):
+        outcome = evaluate_discard(state, get_target(name), [4])
+        assert outcome.draws == 0
+        assert outcome.probability == evaluate_discard(state, get_target(name), []).probability
+    query = parse_query("at least 1 king")
+    assert evaluate_cards(state, query, [4]).probability == evaluate_cards(state, query, []).probability
+
+
+def test_dna_copy_of_a_face_down_card_under_the_mark():
+    # All the same: The Mark knows it's a face card, kept or copied.
+    king, queen = card(13, "Diamonds"), card(12, "Hearts")
+    hand = dna_state().hand[:4] + [Card(hidden=True)]
+    state = dna_state(blind="The Mark", hand=hand, unseen=[*dna_state().unseen, king, queen])
+    target = get_target("Pair")
+    assert evaluate_discard(state, target, [4]).probability == evaluate_discard(state, target, []).probability
+    query = parse_query("at least 1 face card")
+    assert evaluate_cards(state, query, [4]).probability == 1
+
+
+def test_dna_several_copies_of_a_face_down_card():
+    # Known limitation: two copies are really the same unknown card, so a Pair for
+    # certain, but they count as two separate unseen ones for now. This pins that,
+    # until docs/plans/face-down-windows.md can branch on what the card is.
+    hand = dna_state().hand[:4] + [Card(hidden=True)]
+    state = dna_state(hand=hand, unseen=[*dna_state().unseen, dna_state().hand[4]], dna_copies=2)
+    outcome = evaluate_discard(state, get_target("Pair"), [4])
+    assert outcome.draws == 0
+    assert outcome.probability == probability(get_target("Pair"), hand[:4], state.unseen, 2)

@@ -309,3 +309,36 @@ def test_card_query_search_cancelled():
     cancel.set()
     with pytest.raises(Cancelled):
         best_card_discards(random_state(random.Random(0)), parse_query("queen"), cancel)
+
+
+@pytest.mark.parametrize("copies", [1, 2])
+@pytest.mark.parametrize("blind", [None, "The Hook", "The Serpent", "Cerulean Bell"])
+def test_dna_when_playing_a_lone_card(copies, blind):
+    # A card thrown away with DNA comes back, which isn't like a discard for the
+    # search's groups and relabelling.
+    state = random_state(random.Random(21), deck=10, blind=blind, discards_left=0, hands_left=2, dna_copies=copies)
+    if blind == "Cerulean Bell":
+        state = replace(state, hand=[replace(c, forced=i == 0) for i, c in enumerate(state.hand)])
+    for name in ("Pair", "Two Pair", "Three of a Kind", "Flush", "Full House"):
+        check(state, get_target(name))
+    check(state, combine([get_target(n) for n in ("Three of a Kind", "Flush")]))
+    for text in ("2+ spades", "at most 1 heart"):
+        check(state, parse_query(text))
+
+
+def test_dna_never_recommends_playing_a_lone_card_for_nothing():
+    # With no Pair in hand, a lone card played comes back, so it can't make one.
+    hand = [card(3, "Hearts"), card(5, "Clubs"), card(7, "Spades"), card(9, "Hearts"), card(13, "Diamonds")]
+    deck = [card(3, "Spades"), card(5, "Hearts"), card(7, "Clubs"), card(9, "Clubs"), card(13, "Spades")]
+    state = GameState(in_run=True, hand_size=5, discards_left=0, hands_left=2, dna_copies=1, hand=hand, unseen=deck)
+    options = check(state, get_target("Pair"))
+    assert all(len(o) != 1 for o in options)
+
+
+def test_dna_face_down_cards():
+    rng = random.Random(22)
+    state = random_state(rng, deck=10, discards_left=0, hands_left=2, dna_copies=1)
+    hidden = state.hand[-2:]
+    state = replace(state, hand=state.hand[:-2] + [Card(hidden=True)] * 2, unseen=[*state.unseen, *hidden])
+    for name in ("Pair", "Flush"):
+        check(state, get_target(name))

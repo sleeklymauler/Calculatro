@@ -920,6 +920,8 @@ class _Discard:
     pool: list[Card]  # unseen cards: undrawn deck + face-down cards in hand or discarded
     marked: int  # face-down cards known to be face cards (The Mark): in hand, discarded now or before
     hooked: int = 0  # kept cards The Hook throws away at random before the draw
+    added: tuple[Card, ...] = ()  # DNA's copies in the final hand, which The Hook can't take
+    added_hidden: int = 0  # DNA's copies of a face-down card
 
 
 def _hooked(state: GameState, discard: list[int]) -> int:
@@ -930,9 +932,23 @@ def _hooked(state: GameState, discard: list[int]) -> int:
     return min(2, len(state.hand) - len(set(discard)))
 
 
+def _dna_copies(state: GameState, discard: list[int]) -> int:
+    """How many copies of the selection DNA puts in the hand: when it's a lone
+    card played as the round's first hand, which it has to be without discards
+    left. Not if the hand is debuffed, which only The Psychic does to a first
+    hand (`evaluate_play` skips the jokers' `before` step)."""
+    if state.discards_left > 0 or state.hands_played or len(set(discard)) != 1:
+        return 0
+    if state.blind == "The Psychic" and not state.blind_disabled:
+        return 0
+    return state.dna_copies
+
+
 def _discard(state: GameState, discard: list[int]) -> _Discard:
     discard_set = set(discard)
     hooked = _hooked(state, discard)
+    copies = _dna_copies(state, discard)
+    played = state.hand[discard[0]] if copies else None
     kept = [c for i, c in enumerate(state.hand) if i not in discard_set]
     kept_known = [c for c in kept if not c.hidden]
     if not discard:
@@ -943,11 +959,18 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
     elif state.serpent:
         draws = 3  # however many were discarded, and even past the hand size
     else:
-        draws = state.hand_size - len(kept) + hooked
+        # DNA's copies go straight into the hand, taking up room the draw would fill.
+        draws = state.hand_size - len(kept) + hooked - copies
     draws = max(0, min(draws, state.deck_size))
+    added_hidden = copies if played is not None and played.hidden else 0
+    # One copy of a face-down card is exactly that card kept face down. Several
+    # are the same unknown card, but count as separate unseen ones (and under
+    # The Mark as more face-down cards) until docs/plans/face-down-windows.md
+    # can branch on what it is.
+    marked = state.hidden + state.discarded_hidden + max(0, added_hidden - 1) if state.mark else 0
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
-                    len(kept) - len(kept_known), draws, state.unseen,
-                    state.hidden + state.discarded_hidden if state.mark else 0, hooked)
+                    len(kept) - len(kept_known), draws, state.unseen, marked, hooked,
+                    () if added_hidden or played is None else (played,) * copies, added_hidden)
 
 
 def rules_after(state: GameState, discard: list[int]) -> list[tuple[Rules, int]]:
@@ -991,7 +1014,8 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
     Hook also throws away 2 random kept cards (`_after_hook`), and under
     Crimson Heart changes which joker is debuffed (`rules_after`): the odds
     are then the average over the rules the final hand may be judged under.
-    Calls for the same state can share a `reuse` (see Reuse).
+    A lone card played as the round's first hand comes back with DNA
+    (`_dna_copies`). Calls for the same state can share a `reuse` (see Reuse).
     """
     d = _discard(state, discard)
     outcomes = rules_after(state, discard)
@@ -1011,15 +1035,17 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
     """evaluate_discard's odds with the final hand judged under `rules`."""
     if d.hooked:
         return _after_hook(target, d, rules, cancel, reuse)
-    unseen = d.hidden_kept + d.draws
+    hidden = d.hidden_kept + d.added_hidden
+    known = d.kept_known + list(d.added)
+    unseen = hidden + d.draws
     if state.bell and bell_matters(target, rules):
         forced = state.forced
         if not discard and forced is not None and not state.hand[forced].hidden:
             # Keeping the hand keeps its forced card.
             kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
             return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
-        return _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel, reuse)
-    return probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept, reuse=reuse)
+        return _bell_after_draw(target, known, d.pool, unseen, rules, cancel, reuse)
+    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse)
 
 
 def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
@@ -1047,8 +1073,8 @@ def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
         weight = 1
         for size, k in zip(sizes, counts):
             weight *= comb(size, k)
-        kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]]
-        hidden = d.hidden_kept - counts[-1]
+        kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]] + list(d.added)
+        hidden = d.hidden_kept - counts[-1] + d.added_hidden
         total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked, hidden,
                                       reuse=reuse)
     return total / comb(sum(sizes), d.hooked)
@@ -1144,8 +1170,9 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
     those are left to draw. Cerulean Bell's forced card is in the final hand
     like any other, so it changes nothing. Without discards left the selection
     would be played instead, which under The Hook also throws away 2 random
-    kept cards (`_hooked`): the odds are the average over which ones. Under
-    Crimson Heart, Pareidolia may be debuffed or not after the play
+    kept cards (`_hooked`): the odds are the average over which ones, and a lone
+    card played as the round's first hand comes back with DNA (`_dna_copies`).
+    Under Crimson Heart, Pareidolia may be debuffed or not after the play
     (`rules_after`), which changes the face cards: the odds are the average
     over the rules.
     """
@@ -1155,7 +1182,7 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
     if len(outcomes) > 1:
         # The odds only see which cards match: Four Fingers and Shortcut never
         # change that, and Smeared and Pareidolia only for some queries.
-        cards = (*d.kept_known, *d.pool)
+        cards = (*d.kept_known, *d.added, *d.pool)
         outcomes = _merged(outcomes, lambda rules: tuple(query.filter.test(c, rules) for c in cards))
     p = sum((n * _card_odds(query, d, rules) for rules, n in outcomes), Fraction(0)) / total
     return DiscardOutcome(d.discarded, d.draws, p)
@@ -1164,15 +1191,17 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
 def _card_odds(query: CardQuery, d: _Discard, rules: Rules) -> Fraction:
     """evaluate_cards's odds with the final hand judged under `rules`."""
     have = sum(query.filter.test(c, rules) for c in d.kept_known)
+    added = sum(query.filter.test(c, rules) for c in d.added)
     if not d.hooked:
-        return count_probability(query, d.pool, d.hidden_kept + d.draws, rules, d.marked, d.hidden_kept, have)
+        hidden = d.hidden_kept + d.added_hidden
+        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden, have + added)
     # Of the kept cards, only whether each matches matters, or that it's face down.
     sizes = (have, len(d.kept_known) - have, d.hidden_kept)
     total = Fraction(0)
     for taken in product(*(range(min(n, d.hooked) + 1) for n in sizes)):
         if sum(taken) == d.hooked:
-            hidden = d.hidden_kept - taken[2]
+            hidden = d.hidden_kept - taken[2] + d.added_hidden
             weight = prod(comb(n, k) for n, k in zip(sizes, taken))
             total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden,
-                                                have - taken[0])
+                                                have - taken[0] + added)
     return total / comb(sum(sizes), d.hooked)
