@@ -279,6 +279,16 @@ def test_counts_exclude_stone_and_wild(lua):
     assert state.suit_counts() == {"Clubs": 1, "Diamonds": 1, "Hearts": 1}
 
 
+def test_stone_base_card_not_leaked(lua):
+    # A Stone card hides its rank and suit in game, so they aren't exported.
+    rt, _ = lua
+    rt.execute("G.hand.cards[1].config.center_key = 'm_stone'")
+    data = snapshot_json(lua)
+    stones = [c for c in data["hand"] + data["unseen"] if c.get("enhancement") == "m_stone"]
+    assert len(stones) == 2
+    assert not any(k in c for c in stones for k in ("rank", "rank_id", "suit"))
+
+
 def test_empty_areas_encode_as_arrays(lua):
     rt, mod = lua
     rt.execute("G.hand.cards = {}")

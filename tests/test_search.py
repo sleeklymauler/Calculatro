@@ -165,6 +165,16 @@ def test_identical_cards_are_one_option():
     assert all(t == list(range(len(t))) for t in threes)
 
 
+def test_stones_are_one_option():
+    # Stones are exported without rank or suit, as the player sees them, so
+    # two of them are the same card: throwing either is one option.
+    stone = Card(enhancement="m_stone")
+    hand = [stone, stone, card(14, "Spades"), card(13, "Diamonds")]
+    state = GameState(in_run=True, hand_size=4, discards_left=1, hand=hand, unseen=[stone] * 4)
+    options = check(state, get_target("Pair"))
+    assert options[:4] == [[], [0], [3], [2]]
+
+
 def test_selection_limit_and_no_discards():
     rng = random.Random(8)
     state = random_state(rng, select_limit=2)

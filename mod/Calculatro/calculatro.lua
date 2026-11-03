@@ -640,11 +640,14 @@ local function card_info(card, hide_face_down, in_hand)
     if hide_face_down and card.facing == 'back' then
         return { hidden = true, highlighted = highlighted, forced = forced }
     end
+    local enhancement = card.config and card.config.center_key or nil  -- 'c_base', 'm_stone', 'm_wild', ...
+    -- A Stone card shows no rank or suit, so its base card isn't exported.
+    local base = enhancement ~= 'm_stone' and card.base or nil
     return {
-        rank = card.base and card.base.value,   -- '2'..'10', 'Jack', 'Queen', 'King', 'Ace'
-        rank_id = card.base and card.base.id,   -- 2..14 (Ace = 14)
-        suit = card.base and card.base.suit,    -- 'Spades', 'Hearts', 'Clubs', 'Diamonds'
-        enhancement = card.config and card.config.center_key or nil,  -- 'c_base', 'm_stone', 'm_wild', ...
+        rank = base and base.value,   -- '2'..'10', 'Jack', 'Queen', 'King', 'Ace'
+        rank_id = base and base.id,   -- 2..14 (Ace = 14)
+        suit = base and base.suit,    -- 'Spades', 'Hearts', 'Clubs', 'Diamonds'
+        enhancement = enhancement,
         edition = card.edition and card.edition.type or nil,
         seal = card.seal,
         debuff = card.debuff and true or false,
