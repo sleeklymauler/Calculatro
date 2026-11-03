@@ -116,9 +116,6 @@ def evaluate(hand: list[Card], rules: Rules) -> set[str]:
     if _5: out.add("Five of a Kind")
     if fl and st:
         out.add("Straight Flush")
-        # get_poker_hand_info: displayed as Royal if no scoring card is below 10.
-        if min(_id(c) for c in fl + st) >= 10:
-            out.add("Royal Flush")
     if _4: out.add("Four of a Kind")
     if _3 and _2: out.add("Full House")
     if fl: out.add("Flush")
@@ -235,7 +232,7 @@ def test_combined_targets_match_brute_force():
 @pytest.mark.parametrize("names", [
     ("Straight", "Straight Flush"),
     ("Two Pair", "Full House", "Four of a Kind"),
-    ("Flush", "Flush House", "Flush Five", "Royal Flush"),
+    ("Flush", "Flush House", "Flush Five", "Straight Flush"),
 ])
 def test_overlapping_targets_match_brute_force(names, rules):
     rng = random.Random(" ".join(names))
@@ -289,8 +286,6 @@ def _minimal_all_pairs(patterns):
 def test_minimal_skips_only_pairs_that_cant_imply(rules):
     combos = [tuple(TARGETS), ("Straight", "Flush", "Straight Flush"),
               ("Two Pair", "Full House", "Flush House", "Flush Five")]
-    if not (rules.four_fingers and rules.shortcut):  # too slow for every pair there
-        combos.append(("Straight Flush", "Royal Flush"))
     by_hand = hands._hand_patterns(rules)
     for names in combos:
         patterns = tuple(p for n in names for p in by_hand[n])
@@ -318,7 +313,7 @@ FOUR_FINGERS_RULESETS = {k: v for k, v in RULESETS.items() if v.four_fingers}
 
 @pytest.mark.parametrize("rules", FOUR_FINGERS_RULESETS.values(), ids=FOUR_FINGERS_RULESETS.keys())
 @pytest.mark.parametrize("name, low_rank", [
-    ("Straight Flush", 8), ("Royal Flush", 9), ("Flush House", 11), ("Flush Five", 12),
+    ("Straight Flush", 8), ("Flush House", 11), ("Flush Five", 12),
 ])
 def test_four_fingers_flush_hands_match_brute_force(name, low_rank, rules):
     # With Smeared, cards of all four suits, which make two colours.
@@ -346,7 +341,7 @@ def two_suit_card(rng: random.Random, low_rank: int, wild: bool,
 
 @pytest.mark.parametrize("rules", SPLIT_RULESETS.values(), ids=SPLIT_RULESETS.keys())
 @pytest.mark.parametrize("names, low_rank", [
-    (("Straight Flush",), 8), (("Royal Flush",), 9), (("Flush House",), 11), (("Flush Five",), 12),
+    (("Straight Flush",), 8), (("Flush House",), 11), (("Flush Five",), 12),
     (("Flush",), 8), (("Full House", "Straight Flush"), 9), (("Two Pair", "Flush"), 10),
     (("Straight", "Flush"), 8),
 ])
@@ -391,7 +386,7 @@ def test_interchangeable_suits_match_brute_force(names, low_rank, rules):
 
 @pytest.mark.parametrize("rules", SMEARED_RULESETS.values(), ids=SMEARED_RULESETS.keys())
 @pytest.mark.parametrize("names, low_rank", [
-    (("Flush",), 8), (("Straight Flush",), 8), (("Royal Flush",), 9), (("Flush House",), 11),
+    (("Flush",), 8), (("Straight Flush",), 8), (("Flush House",), 11),
     (("Flush Five",), 12), (("Full House", "Straight Flush"), 9), (("Straight", "Flush"), 8),
     (("Two Pair", "Flush House", "Flush Five"), 11),
 ])
@@ -419,7 +414,7 @@ SMEARED = Rules(smeared=True)
     ("2S 7C 9S KC 4C", SMEARED, {"Flush"}),
     ("2H 7D 9H KS 4H", SMEARED, set()),
     ("9H TD JH QD KD", SMEARED, {"Straight Flush", "Straight", "Flush"}),
-    ("TC JS QC KS AS", SMEARED, {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+    ("TC JS QC KS AS", SMEARED, {"Straight Flush", "Straight", "Flush"}),
     # A Flush House or Flush Five needs every card in one colour.
     ("KH KD KH 7D 7H", SMEARED, {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
     ("KH KD KH KD KH", SMEARED, {"Flush Five", "Five of a Kind", "Four of a Kind", "Three of a Kind", "Pair",
@@ -460,7 +455,7 @@ def test_four_fingers_straight_flush_with_many_unknown_cards():
 def test_flush_absorbs_four_fingers_flush_hands():
     """4 suited cards make a Four Fingers Flush, so it implies the other flush hands' patterns away."""
     rules = Rules(four_fingers=True)
-    target = combine([get_target(n) for n in ("Flush", "Straight Flush", "Flush House", "Royal Flush")])
+    target = combine([get_target(n) for n in ("Flush", "Straight Flush", "Flush House")])
     assert target.patterns(rules) == get_target("Flush").patterns(rules)
 
 
@@ -480,10 +475,7 @@ def hand_of(text: str) -> list[Card]:
     ("2H 3H 4H 9H 5S", {"Straight Flush", "Straight", "Flush"}),
     # ...and the 4th suited card may be a second copy of a straight rank.
     ("2H 3H 3H 4H 5S", {"Straight Flush", "Straight", "Flush", "Pair"}),
-    # Royal only if every flush and straight card is 10 or above: the suited
-    # 9 needed for the flush is scored, so this is a plain Straight Flush.
     ("9H TH JH QH KS", {"Straight Flush", "Straight", "Flush"}),
-    ("TH JH QS KH AH", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
     # One card of a Flush House or Flush Five may be off-suit.
     ("KH KH KS 7H 7H", {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
     ("KH KH KH 7S 7H", {"Flush House", "Full House", "Two Pair", "Three of a Kind", "Pair", "Flush"}),
@@ -524,9 +516,9 @@ def test_shortcut_examples(hand, rules, straight):
 @pytest.mark.parametrize("hand, hands", [
     # The Four Fingers flush and the Shortcut straight may be different cards.
     ("2H 4H 6H KH 8S", {"Straight Flush", "Straight", "Flush"}),
-    # Royal: any 4 of 10-J-Q-K-A make a straight, and nothing below 10 scores.
-    ("TH JH KH AH 2S", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
-    ("TH QH KH AH", {"Royal Flush", "Straight Flush", "Straight", "Flush"}),
+    # Any 4 of 10-J-Q-K-A make a straight.
+    ("TH JH KH AH 2S", {"Straight Flush", "Straight", "Flush"}),
+    ("TH QH KH AH", {"Straight Flush", "Straight", "Flush"}),
 ])
 def test_four_fingers_shortcut_examples(hand, hands):
     cards = hand_of(hand)
@@ -811,7 +803,7 @@ def test_forced_card_matches_brute_force(name, rules):
 
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
-@pytest.mark.parametrize("name", ["Straight", "Flush", "Full House", "Straight Flush", "Royal Flush",
+@pytest.mark.parametrize("name", ["Straight", "Flush", "Full House", "Straight Flush",
                                   "Flush House", "Flush Five"])
 def test_forced_card_in_five_card_hands_matches_brute_force(name, rules):
     """Dense cards so 5-card hands come up, and a forced card that often can't be part of them."""
@@ -827,8 +819,7 @@ def test_forced_card_in_five_card_hands_matches_brute_force(name, rules):
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
 @pytest.mark.parametrize("names", [("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
-                                   ("Royal Flush",), ("Flush House",), ("Pair", "Straight"),
-                                   ("Straight Flush", "Royal Flush")])
+                                   ("Flush House",), ("Pair", "Straight")])
 def test_random_forced_card_matches_brute_force(names, rules):
     """Cerulean Bell after a discard: it forces a random card of the final hand.
 
@@ -846,28 +837,19 @@ def test_random_forced_card_matches_brute_force(names, rules):
                 == bell_draw_brute(set(names), kept, pool, draws, rules))
 
 
-@pytest.mark.parametrize("hand, forced, rules, royal", [
-    # Four Fingers: four cards make a Royal Flush, and the forced card is played beside them.
-    ("TH JH QH KH", "2S", Rules(four_fingers=True), True),
-    ("TH JH QH KH", "2H", Rules(four_fingers=True), False),  # scores as a 5th flush card
-    ("TH JH QH KH", "9S", Rules(four_fingers=True), False),  # extends the straight down
-    ("TH JH QH KH", "8S", Rules(four_fingers=True), True),
-    ("TH JH QH KH", "8S", Rules(four_fingers=True, shortcut=True), False),  # 8 _ T is a run
-    ("TH JH QH KH", "AS", Rules(four_fingers=True), True),
-    ("TH JH QH KH", "AH", Rules(), True),  # it completes the Royal Flush
-    ("TH JH QH KH", "2S", Rules(), False),  # 5 cards needed, so no room for it
+@pytest.mark.parametrize("forced, rules, expected", [
+    ("2S", Rules(four_fingers=True), True),  # four cards make it, and the forced card is played beside them
+    ("AH", Rules(), True),  # it completes the Straight Flush
+    ("2S", Rules(), False),  # 5 cards needed, so no room for it
 ])
-def test_forced_card_and_royal_flush(hand, forced, rules, royal):
-    cards, card_forced = hand_of(hand), hand_of(forced)[0]
-    assert contains_forced(cards, card_forced, {"Royal Flush"}, rules) == royal
-    assert probability(get_target("Royal Flush"), cards, [], 0, rules, forced=card_forced) == royal
-    # Still a Straight Flush, but for the 5-card one without Four Fingers.
-    straight_flush = rules.four_fingers or forced == "AH"
-    assert probability(get_target("Straight Flush"), cards, [], 0, rules, forced=card_forced) == straight_flush
+def test_forced_card_and_straight_flush(forced, rules, expected):
+    cards, card_forced = hand_of("TH JH QH KH"), hand_of(forced)[0]
+    assert contains_forced(cards, card_forced, {"Straight Flush"}, rules) == expected
+    assert probability(get_target("Straight Flush"), cards, [], 0, rules, forced=card_forced) == expected
 
 
 def bell_state(**kw) -> GameState:
-    """Cerulean Bell forcing the 2 of Spades; the deck has the Ace of Hearts that makes a Royal Flush."""
+    """Cerulean Bell forcing the 2 of Spades; the deck has the Ace of Hearts that makes a Straight Flush."""
     hand = [card(10, "Hearts"), card(11, "Hearts"), card(12, "Hearts"), card(13, "Hearts"),
             card(2, "Spades", forced=True, highlighted=True)]
     deck = [card(14, "Hearts"), card(3, "Clubs"), card(4, "Clubs")]
@@ -876,24 +858,24 @@ def bell_state(**kw) -> GameState:
 
 def test_bell_keeps_the_forced_card():
     state = bell_state()
-    royal = get_target("Royal Flush")
-    # Keeping: the forced 2 has to be played, so no 5-card Royal Flush.
-    assert evaluate_discard(state, royal, []).probability == 0
+    straight_flush = get_target("Straight Flush")
+    # Keeping: the forced 2 has to be played, so no 5-card Straight Flush.
+    assert evaluate_discard(state, straight_flush, []).probability == 0
     # Discarding it draws one of 3 cards, then forces a random one of the 5 in hand.
-    assert evaluate_discard(state, royal, [4]).probability == Fraction(1, 3)
+    assert evaluate_discard(state, straight_flush, [4]).probability == Fraction(1, 3)
 
 
 @pytest.mark.parametrize("change", [{"blind": "The Wheel"}, {"blind_disabled": True}])
 def test_no_forced_card_without_the_bell(change):
     state = replace(bell_state(), **change)
-    assert evaluate_discard(state, get_target("Royal Flush"), []).probability == 0  # nothing to draw
-    assert evaluate_discard(state, get_target("Royal Flush"), [4]).probability == Fraction(1, 3)
+    assert evaluate_discard(state, get_target("Straight Flush"), []).probability == 0  # nothing to draw
+    assert evaluate_discard(state, get_target("Straight Flush"), [4]).probability == Fraction(1, 3)
     # With 6 cards the 2 can be left out of the play, unless the Bell forces it
     # (after a draw it forces a random card: here one of the 5 that isn't the 2).
     def six(state):
         return replace(state, hand=state.hand + [card(5, "Diamonds")], hand_size=6)
-    assert evaluate_discard(six(state), get_target("Royal Flush"), [5]).probability == Fraction(1, 3)
-    assert evaluate_discard(six(bell_state()), get_target("Royal Flush"), [5]).probability == Fraction(5, 18)
+    assert evaluate_discard(six(state), get_target("Straight Flush"), [5]).probability == Fraction(1, 3)
+    assert evaluate_discard(six(bell_state()), get_target("Straight Flush"), [5]).probability == Fraction(5, 18)
 
 
 def test_full_deck_flush_five_speed():

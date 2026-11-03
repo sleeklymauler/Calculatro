@@ -576,7 +576,7 @@ def test_panel_remembers_how_it_fit(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
     targets = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-               "straight flush", "royal", "five of a kind", "flush house")
+               "straight flush", "five of a kind", "flush house", "flush five")
     rt.execute("G.hand.cards[3].highlighted = false; G.hand.cards[4].highlighted = false")
     answer(lua, tmp_path, targets=targets, queries=())
     mod.update(0.1)
@@ -632,7 +632,7 @@ def test_panel_spills_into_columns(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
     targets = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-               "straight flush", "royal", "five of a kind", "flush house")
+               "straight flush", "five of a kind", "flush house", "flush five")
     answer(lua, tmp_path, targets=targets, queries=("queen",))
     before = rt.eval("#BOXES")
     mod.update(0.1)
@@ -642,7 +642,7 @@ def test_panel_spills_into_columns(lua, tmp_path):
     # each is filled first; the query starts a column of its own.
     assert columns(rt, box.definition) == [
         ["Hands", "Any target", "Pair", "Two Pair", "Trips", "Straight", "Flush"],
-        ["Hands", "Full House", "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House"],
+        ["Hands", "Full House", "Quads", "Str. Flush", "5 of a Kind", "Flush House", "Flush Five"],
         ["In hand", "Queen: 1+"],
     ]
     assert box.T.h <= mod.max_panel_height()
@@ -659,20 +659,19 @@ def test_panel_fills_a_column_before_starting_another(lua, tmp_path):
     assert [len(c) - 1 for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [6, 1]
 
 
-@pytest.mark.parametrize("targets", [
-    ("pair", "two pair", "trips", "straight", "flush"),  # 6 rows: one full column
-    ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-     "straight flush", "royal", "five of a kind", "flush house", "flush five"),  # 13 rows
+@pytest.mark.parametrize("targets, queries, layout", [
+    (("pair", "two pair", "trips", "straight", "flush"), (), [7]),  # 6 rows: one full column
+    (("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
+      "straight flush", "five of a kind", "flush house", "flush five"), ("queen",), [7, 7, 2]),  # 12 rows and a query
 ])
-def test_message_does_not_change_the_panel(lua, tmp_path, targets):
+def test_message_does_not_change_the_panel(lua, tmp_path, targets, queries, layout):
     rt, mod = lua
     mod.update(1.0)
-    answer(lua, tmp_path, targets=targets, queries=())
+    answer(lua, tmp_path, targets=targets, queries=queries)
     mod.update(0.1)
     assert panel_texts(rt)[2] == "Hands@muted"  # no message
     box = rt.eval("BOXES[#BOXES]")
-    layout = [len(c) for c in columns(rt, box.definition)]
-    assert layout == ([7] if len(targets) == 5 else [7, 7, 2])
+    assert [len(c) for c in columns(rt, box.definition)] == layout
 
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # new snapshot
@@ -931,23 +930,23 @@ def hand_rows(rt) -> list[str]:
 
 @pytest.mark.parametrize("blind, banned", [
     ("{name = 'Big Blind'}", []),
-    # The Eye: hand types already played. A Royal Flush is played as a Straight Flush.
+    # The Eye: hand types already played.
     ("{name = 'The Eye', hands = {['Pair'] = true, ['Straight Flush'] = true, ['Flush'] = false}}",
-     ["Pair", "Str. Flush", "Royal Flush"]),
+     ["Pair", "Str. Flush"]),
     ("{name = 'The Eye', hands = {['Pair'] = true}, disabled = true}", []),
     # The Mouth: every hand type but the first played, nothing before then.
     ("{name = 'The Mouth', only_hand = false}", []),
     ("{name = 'The Mouth', only_hand = 'Straight Flush'}", ["Trips", "Pair"]),
-    ("{name = 'The Mouth', only_hand = 'Flush'}", ["Any target", "Trips", "Pair", "Str. Flush", "Royal Flush"]),
+    ("{name = 'The Mouth', only_hand = 'Flush'}", ["Any target", "Trips", "Pair", "Str. Flush"]),
 ])
 def test_panel_strikes_out_hands_the_boss_bans(lua, tmp_path, blind, banned):
     rt, mod = lua
     rt.execute(f"G.GAME.blind = {blind}")
-    answer(lua, tmp_path, targets=("trips", "pair", "straight flush", "royal flush"), queries=())
+    answer(lua, tmp_path, targets=("trips", "pair", "straight flush"), queries=())
     mod.update(0.1)
     assert struck(rt) == banned
     rows = hand_rows(rt)
-    names = ["Any target", "Trips", "Pair", "Str. Flush", "Royal Flush"]
+    names = ["Any target", "Trips", "Pair", "Str. Flush"]
     assert [r for r in rows if r.split("@")[0] in names] == [
         f"{name}@{'muted' if name in banned else 'light'}" for name in names]
     # The odds are still shown, as usual.
@@ -1063,7 +1062,7 @@ def test_panel_rebuilt_after_the_game_removes_it(lua, tmp_path):
 # --- Buttons and the target editor ----------------------------------------
 
 ALL_HANDS = ("pair", "two pair", "trips", "straight", "flush", "full house", "quads",
-             "straight flush", "royal", "five of a kind", "flush house", "flush five")
+             "straight flush", "five of a kind", "flush house", "flush five")
 
 
 def test_x_stops_tracking_a_row(lua, tmp_path):
@@ -1086,9 +1085,9 @@ def test_x_stops_tracking_a_row(lua, tmp_path):
 def test_plus_inert_once_nothing_more_fits(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
-    # 12 hand rows in 2 columns and 6 queries in a 3rd: another of either needs a 4th.
+    # 12 hand rows (every hand) in 2 columns and 6 queries in a 3rd: another query needs a 4th.
     queries = ("queen", "king", "ace", "jack", "spade", "heart")
-    answer(lua, tmp_path, targets=ALL_HANDS[:11], queries=queries)
+    answer(lua, tmp_path, targets=ALL_HANDS, queries=queries)
     mod.update(0.1)
     assert panel_texts(rt)[:2] == ["CALCULATRO@light", "+@muted"]
     assert not click(lua, "calculatro_open")
@@ -1146,7 +1145,7 @@ def test_hands_tab_toggles_hands(lua, tmp_path):
     assert find(rt, "calculatro_hand_Flush").config.colour == "l_black"
     assert panel_texts(rt)[4:] == [f"{n}@light" for n in [
         "Pair", "Two Pair", "Trips", "Straight", "Flush", "Full House",
-        "Quads", "Str. Flush", "Royal Flush", "5 of a Kind", "Flush House", "Flush Five"]]
+        "Quads", "Str. Flush", "5 of a Kind", "Flush House", "Flush Five"]]
     assert click(lua, "calculatro_hand_Flush")
     assert click(lua, "calculatro_hand_Three of a Kind")
     assert tracked(rt)[0] == ["Pair", "Three of a Kind", "Flush"]  # in the game's order
@@ -1156,15 +1155,26 @@ def test_hands_tab_toggles_hands(lua, tmp_path):
     assert [c[1:] for c in columns(rt, rt.eval("BOXES[#BOXES]").definition)] == [["Any target", "Trips", "Flush"]]
 
 
+def test_hands_no_longer_offered_are_dropped(lua, tmp_path):
+    """Runs saved by older versions may track Royal Flush."""
+    rt, mod = lua
+    mod.update(1.0)
+    rt.execute("G.GAME.calculatro = {hands = {'Pair', 'Royal Flush', 'Flush'}, cards = {}}")
+    mod.write_snapshot()
+    assert read_state(tmp_path).tracked_hands == ["Pair", "Flush"]
+    assert tracked(rt)[0] == ["Pair", "Flush"]
+
+
 def test_hands_that_would_not_fit_are_greyed(lua, tmp_path):
-    queries = ("queen", "king", "ace", "jack", "spade", "heart")
-    rt, mod = open_editor(lua, tmp_path, targets=ALL_HANDS[:10], queries=queries)
-    assert find(rt, "calculatro_hand_Flush Five").config.button  # an 11th hand still fits
-    assert click(lua, "calculatro_hand_Flush Five")
-    assert find(rt, "calculatro_hand_Flush House").config.button is None  # a 12th doesn't
-    assert "Flush House@stale" in panel_texts(rt)
+    # 12 queries take 2 columns, leaving one for 5 hands and "Any target".
+    queries = ("queen", "king", "ace", "jack", "ten", "nine", "eight", "seven", "spade", "heart", "club", "diamond")
+    rt, mod = open_editor(lua, tmp_path, targets=ALL_HANDS[:4], queries=queries)
+    assert find(rt, "calculatro_hand_Flush").config.button  # a 5th hand still fits
+    assert click(lua, "calculatro_hand_Flush")
+    assert find(rt, "calculatro_hand_Full House").config.button is None  # a 6th doesn't
+    assert "Full House@stale" in panel_texts(rt)
     assert click(lua, "calculatro_hand_Pair")  # tracked ones can still be removed
-    assert find(rt, "calculatro_hand_Flush House").config.button
+    assert find(rt, "calculatro_hand_Full House").config.button
 
 
 def cards_tab(lua, tmp_path, **kwargs):

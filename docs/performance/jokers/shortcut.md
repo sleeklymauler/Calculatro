@@ -11,7 +11,7 @@ covers what that does to the engine's performance; see
 A Straight is a set of 5 ranks (4 with Four Fingers), each one or two above
 the last (`_straight_windows`). Without Shortcut there are 10 such sets (11
 with Four Fingers); with it there are 128 (76 with Four Fingers). Every hand
-built on straights takes them all: Straight, Straight Flush and Royal Flush.
+built on straights takes them all: Straight and Straight Flush.
 
 ## Shortcut alone
 

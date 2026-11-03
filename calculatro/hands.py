@@ -114,13 +114,9 @@ def _n_of_a_kind(n: int) -> tuple[Pattern, ...]:
     return tuple((Requirement(_rank(r), n),) for r in RANKS)
 
 
-def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
-    """Straight Flush patterns; `royal` keeps every scoring card at 10 or above.
-
-    The game scores the flush cards plus the straight cards, and only names the
-    hand a Royal Flush if none of them is below 10.
-    """
-    windows = [w for w in _straight_windows(rules) if not royal or min(w) >= 10]
+def _straight_flush(rules: Rules) -> tuple[Pattern, ...]:
+    """Straight Flush patterns (a Royal Flush is one: the game only names it so)."""
+    windows = _straight_windows(rules)
     if not rules.four_fingers:
         return tuple(tuple(Requirement(_suited_rank(r, s), 1) for r in w)
                      for s in flush_suits(rules) for w in windows)
@@ -128,8 +124,7 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     # as all of them fit in 5 played cards. That means: 3 run ranks have a suited
     # card, the 4th (`m`) has any card, and there are 4 suited cards in all. The
     # 4th suited card is a second one of a run rank, or one of any other rank: if
-    # that's `m`, the whole run is suited. Only cards of rank 10+ may score in a
-    # Royal Flush, so only they count there.
+    # that's `m`, the whole run is suited.
     # Runs that share their 3 suited ranks differ only in `m`, so they're one
     # pattern with "a card of any rank that completes the run" (with Shortcut,
     # 5 7 9 is completed by a 3, 4, 6, 8, 10 or Jack). Saying "a suited card of
@@ -143,8 +138,7 @@ def _straight_flush(rules: Rules, royal: bool = False) -> tuple[Pattern, ...]:
     for three, ms in completions.items():
         any_m = Requirement(frozenset(k for m in ms for k in _rank(m)), 1)
         for s in flush_suits(rules):
-            other = frozenset(k for r in RANKS if r not in three and (r >= 10 or not royal)
-                              for k in _suited_rank(r, s))
+            other = frozenset(k for r in RANKS if r not in three for k in _suited_rank(r, s))
             patterns.append((*(Requirement(_suited_rank(r, s), 1) for r in three), any_m, Requirement(other, 1)))
             for twice in three:
                 patterns.append((*(Requirement(_suited_rank(r, s), 2 if r == twice else 1)
@@ -193,8 +187,6 @@ def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
         ),
         "Four of a Kind": _n_of_a_kind(4),
         "Straight Flush": _straight_flush(rules),
-        # Balatro scores a Royal Flush as a Straight Flush; it's only the display name.
-        "Royal Flush": _straight_flush(rules, royal=True),
         "Five of a Kind": _n_of_a_kind(5),
         "Flush House": _flush_house(rules),
         "Flush Five": _flush_five(rules),
@@ -203,7 +195,7 @@ def _hand_patterns(rules: Rules) -> dict[str, tuple[Pattern, ...]]:
 
 TARGETS: dict[str, Target] = {name: Target(name, (name,)) for name in _hand_patterns(Rules())}
 
-_ALIASES = {"trips": "Three of a Kind", "quads": "Four of a Kind", "royal": "Royal Flush"}
+_ALIASES = {"trips": "Three of a Kind", "quads": "Four of a Kind"}
 
 
 def get_target(name: str) -> Target:
@@ -214,7 +206,7 @@ def get_target(name: str) -> Target:
     for full, target in TARGETS.items():
         if full.lower() == norm:
             return target
-    raise KeyError(f"unknown target {name!r}; choose from: {', '.join(TARGETS)} (or trips, quads, royal)")
+    raise KeyError(f"unknown target {name!r}; choose from: {', '.join(TARGETS)} (or trips, quads)")
 
 
 def _at_least(pattern: Pattern, keys: frozenset[ClassKey]) -> int:
@@ -331,59 +323,28 @@ def _disjoint(pattern: Pattern) -> tuple[Pattern, ...]:
 
 
 @cache
-def _bell_parts(hands: tuple[str, ...], rules: Rules) -> tuple[tuple[Pattern, tuple[int, str] | None], ...]:
-    """The target's patterns with disjoint requirements, as (pattern, royal).
-
-    `royal` is (lowest rank, suit) for a pattern of at most 4 cards that only
-    makes a Royal Flush (none of the target's other hands), else None: adding
-    a card to it can make the hand a plain Straight Flush (see _spoils).
-    """
-    patterns = _patterns(hands, rules)
-    royal_only = set(_hand_patterns(rules)["Royal Flush"]) if (
-        "Royal Flush" in hands and "Straight Flush" not in hands) else set()
-    parts = []
-    for pattern in patterns:
-        for part in _disjoint(pattern):
-            royal = None
-            if pattern in royal_only and sum(r.need for r in part) <= 4:
-                keys = [k for r in part for k in r.keys]
-                royal = (min(rank for rank, _ in keys), next(s for _, s in keys if s != WILD))
-            parts.append((part, royal))
-    return tuple(parts)
-
-
-def _spoils(key: ClassKey | None, royal: tuple[int, str], rules: Rules) -> bool:
-    """Whether adding a card of class `key` to a Royal Flush of at most 4 cards
-    (lowest rank, suit) makes it a plain Straight Flush.
-
-    The game only names it a Royal Flush if no scoring card is below 10, and
-    scores every flush and straight card: a low card spoils it if it's of the
-    flush's suit or extends the run downwards (skipping a rank with Shortcut).
-    """
-    if key is None or key[0] >= 10:
-        return False
-    rank, suit = key
-    low, flush_suit = royal
-    return suit in (flush_suit, WILD) or rank + 1 == low or (rules.shortcut and rank + 2 == low)
+def _bell_parts(hands: tuple[str, ...], rules: Rules) -> tuple[Pattern, ...]:
+    """The target's patterns with disjoint requirements."""
+    return tuple(part for pattern in _patterns(hands, rules) for part in _disjoint(pattern))
 
 
 def bell_matters(target: Target, rules: Rules) -> bool:
     """Whether a forced card can change whether `target` is played: only if
-    some pattern needs 5 cards, or is a Royal Flush that a card can spoil."""
-    return any(royal or sum(r.need for r in part) > 4
-               for part, royal in _bell_parts(target.hands, replace(rules, pareidolia=False)))
+    some pattern needs 5 cards."""
+    return any(sum(r.need for r in part) > 4
+               for part in _bell_parts(target.hands, replace(rules, pareidolia=False)))
 
 
 @cache
 def _forced_patterns(hands: tuple[str, ...], rules: Rules, key: ClassKey | None) -> tuple[Pattern, ...]:
     patterns: list[Pattern] = []
-    for part, royal in _bell_parts(hands, rules):
+    for part in _bell_parts(hands, rules):
         q = next((q for q, r in enumerate(part) if key in r.keys), None)
         if q is not None:
             # The forced card is one of the pattern's cards.
             reduced = tuple(r if i != q else Requirement(r.keys, r.need - 1) for i, r in enumerate(part))
             patterns.append(tuple(r for r in reduced if r.need))
-        elif sum(r.need for r in part) <= 4 and not (royal and _spoils(key, royal, rules)):
+        elif sum(r.need for r in part) <= 4:
             patterns.append(part)  # it's played beside them
     return tuple(dict.fromkeys(patterns))
 
@@ -393,8 +354,7 @@ def forced_patterns(target: Target, rules: Rules, key: ClassKey | None) -> tuple
 
     They apply to the hand without the forced card: a pattern it's part of
     needs one card fewer, and one it isn't part of only counts if its cards
-    and the forced one fit in the 5 played (and that doesn't spoil a Royal
-    Flush). Adding a card to at most 4 never loses any other hand they make:
+    and the forced one fit in the 5 played. Adding a card to at most 4 never loses any other hand they make:
     rank counts only grow (Five of a Kind contains Four of a Kind, a Full
     House Two Pair), and 4 suited cards or a 4-card run stay one.
     """

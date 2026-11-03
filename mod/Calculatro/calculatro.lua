@@ -188,7 +188,9 @@ Calculatro.decode = decode
 -- The poker hands, in the game's order, and shorter names where the full
 -- ones are too long for the panel.
 local HANDS = { 'Pair', 'Two Pair', 'Three of a Kind', 'Straight', 'Flush', 'Full House',
-                'Four of a Kind', 'Straight Flush', 'Royal Flush', 'Five of a Kind', 'Flush House', 'Flush Five' }
+                'Four of a Kind', 'Straight Flush', 'Five of a Kind', 'Flush House', 'Flush Five' }
+local IS_HAND = {}
+for _, h in ipairs(HANDS) do IS_HAND[h] = true end
 local SHORT_NAMES = { ['Three of a Kind'] = 'Trips', ['Four of a Kind'] = 'Quads',
                       ['Five of a Kind'] = '5 of a Kind', ['Straight Flush'] = 'Str. Flush' }
 
@@ -196,11 +198,20 @@ local SHORT_NAMES = { ['Three of a Kind'] = 'Trips', ['Four of a Kind'] = 'Quads
 -- queries ({query = text for cards.parse_query, label = what the panel
 -- shows}). They're kept on G.GAME, so the game saves them with the run and a
 -- new run starts without any. The snapshot sends the names and queries to
--- the app, which keys its odds by them.
+-- the app, which keys its odds by them. Hands no longer offered (Royal
+-- Flush, in runs saved by older versions) are dropped.
 function Calculatro.tracked()
     G.GAME.calculatro = G.GAME.calculatro or {}
     local t = G.GAME.calculatro
     t.hands, t.cards = t.hands or {}, t.cards or {}
+    for _, h in ipairs(t.hands) do
+        if not IS_HAND[h] then
+            local hands = {}
+            for _, k in ipairs(t.hands) do if IS_HAND[k] then hands[#hands + 1] = k end end
+            t.hands = hands
+            break
+        end
+    end
     return t
 end
 
@@ -1002,18 +1013,16 @@ end
 
 -- Hand types the boss won't let score this round, as a set of HANDS names:
 -- The Eye bans those already played, The Mouth all but the first one played
--- (Blind:debuff_hand). A Royal Flush is played as a Straight Flush; only its
--- displayed name differs. The player sees both: The Mouth names its hand, and
+-- (Blind:debuff_hand). The player sees both: The Mouth names its hand, and
 -- they know what they've played.
 function Calculatro.banned_hands()
     local blind, banned = G.GAME and G.GAME.blind, {}
     if not blind or blind.disabled then return banned end
     for _, h in ipairs(HANDS) do
-        local played = h == 'Royal Flush' and 'Straight Flush' or h
         if blind.name == 'The Eye' and blind.hands then
-            banned[h] = blind.hands[played] or nil
+            banned[h] = blind.hands[h] or nil
         elseif blind.name == 'The Mouth' and blind.only_hand then
-            banned[h] = blind.only_hand ~= played or nil
+            banned[h] = blind.only_hand ~= h or nil
         end
     end
     return banned
@@ -1639,7 +1648,7 @@ local ADD_W = CARDS_TAB_W - PAGE_CELL_W - 3 * ROW_PAD
 -- centred in it.
 local EDITOR_W = CARDS_TAB_W + 2 * INSET_PAD
 -- Both tabs are as tall as the Cards tab: its builder's five rows of padded
--- buttons, then Add. The Hands tab's six rows of toggles are a little shorter.
+-- buttons, then Add. The Hands tab's (at most) six rows of toggles are a little shorter.
 local EDITOR_ROW_H = TEXT_H + 2 * TEXT_PAD + 2 * ROW_PAD
 local EDITOR_H = 6 * EDITOR_ROW_H + ADD_GAP
 
@@ -1716,10 +1725,12 @@ end
 local function hands_tab(model)
     local C = G.C
     local columns = {}
+    -- In the game's order down the first column, then the second.
+    local first = math.ceil(#HANDS / 2)
     for c = 0, 1 do
         local rows = {}
-        for r = 1, #HANDS / 2 do
-            local h = model.hands[c * #HANDS / 2 + r]
+        for r = 1, c == 0 and first or #HANDS - first do
+            local h = model.hands[c * first + r]
             local full = h.state == 'full'
             rows[r] = row({ button(
                 { blank(0.1), plain(h.name, full and C.UI.BACKGROUND_INACTIVE or C.UI.TEXT_LIGHT) },

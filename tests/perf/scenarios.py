@@ -218,14 +218,13 @@ class BestDiscard:
 
 
 SINGLE_HANDS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House",
-                "Four of a Kind", "Straight Flush", "Royal Flush", "Five of a Kind",
+                "Four of a Kind", "Straight Flush", "Five of a Kind",
                 "Flush House", "Flush Five"]
 COMBINED = [("Full House", "Straight Flush"), ("Flush", "Straight Flush"),
             ("Two Pair", "Flush"), ("Straight", "Flush")]
 # "Any target" rows timed with nothing cached: building them compares patterns
 # across hands, which with Four Fingers and Shortcut are many.
-COLD_COMBINED = [("Full House", "Straight Flush"), ("Straight Flush", "Royal Flush"),
-                 ("Straight Flush", "Flush House"), tuple(SINGLE_HANDS)]
+COLD_COMBINED = [("Full House", "Straight Flush"), ("Straight Flush", "Flush House"), tuple(SINGLE_HANDS)]
 
 
 def _scenarios() -> list[Scenario]:
@@ -245,7 +244,7 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(COLD_KEEP_3, c, jokers) for c in COLD_COMBINED]
         # The Mark: one search per number of face cards among the unknown cards.
         out += [Scenario(s, t, jokers) for s in (BELL_KEEP_3, BELL_KEEP_6)
-                for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",), ("Royal Flush",),
+                for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
                           ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
                 for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),

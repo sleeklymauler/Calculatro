@@ -68,8 +68,7 @@ exists. It is one of:
 
 This is the same condition, but (3) is a single "seen one?" requirement. The
 search remembers one bit per suit instead of a count, and the bound on
-cards needed got tighter (5 cards, not 4, when `m` is off-suit). Royal Flush
-works the same way, with only ranks 10+ counting as "outside".
+cards needed got tighter (5 cards, not 4, when `m` is off-suit).
 
 Since the Shortcut work, runs that share their 3 suited ranks are one
 pattern, with "a card of any rank that completes the run" and "a suited card

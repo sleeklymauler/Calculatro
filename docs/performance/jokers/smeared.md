@@ -9,10 +9,10 @@ for the general design.
 ## What it does to the patterns
 
 `card_key` classes a Diamond as a Heart and a Club as a Spade, and the
-flush-type hands (Flush, Straight Flush, Royal Flush, Flush House, Flush
-Five) are built for those two suits only (`hands.flush_suits`). Each colour
-then has two cards of every rank where a suit had one, and there are two
-groups of suited patterns instead of four.
+flush-type hands (Flush, Straight Flush, Flush House, Flush Five) are built
+for those two suits only (`hands.flush_suits`). Each colour then has two
+cards of every rank where a suit had one, and there are two groups of suited
+patterns instead of four.
 
 Mostly this makes things faster. Half as many suited patterns means less
 work, and with Wild Cards unseen (when the split by suit is off anyway), the
