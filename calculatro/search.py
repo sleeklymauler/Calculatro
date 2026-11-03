@@ -28,8 +28,9 @@ from itertools import pairwise, product
 from threading import Event
 
 from .cards import CardQuery
-from .engine import Cancelled, Reuse, evaluate_cards, evaluate_discard
+from .engine import Cancelled, Reuse, evaluate_cards, evaluate_discard, rules_after
 from .hands import RANKS, WILD, ClassKey, Pattern, Target, bell_matters, card_key, flush_suits, get_target
+from .rules import Rules
 from .state import SUITS, Card, GameState
 
 
@@ -57,13 +58,14 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
     budget = limit - (forced is not None)
 
     reuse = Reuse(hand)  # every discard draws from the same pool
-    relabelled: dict[Target, Callable[[list[int]], object]] = {}
+    rule_sets = _rule_sets(state)
+    relabelled: dict[Target, list[Callable[[list[int]], object]]] = {}
     known: dict[tuple[Target, object], Fraction] = {}
 
     def odds(goal: Target, discard: list[int]) -> Fraction:
         if goal not in relabelled:
-            relabelled[goal] = _relabelled(state, goal)
-        key = goal, relabelled[goal](discard)
+            relabelled[goal] = [_relabelled(state, goal, rules) for rules in rule_sets]
+        key = goal, tuple(k(discard) for k in relabelled[goal])
         p = known.get(key)
         if p is None:
             if cancel is not None and cancel.is_set():
@@ -107,19 +109,21 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     """The discards (or keeping the hand) with the best odds of a final hand
     satisfying `query`, under the same rules as best_discards.
 
-    The odds only look at whether a kept card matches the query, or that it's
-    face down, so those are the groups whose counts are enumerated.
+    The odds only look at whether a kept card matches the query (under each
+    set of rules it may be judged under, `_rule_sets`), or that it's face
+    down, so those are the groups whose counts are enumerated.
     Raises engine.Cancelled soon after `cancel` is set.
     """
     hand = state.hand
-    rules = state.rules
+    rule_sets = _rule_sets(state)
     forced = state.forced if state.bell else None
     limit = min(state.select_limit, len(hand)) if can_redraw(state) else 0
     budget = limit - (forced is not None)
     groups: dict[object, list[int]] = {}
     for i, c in enumerate(hand):
         if i != forced:
-            groups.setdefault("hidden" if c.hidden else query.filter.test(c, rules), []).append(i)
+            group = "hidden" if c.hidden else tuple(query.filter.test(c, rules) for rules in rule_sets)
+            groups.setdefault(group, []).append(i)
     group_list = list(groups.values())
 
     choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
@@ -146,35 +150,48 @@ def can_redraw(state: GameState) -> bool:
     return state.discards_left > 0 or state.hands_left > 1
 
 
+def _rule_sets(state: GameState) -> list[Rules]:
+    """Every set of rules a final hand may be judged under: the current ones,
+    and those Crimson Heart may leave after a play (`engine.rules_after`, the
+    same for any play). Hand cards are only interchangeable if they are under
+    each of them."""
+    rule_sets = [state.rules]
+    if state.hand:
+        rule_sets += [rules for rules, _ in rules_after(state, [0]) if rules not in rule_sets]
+    return rule_sets
+
+
 def _groups(state: GameState, target: Target, forced: int | None) -> list[list[int]]:
     """Hand indices (bar the forced card) in groups whose cards the odds can't tell apart.
 
     Face-down cards are one group. A known card is grouped by which of the
-    target's requirements it counts towards: the search only looks at kept
-    cards through those. With Cerulean Bell the card that ends up forced
+    target's requirements it counts towards, under each set of rules the
+    final hand may be judged under (`_rule_sets`): the search only looks at
+    kept cards through those. With Cerulean Bell the card that ends up forced
     matters by its class too (`_bell_after_draw`), so there it's by class.
     """
     rules = state.rules
     exact = state.bell and bell_matters(target, rules)
-    patterns = target.patterns(rules)
+    tables = [(r, target.patterns(r)) for r in _rule_sets(state)]
     groups: dict[object, list[int]] = {}
     for i, c in enumerate(state.hand):
         if i == forced:
             continue
-        key = card_key(c, rules)
         if c.hidden:
             group: object = "hidden"
         elif exact:
-            group = ("key", key)
+            group = ("key", card_key(c, rules))
         else:
-            group = frozenset((p, q) for p, pattern in enumerate(patterns)
-                              for q, req in enumerate(pattern) if key is not None and key in req.keys)
+            group = tuple(frozenset((p, q) for p, pattern in enumerate(patterns)
+                                    for q, req in enumerate(pattern) if key is not None and key in req.keys)
+                          for r, patterns in tables for key in (card_key(c, r),))
         groups.setdefault(group, []).append(i)
     return list(groups.values())
 
 
-def _relabelled(state: GameState, target: Target) -> Callable[[list[int]], object]:
-    """A key on discards, the same for two of them only if their odds of `target` are.
+def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[list[int]], object]:
+    """A key on discards, the same for two of them only if their odds of `target`
+    with the final hand judged under `rules` are.
 
     The odds depend on the classes of the kept known cards and of the unseen
     ones, and on how many cards are discarded and kept face down. They don't
@@ -191,7 +208,6 @@ def _relabelled(state: GameState, target: Target) -> Callable[[list[int]], objec
     class matters too (see _groups), so discards aren't relabelled.
     """
     hand = state.hand
-    rules = state.rules
 
     def counts(discard: list[int]) -> tuple[int, int]:
         return len(discard), sum(hand[i].hidden for i in discard)

@@ -168,6 +168,18 @@ the same results in every scenario.
 - **"Any target" with Four Fingers + Shortcut** when the hand already holds
   one of the hands: the sum bound is 1 for most choices, so they all need
   exact odds (1.7–2.3 s on 8 cards, 7 s on 10).
+- **Crimson Heart with no discards left**, where the selection is played and
+  the boss then swaps which joker is debuffed (`engine.rules_after`): each
+  odds value averages over the rules left by the swap, and the search can
+  only treat cards as alike under all of them (`search._rule_sets`). Rule sets
+  the target can't tell apart are worked out once (`engine._merged`; Shortcut
+  for a Flush, say), and in a search `Reuse` shares the rest, so the averaging
+  itself costs little (the "Crimson Heart, played" scenarios: 17–210 ms on
+  8 cards outside Straight Flush and "Any target"). The cost is that the swap
+  can turn on Four Fingers beside Shortcut, the case above: with Shortcut on
+  and Four Fingers debuffed, Straight Flush takes 3.7 s and "Any target"
+  2.3 s, against 0.1 s and 0.75 s without the boss, where Four Fingers stays
+  off.
 
 Ideas not yet tried:
 

@@ -203,6 +203,28 @@ def test_the_hook_when_playing_to_throw_cards_away():
         check(state, get_target(name))
 
 
+@pytest.mark.parametrize("jokers", [
+    [Joker("j_four_fingers", debuff=True), Joker("j_joker"), Joker("j_shortcut")],
+    # Smeared may be lost, telling apart cards that are alike now.
+    [Joker("j_smeared"), Joker("j_four_fingers", debuff=True), Joker("j_joker")],
+])
+def test_crimson_heart_when_playing_to_throw_cards_away(jokers):
+    # Cards alike under the current rules may not be under those after the play.
+    state = random_state(random.Random(11), deck=10, blind="Crimson Heart", discards_left=0, hands_left=2,
+                         jokers=jokers)
+    for name in ("Straight", "Flush", "Straight Flush"):
+        check(state, get_target(name))
+    check(state, combine([get_target(n) for n in ("Pair", "Flush", "Straight")]))
+
+
+def test_crimson_heart_card_queries():
+    # Pareidolia may be lost: every card is a face card now, but not after the play.
+    state = enhanced_state(random.Random(12), blind="Crimson Heart", discards_left=0, hands_left=2,
+                           jokers=[Joker("j_pareidolia"), Joker("j_joker", debuff=True), Joker("j_smeared")])
+    for text in ("2+ face cards", "at most 1 heart", "between 1 and 2 face cards of spades"):
+        check(state, parse_query(text))
+
+
 @pytest.mark.parametrize("jokers, blind, names", [
     ([], None, ["Full House", "Straight Flush", "Flush / Straight / Full House"]),
     (["j_four_fingers", "j_shortcut"], None, ["Straight Flush", "Flush / Straight / Full House"]),

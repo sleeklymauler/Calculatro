@@ -47,9 +47,9 @@ from __future__ import annotations
 import gc
 from bisect import bisect_left
 from collections import Counter, defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cache
 from itertools import combinations, product, repeat
@@ -950,30 +950,76 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
                     state.hidden + state.discarded_hidden if state.mark else 0, hooked)
 
 
+def rules_after(state: GameState, discard: list[int]) -> list[tuple[Rules, int]]:
+    """The rules the final hand is judged under after discarding `discard`,
+    each with how many of the equally likely ways lead to it.
+
+    Only Crimson Heart changes them, and only after a hand is played, which
+    the selection has to be without discards left: after the draw
+    (`Blind:drawn_to_hand`), it lifts every joker's debuff, bar a Perishable
+    one's that has run out (`Card:set_debuff`), then debuffs one of the jokers
+    that weren't debuffed, uniformly at random (any of them with only one).
+    The draw itself is unchanged, and so is its size: a hand-size joker's
+    bonus comes and goes after it.
+    """
+    jokers = state.jokers
+    if not (discard and state.discards_left <= 0 and state.crimson and jokers):
+        return [(state.rules, 1)]
+    picks = [i for i, j in enumerate(jokers) if not j.debuff] if len(jokers) > 1 else [0]
+    if not picks:
+        picks = [None]  # every joker debuffed: none is picked, and only the perished stay so
+    outcomes = Counter(Rules.from_jokers(replace(j, debuff=j.perished or i == pick) for i, j in enumerate(jokers))
+                       for pick in picks)
+    return list(outcomes.items())
+
+
+def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) -> list[tuple[Rules, int]]:
+    """`outcomes` with the rules that give the same `same` (and so the same odds) merged."""
+    merged: dict[object, tuple[Rules, int]] = {}
+    for rules, n in outcomes:
+        key = same(rules)
+        first, m = merged.get(key, (rules, 0))
+        merged[key] = first, m + n
+    return list(merged.values())
+
+
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
                      cancel: Event | None = None, reuse: Reuse | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`.
 
     Without discards left they'd have to be played instead, which under The
-    Hook also throws away 2 random kept cards (`_after_hook`). Calls for the
-    same state can share a `reuse` (see Reuse).
+    Hook also throws away 2 random kept cards (`_after_hook`), and under
+    Crimson Heart changes which joker is debuffed (`rules_after`): the odds
+    are then the average over the rules the final hand may be judged under.
+    Calls for the same state can share a `reuse` (see Reuse).
     """
     d = _discard(state, discard)
-    rules = state.rules
+    outcomes = rules_after(state, discard)
+    total = sum(n for _, n in outcomes)
+    if len(outcomes) > 1:
+        # Rules the target's patterns don't see give the same odds: Shortcut for a
+        # Flush, or any of them for a Pair. Smeared also changes the cards' classes.
+        # (Crimson Heart is the boss, so The Mark's split and Cerulean Bell don't apply.)
+        outcomes = _merged(outcomes, lambda rules: (target.patterns(rules), rules.smeared))
+    p = sum((n * _discard_odds(state, target, discard, d, rules, cancel, reuse) for rules, n in outcomes),
+            Fraction(0)) / total
+    return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Discard, rules: Rules,
+                  cancel: Event | None, reuse: Reuse | None) -> Fraction:
+    """evaluate_discard's odds with the final hand judged under `rules`."""
     if d.hooked:
-        return DiscardOutcome(d.discarded, d.draws, _after_hook(target, d, rules, cancel, reuse))
+        return _after_hook(target, d, rules, cancel, reuse)
     unseen = d.hidden_kept + d.draws
     if state.bell and bell_matters(target, rules):
         forced = state.forced
         if not discard and forced is not None and not state.hand[forced].hidden:
             # Keeping the hand keeps its forced card.
             kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
-            p = probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
-        else:
-            p = _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel, reuse)
-        return DiscardOutcome(d.discarded, d.draws, p)
-    p = probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept, reuse=reuse)
-    return DiscardOutcome(d.discarded, d.draws, p)
+            return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
+        return _bell_after_draw(target, d.kept_known, d.pool, unseen, rules, cancel, reuse)
+    return probability(target, d.kept_known, d.pool, unseen, rules, cancel, d.marked, d.hidden_kept, reuse=reuse)
 
 
 def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
@@ -1098,14 +1144,28 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
     those are left to draw. Cerulean Bell's forced card is in the final hand
     like any other, so it changes nothing. Without discards left the selection
     would be played instead, which under The Hook also throws away 2 random
-    kept cards (`_hooked`): the odds are the average over which ones.
+    kept cards (`_hooked`): the odds are the average over which ones. Under
+    Crimson Heart, Pareidolia may be debuffed or not after the play
+    (`rules_after`), which changes the face cards: the odds are the average
+    over the rules.
     """
     d = _discard(state, discard)
-    rules = state.rules
+    outcomes = rules_after(state, discard)
+    total = sum(n for _, n in outcomes)
+    if len(outcomes) > 1:
+        # The odds only see which cards match: Four Fingers and Shortcut never
+        # change that, and Smeared and Pareidolia only for some queries.
+        cards = (*d.kept_known, *d.pool)
+        outcomes = _merged(outcomes, lambda rules: tuple(query.filter.test(c, rules) for c in cards))
+    p = sum((n * _card_odds(query, d, rules) for rules, n in outcomes), Fraction(0)) / total
+    return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def _card_odds(query: CardQuery, d: _Discard, rules: Rules) -> Fraction:
+    """evaluate_cards's odds with the final hand judged under `rules`."""
     have = sum(query.filter.test(c, rules) for c in d.kept_known)
     if not d.hooked:
-        return DiscardOutcome(d.discarded, d.draws, count_probability(
-            query, d.pool, d.hidden_kept + d.draws, rules, d.marked, d.hidden_kept, have))
+        return count_probability(query, d.pool, d.hidden_kept + d.draws, rules, d.marked, d.hidden_kept, have)
     # Of the kept cards, only whether each matches matters, or that it's face down.
     sizes = (have, len(d.kept_known) - have, d.hidden_kept)
     total = Fraction(0)
@@ -1115,4 +1175,4 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> Di
             weight = prod(comb(n, k) for n, k in zip(sizes, taken))
             total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden,
                                                 have - taken[0])
-    return DiscardOutcome(d.discarded, d.draws, total / comb(sum(sizes), d.hooked))
+    return total / comb(sum(sizes), d.hooked)

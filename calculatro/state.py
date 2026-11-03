@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 9
+SCHEMA = 10
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -67,6 +67,7 @@ class Card:
 class Joker:
     key: str
     debuff: bool = False  # a debuffed joker has no effect
+    perished: bool = False  # a Perishable joker past its rounds: debuffed for good
 
 
 def _cards(raw: Any) -> list[Card]:
@@ -164,7 +165,7 @@ class GameState:
             played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
             discard=_cards(d.get("discard")),
-            jokers=[Joker(j["key"], bool(j.get("debuff", False)))
+            jokers=[Joker(j["key"], bool(j.get("debuff", False)), bool(j.get("perished", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
@@ -191,6 +192,11 @@ class GameState:
     def hook(self) -> bool:
         """Whether The Hook is in play: after a hand is played, it discards 2 random cards held in hand."""
         return self.blind == "The Hook" and not self.blind_disabled
+
+    @property
+    def crimson(self) -> bool:
+        """Whether Crimson Heart is in play: after a hand is played, it debuffs another joker."""
+        return self.blind == "Crimson Heart" and not self.blind_disabled
 
     @property
     def forced(self) -> int | None:

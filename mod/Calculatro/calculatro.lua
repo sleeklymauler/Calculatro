@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 9,
+    schema = 10,
     odds_schema = 5,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -724,7 +724,10 @@ function Calculatro.snapshot()
     local jokers = array()
     if G.jokers and G.jokers.cards then
         for i, j in ipairs(G.jokers.cards) do
-            jokers[i] = { key = j.config and j.config.center_key, debuff = j.debuff and true or false }
+            -- Perished: debuffed for good, which Crimson Heart can't undo (Card:set_debuff).
+            local ability = j.ability or {}
+            jokers[i] = { key = j.config and j.config.center_key, debuff = j.debuff and true or false,
+                          perished = (ability.perishable and (ability.perish_tally or 0) <= 0) and true or false }
         end
     end
     jokers = sorted_cards(jokers)

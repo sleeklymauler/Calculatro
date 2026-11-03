@@ -203,6 +203,18 @@ def test_snapshot_hides_joker_order(lua):
     assert len(shuffled) == 3 and all(j in shuffled for j in before)
 
 
+def test_snapshot_marks_perished_jokers(lua):
+    # Crimson Heart can't lift a run-out Perishable joker's debuff, so the app needs to know.
+    rt, _ = lua
+    rt.execute("""table.insert(G.jokers.cards, {config = {center_key = 'j_shortcut'}, debuff = true,
+                                                ability = {perishable = true, perish_tally = 0}})
+                  table.insert(G.jokers.cards, {config = {center_key = 'j_joker'},
+                                                ability = {perishable = true, perish_tally = 2}})""")
+    state = GameState.from_json(snapshot_json(lua))
+    assert state.jokers == [Joker("j_four_fingers"), Joker("j_joker"), Joker("j_shortcut", debuff=True, perished=True),
+                            Joker("j_smeared", debuff=True)]
+
+
 def test_rules_from_jokers():
     assert Rules.from_jokers([]) == Rules()
     # Copies change nothing; Splash and other jokers don't change the odds.

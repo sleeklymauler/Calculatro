@@ -23,6 +23,7 @@ from calculatro.engine import (
     evaluate_cards,
     evaluate_discard,
     probability,
+    rules_after,
 )
 from calculatro.hands import TARGETS, Requirement, combine, get_target
 from calculatro.rules import Rules
@@ -925,3 +926,77 @@ def test_the_hook_only_after_a_play():
     out = evaluate_discard(state, trips, [0, 1, 2, 3, 4])
     assert out.draws == 6
     assert out.probability == probability(trips, [], state.unseen, 6)
+
+
+# --- Crimson Heart ------------------------------------------------------------
+
+def crimson_state(jokers: list[Joker], **kw) -> GameState:
+    hand = [card(5, "Hearts"), card(6, "Hearts"), card(8, "Clubs"), card(9, "Hearts"), card(13, "Spades"),
+            card(2, "Clubs")]
+    deck = [card(r, s) for r, s in ((7, "Hearts"), (7, "Spades"), (4, "Hearts"), (10, "Diamonds"), (12, "Clubs"),
+                                     (11, "Hearts"), (3, "Spades"), (14, "Hearts"), (9, "Clubs"))]
+    return GameState(**{"in_run": True, "hand_size": 6, "discards_left": 0, "hands_left": 2,
+                        "blind": "Crimson Heart", "hand": hand, "unseen": deck, "jokers": jokers, **kw})
+
+
+def test_crimson_heart_rules_after_a_play():
+    ff, sc, joker = Joker("j_four_fingers"), Joker("j_shortcut"), Joker("j_joker")
+
+    def after(*jokers: Joker, discard=(0,), **kw) -> dict[Rules, int]:
+        return dict(rules_after(crimson_state(list(jokers), **kw), list(discard)))
+
+    # The debuffed joker comes back, and one of the others is debuffed.
+    assert after(replace(ff, debuff=True), joker, sc) == {Rules(four_fingers=True, shortcut=True): 1,
+                                                          Rules(four_fingers=True): 1}
+    assert after(replace(ff, debuff=True), joker, joker, sc) == {Rules(four_fingers=True, shortcut=True): 2,
+                                                                 Rules(four_fingers=True): 1}
+    # A lone joker is debuffed again, debuffed or not.
+    assert after(replace(sc, debuff=True)) == after(sc) == {Rules(): 1}
+    # A run-out Perishable stays debuffed, and isn't picked.
+    perished = replace(ff, debuff=True, perished=True)
+    assert after(perished, replace(sc, debuff=True), joker) == {Rules(shortcut=True): 1}
+    assert after(perished, replace(sc, debuff=True)) == {Rules(shortcut=True): 1}
+    assert after(perished, replace(perished, key="j_smeared")) == {Rules(): 1}
+    # Only after a play: not when keeping, discarding, or with the boss disabled or absent.
+    for kw in ({"discard": ()}, {"discards_left": 1}, {"blind_disabled": True}, {"blind": "The Hook"}):
+        assert after(replace(ff, debuff=True), joker, sc, **kw) == {Rules(shortcut=True): 1}
+
+
+def test_crimson_heart_odds_average_the_rules_after_a_play():
+    jokers = [Joker("j_four_fingers", debuff=True), Joker("j_joker"), Joker("j_shortcut")]
+    state = crimson_state(jokers)
+    plain = replace(state, blind="Small Blind")
+    for name in ("Straight", "Flush", "Straight Flush", "Pair"):
+        target = get_target(name)
+        both = evaluate_discard(replace(plain, jokers=[Joker("j_four_fingers"), Joker("j_shortcut")]), target, [4, 5])
+        ff = evaluate_discard(replace(plain, jokers=[Joker("j_four_fingers")]), target, [4, 5])
+        out = evaluate_discard(state, target, [4, 5])
+        assert out.draws == both.draws == 2
+        assert out.probability == (both.probability + ff.probability) / 2
+        # Keeping plays nothing, so it's judged under the current rules.
+        assert evaluate_discard(state, target, []) == evaluate_discard(plain, target, [])
+    straight = get_target("Straight")
+    assert evaluate_discard(state, straight, [4, 5]) != evaluate_discard(plain, straight, [4, 5])
+
+
+def test_crimson_heart_card_odds_after_a_play():
+    # Pareidolia comes back after the play: every card is then a face card.
+    state = crimson_state([Joker("j_pareidolia", debuff=True), Joker("j_joker")])
+    plain = replace(state, blind="Small Blind", jokers=[Joker("j_pareidolia")])
+    query = parse_query("at least 6 face cards")
+    assert evaluate_cards(state, query, [4, 5]) == evaluate_cards(plain, query, [4, 5])
+    assert evaluate_cards(state, query, [4, 5]).probability == 1
+    assert evaluate_cards(state, query, []).probability == 0
+
+
+def test_crimson_heart_works_out_rules_the_target_sees_once(monkeypatch):
+    import calculatro.engine as engine
+    calls = []
+    real = engine.probability
+    monkeypatch.setattr(engine, "probability", lambda *a, **kw: calls.append(a[4]) or real(*a, **kw))
+    state = crimson_state([Joker("j_four_fingers", debuff=True), Joker("j_joker"), Joker("j_shortcut")])
+    # Shortcut changes neither a Pair nor a Flush, so only one of the two rule sets is searched.
+    for name, searched in (("Pair", 1), ("Flush", 1), ("Straight", 2)):
+        calls.clear()
+        evaluate_discard(state, get_target(name), [4, 5])
+        assert len(calls) == searched

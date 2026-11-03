@@ -12,8 +12,8 @@ The mod exports the current blind as `blind` = `G.GAME.blind.name` (the **Name**
 
 | Effect on the odds | Blinds |
 |---|---|
-| Modelled by the engine | The Serpent, The Mark, Cerulean Bell, The Hook (when the selection has to be played) |
-| Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart, The Wheel, The House, The Fish |
+| Modelled by the engine | The Serpent, The Mark, Cerulean Bell, The Hook and Crimson Heart (both when the selection has to be played) |
+| Handled through the exported state (hand size, hands, discards, debuff flags, face-down cards) | The Manacle, The Water, The Needle, The Club, The Goad, The Window, The Head, The Plant, The Pillar, Verdant Leaf, Crimson Heart (otherwise), The Wheel, The House, The Fish |
 | **Not modelled, odds are wrong** | None |
 | Odds are right; the panel strikes out the hands that can't score | The Eye, The Mouth |
 | Odds are right but the hand may not score (by design) | The Psychic (only with fewer than 5 cards in hand) |
@@ -31,7 +31,7 @@ A boss is disabled by **Chicot** (when the blind is selected, or when Chicot is 
 - The Wall's chips are halved and Violet Vessel's divided by 3, back to 2x base. The Needle stays at 1x.
 - Every card's debuff is recomputed, which clears the boss's debuffs.
 
-Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent`, `GameState.mark` and `GameState.bell` check `blind_disabled`; any new boss rule must do the same.
+Every boss effect checks `disabled`, so a disabled boss behaves like a Small Blind (apart from its score and reward). `GameState.serpent`, `GameState.mark`, `GameState.bell`, `GameState.hook` and `GameState.crimson` check `blind_disabled`; any new boss rule must do the same.
 
 ### Face-down cards (`Blind:stay_flipped`)
 
@@ -71,7 +71,9 @@ Nothing here needs special handling in the engine: the debuff flags arrive with 
 
 ### Jokers debuffed or flipped
 
-- **Crimson Heart** debuffs one random joker in `drawn_to_hand` when `prepped`: on the opening draw and after every hand played, **not** after discards. It picks from the jokers that weren't debuffed (unless there's only one), so the same joker is never hit twice in a row. A debuffed rule joker (Four Fingers, Shortcut, Smeared, Pareidolia) has no effect, and a debuffed hand-size joker loses its bonus (`remove_from_deck`). Both arrive in the exported state (`Joker.debuff`, skipped by `Rules.from_jokers`; `hand_size`). Since the debuffed joker only changes on a play, the odds of a discard's draw are computed under the right rules.
+- **Crimson Heart** debuffs one random joker in `drawn_to_hand` when `prepped`: on the opening draw and after every hand played, **not** after discards. It first lifts every joker's debuff (`set_debuff(false)`, which leaves a Perishable joker that has run out debuffed), then picks one uniformly from the jokers that weren't debuffed before (any of them if there's only one), so the same joker is never hit twice in a row. A debuffed rule joker (Four Fingers, Shortcut, Smeared, Pareidolia) has no effect, and a debuffed hand-size joker loses its bonus (`remove_from_deck`). Both arrive in the exported state (`Joker.debuff`, skipped by `Rules.from_jokers`; `hand_size`), and the mod exports run-out Perishables as `perished`.
+  - **Discards, and keeping the hand:** the debuffed joker doesn't change, so the odds are computed under the current rules.
+  - **A hand played to throw cards away** (no discards left): **modelled.** `drawn_to_hand` runs after the draw that follows the play, so the cards drawn and their number are unchanged (a hand-size joker's bonus comes or goes after it), but the final hand is judged under the rules left by the swap. `engine.rules_after` lists them, weighted by how many picks lead to each, and `evaluate_discard`/`evaluate_cards` average the odds over them; when no rule joker is involved there's just one. The best-discard search groups and relabels hand cards only as far as every one of those rule sets allows (`search._rule_sets`), since losing Smeared or Pareidolia tells apart cards that are alike now.
 - **Amber Acorn** flips every joker face down and shuffles them. `find_joker` doesn't check `facing`, so the jokers keep working and the rules are unchanged, and the player knows which jokers they own. The mod exports the jokers sorted (like the deck), never in `G.jokers.cards` order, so the shuffled positions the player can't see don't leak. Nothing in the engine uses joker order; anything that ever needs it (Blueprint, Brainstorm) can't get it from the export.
 
 ### Draws
@@ -188,5 +190,5 @@ Columns:
 | 26 | Amber Acorn | `bl_final_acorn` | Showdown | 2x | $8 | Flips and shuffles all Joker cards | N | joker | No effect (jokers exported sorted) |
 | 27 | Verdant Leaf | `bl_final_leaf` | Showdown | 2x | $8 | All cards debuffed until 1 Joker sold | Y | debuff | Handled (debuff flags) |
 | 28 | Violet Vessel | `bl_final_vessel` | Showdown | 6x | $8 | Very large blind | N |  | No effect |
-| 29 | Crimson Heart | `bl_final_heart` | Showdown | 2x | $8 | One random Joker disabled every hand | N | joker | Handled (`Joker.debuff`) |
+| 29 | Crimson Heart | `bl_final_heart` | Showdown | 2x | $8 | One random Joker disabled every hand | N | joker | Handled (`Joker.debuff`); modelled after a play (`rules_after`) |
 | 30 | Cerulean Bell | `bl_final_bell` | Showdown | 2x | $8 | Forces 1 card to always be selected | N | forced | **Modelled** (`GameState.forced`, `hands.forced_patterns`) |

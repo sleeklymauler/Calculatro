@@ -88,6 +88,8 @@ class Situation:
     # With "The Mark", the face-down cards are the hand's face cards; with
     # "Cerulean Bell", the first card discarded is the forced one.
     blind: str | None = None
+    discards: int = 3  # with none, the selection is played
+    jokers: tuple[Joker, ...] = ()  # besides the scenario's
 
     @property
     def unknown(self) -> int:
@@ -106,6 +108,11 @@ MARK_ALL = Situation("8 unknown: The Mark, 3 face-down, draw 5", kept=0, hidden=
 # kind of unseen card.
 BELL_KEEP_3 = Situation("Keep 3, draw 5, Cerulean Bell", kept=3, hidden=0, blind="Cerulean Bell")
 BELL_KEEP_6 = Situation("Keep 6, draw 2, Cerulean Bell", kept=6, hidden=0, blind="Cerulean Bell")
+# Crimson Heart, with the selection played: after the draw it lifts the debuffed joker's debuff and debuffs
+# another, so the odds average over the rules that leaves. With the scenario's Shortcut, the Four Fingers
+# here comes back, and either the Joker is debuffed (Four Fingers + Shortcut) or Shortcut is (Four Fingers).
+CRIMSON_KEEP_3 = Situation("Keep 3, draw 5, Crimson Heart, played", kept=3, hidden=0, blind="Crimson Heart",
+                           discards=0, jokers=(Joker("j_four_fingers", debuff=True), Joker("j_joker")))
 
 
 def clear_caches() -> None:
@@ -142,9 +149,9 @@ class Scenario:
         if self.situation.blind == "Cerulean Bell" and "forced" in Card.__dataclass_fields__:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
-            in_run=True, hand_size=len(HAND), hands_left=4, discards_left=3,
-            hand=hand, **_unseen(cards.values(), hand_cards[known:]), jokers=[Joker(k) for k in JOKERS[self.jokers]],
-            blind=self.situation.blind,
+            in_run=True, hand_size=len(HAND), hands_left=4, discards_left=self.situation.discards,
+            hand=hand, **_unseen(cards.values(), hand_cards[known:]),
+            jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
         return state, list(range(self.situation.kept, known))
 
@@ -173,6 +180,7 @@ class Hand:
     hidden: int = 0  # the last `hidden` cards are face down
     blind: str | None = None  # with "Cerulean Bell", the first card is the forced one
     discards: int = 3
+    jokers: tuple[Joker, ...] = ()  # besides the scenario's
 
 
 @dataclass(frozen=True)
@@ -202,8 +210,8 @@ class BestDiscard:
             hand[0] = replace(hand[0], forced=True)
         return GameState(
             in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
-            hand=hand, **_unseen(cards.values(), hand_cards[known:]), jokers=[Joker(k) for k in JOKERS[self.jokers]],
-            blind=self.hand.blind,
+            hand=hand, **_unseen(cards.values(), hand_cards[known:]),
+            jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.hand.jokers), blind=self.hand.blind,
         )
 
     target = Scenario.target
@@ -249,6 +257,11 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
                 for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),
                           ("Full House", "Straight Flush"))]
+    # Crimson Heart: Straight and Straight Flush see both rule sets, Flush only whether Four Fingers is on (one
+    # search), and Pair and Full House neither.
+    out += [Scenario(CRIMSON_KEEP_3, t, "Shortcut")
+            for t in (("Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
+                      ("Full House", "Straight Flush"))]
     return out
 
 
@@ -264,6 +277,16 @@ SEARCH_BOSSES = [
     Hand("Best discard: 8 cards, Cerulean Bell", tuple(HAND), blind="Cerulean Bell"),
     Hand("Best discard: 8 cards, The Hook, played", tuple(HAND), blind="The Hook", discards=0),
 ]
+# Crimson Heart, with the selection played: see CRIMSON_KEEP_3. With the scenario's jokers, the debuffed
+# joker below comes back and one of the others is debuffed.
+SEARCH_CRIMSON = [
+    # Four Fingers + Shortcut, then either Four Fingers or Shortcut alone.
+    (Hand("Best discard: 8 cards, Crimson Heart, played, Joker debuffed", tuple(HAND), blind="Crimson Heart",
+          discards=0, jokers=(Joker("j_joker", debuff=True),)), "Four Fingers + Shortcut"),
+    # Shortcut, then Four Fingers with or without Shortcut: the slow Straight Flush.
+    (Hand("Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed", tuple(HAND), blind="Crimson Heart",
+          discards=0, jokers=(Joker("j_four_fingers", debuff=True), Joker("j_joker"))), "Shortcut"),
+]
 SEARCH_TARGETS = [("Pair",), ("Two Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
                   ("Flush", "Straight", "Full House")]
 SEARCH_JOKERS = ["No jokers", "Four Fingers + Shortcut", "Smeared"]
@@ -273,6 +296,9 @@ def _search_scenarios() -> list[BestDiscard]:
     out = [BestDiscard(h, t, j) for j in SEARCH_JOKERS for h in SEARCH_HANDS for t in SEARCH_TARGETS]
     out += [BestDiscard(h, t, "No jokers") for h in SEARCH_BOSSES
             for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
+    out += [BestDiscard(h, t, j) for h, j in SEARCH_CRIMSON
+            for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
+                      ("Flush", "Straight", "Full House"))]
     return out
 
 

@@ -46,6 +46,11 @@ SLOW = {
     "standard | Best discard: 8 cards, two pairs | Flush + Straight + Full House (any) | Four Fingers + Shortcut",
     "standard | Best discard: 10 cards | Straight Flush | Four Fingers + Shortcut",
     "standard | Best discard: 10 cards | Flush + Straight + Full House (any) | Four Fingers + Shortcut",
+    "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Straight Flush "
+    "| Four Fingers + Shortcut",
+    "standard | Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed | Straight Flush | Shortcut",
+    "standard | Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed "
+    "| Flush + Straight + Full House (any) | Shortcut",
 }
 
 
