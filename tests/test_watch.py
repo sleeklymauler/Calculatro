@@ -14,6 +14,7 @@ import calculatro.__main__ as cli
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, probability
 from calculatro.hands import get_target
+from calculatro.log import open_log
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import Job
@@ -186,6 +187,59 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
     assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "id": None, "targets": [], "cards": []}] * 2
     assert writes[0].endswith("\n" + cli.ODDS_FAILED) and writes[1].endswith("\n" + cli.ODDS_FAILED)
     assert capsys.readouterr().err.count("ValueError: boom") == 1
+
+
+def failing_odds(monkeypatch, fail) -> list[dict]:
+    """The panel's payloads from running the watch loop over states A, B, X and Y, whose odds call `fail`, then C."""
+    def odds(st, t, q, cancel):
+        if st.blind == "C":
+            return "odds C", {"odds": "C"}
+        fail(st.blind)
+
+    monkeypatch.setattr(cli, "calculate", odds)
+    source, sent = FakeSource(*map(state, "ABXYC")), []
+    end = time.monotonic() + 5
+    cli.run_watch(source, lambda text: None, sent.append, patience=5, poll_interval=0.05,
+                  stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
+    return sent
+
+
+def test_failures_logged_once_though_alternating_or_with_changing_values(monkeypatch, capsys):
+    """Comparing with only the last failure, or the whole text, would log these with every state."""
+    def fail(blind):
+        if blind in "AX":
+            raise ValueError(f"boom {blind}")
+        raise TypeError(f"bang {blind}")
+
+    failing_odds(monkeypatch, fail)
+    err = capsys.readouterr().err
+    assert err.count("ValueError: boom") == 1 and err.count("TypeError: bang") == 1
+
+
+def test_failure_that_cant_be_logged_doesnt_stop_the_app(monkeypatch):
+    class Full:
+        def write(self, text):
+            raise OSError("disk full")
+
+        def flush(self):
+            pass
+
+    def fail(blind):
+        raise ValueError("boom")
+
+    monkeypatch.setattr("sys.stderr", Full())
+    assert failing_odds(monkeypatch, fail)[-1] == {"odds": "C"}
+
+
+def test_failure_with_a_lone_surrogate_is_logged(monkeypatch, tmp_path):
+    """The log's encoding mustn't raise on text a bad snapshot can hold."""
+    def fail(blind):
+        raise ValueError("bad \udc80 text")
+
+    with open_log(tmp_path / "calculatro.log") as log:
+        monkeypatch.setattr("sys.stderr", log)
+        assert failing_odds(monkeypatch, fail)[-1] == {"odds": "C"}
+    assert "ValueError: bad \\udc80 text" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
 
 
 BAD_STATES = {

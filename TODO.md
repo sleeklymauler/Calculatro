@@ -52,9 +52,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [x] **[low]** Any instance claimed the global `Local\Calculatro` mutex, whatever `--file` it watched
   - A by-hand `watch --file some\other.json` (for example, reproducing a bug report) already running when the game launched made the game's own app exit, and the panel stayed on "Waiting for app". Started after the game's app, it wrongly said "already running" and wrote no odds file.
   - Fixed: the mutex is named after a hash of the resolved state path (`process.instance_name`).
-- [ ] **[med]** `calculatro.log` is opened with `"w"` (`__main__.py:359`), so restarting the game erases the traceback the README and issue template ask players for
-  - It also has no size cap. `failed()` deduplicates on the full traceback text, so a message with changing values, or odds and search errors alternating (they share `last_error`), logs at about 5 lines per second.
-  - Fix: append with rotation (`calculatro.log.1`), deduplicate by exception type and location, and write a startup header (app version, Python, pid, paths).
+- [x] **[med]** `calculatro.log` was opened with `"w"`, so restarting the game erased the traceback the README and issue template ask players for
+  - `failed()` also deduplicated on the full traceback text, so a message with changing values, or odds and search errors alternating, logged a traceback with every snapshot.
+  - Fixed: `log.open_log` appends, moving a log over 256 KB to `calculatro.log.1` at startup (not during a session, so there's no strict cap), each session starts with a header (`log.header`), and the home folder is written as `~`, since it holds the player's username. `failed()` logs each exception type and stack once per session, and a failure to log no longer stops the app.
 - [ ] **[low]** Startup failures under pythonw go nowhere (`__main__.py:355-360`)
   - Silent failures: `APPDATA` unset (`KeyError`), the log failing to open, and argparse errors before stderr is redirected.
   - `process.exited()` returns "exited" when `OpenProcess` fails (`process.py:189-191`), so the app quits at once without saying why.
@@ -146,8 +146,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 
 ## Tooling / CI / release
 
-- [ ] **[med]** CI never builds the release, and never checks that `pyproject.toml` and `lovely.toml` versions match until a tag is pushed
-  - Run `build_release.ps1` on PRs touching `scripts/`, `mod/` or `calculatro/`, and add a pytest that the two versions match.
+- [ ] **[med]** CI never builds the release until a tag is pushed
+  - Run `build_release.ps1` on PRs touching `scripts/`, `mod/` or `calculatro/`.
+  - [x] A pytest that the versions match (`test_versions_match`, which also covers `calculatro/__init__.py`).
 - [ ] **[low]** Pin or bound the dev dependencies (`ruff`, `pytest`, `lupa`) and add `cache: pip` to CI
   - Unpinned, a new ruff rule or a lupa release without Windows `luajit21` wheels would break CI with no change in the repo.
   - Dependabot only watches GitHub Actions; add pip.
@@ -224,7 +225,6 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Windows only.
   - Steamodded and other mods are untested (custom suits and ranks, `rank_id` > 14, modded enhancements and bosses aren't handled).
   - The mod folder name must be `Calculatro`.
-  - Under Troubleshooting: copy `calculatro.log` before restarting the game, until the log stops being truncated.
 - [ ] **[low]** README:9 "Find the optimal discard selection for a target hand" leaves out that card query rows can be searched too
 - [ ] **[low]** `docs/blinds.md:33` lists Serpent, Mark and Bell as checking `blind_disabled`, but leaves out `GameState.hook`, which does too
 - [ ] **[low]** `docs/jokers.md`: Splash is tagged `rule` (legend line ~123, table ~217), but its own section and `rules.RULE_JOKERS` treat it as not changing hand types. Untag it or make it `cond`

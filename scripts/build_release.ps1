@@ -6,7 +6,7 @@
 #
 # Runs on Windows PowerShell 5.1 and PowerShell 7. -Tag (e.g. v0.1.0, as the
 # release workflow passes) must match the version, which must be the same in
-# pyproject.toml and the mod's lovely.toml.
+# pyproject.toml, the mod's lovely.toml and calculatro\__init__.py.
 param(
     [string]$Tag
 )
@@ -23,7 +23,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $dist = Join-Path $root "dist"
 
 function Get-Version([string]$file) {
-    $found = Select-String -Path (Join-Path $root $file) -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    $found = Select-String -Path (Join-Path $root $file) -Pattern '^(?:__)?version(?:__)?\s*=\s*"([^"]+)"' | Select-Object -First 1
     if (-not $found) { throw "No version in $file" }
     $found.Matches[0].Groups[1].Value
 }
@@ -31,6 +31,10 @@ $version = Get-Version "pyproject.toml"
 $modVersion = Get-Version "mod\Calculatro\lovely.toml"
 if ($version -ne $modVersion) {
     throw "pyproject.toml's version ($version) differs from lovely.toml's ($modVersion)"
+}
+$appVersion = Get-Version "calculatro\__init__.py"
+if ($version -ne $appVersion) {
+    throw "pyproject.toml's version ($version) differs from calculatro\__init__.py's ($appVersion)"
 }
 if ($Tag -and $Tag -ne "v$version") {
     throw "Tag $Tag doesn't match the version ($version); expected v$version"

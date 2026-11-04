@@ -43,9 +43,9 @@ You don't need to install Python: the release comes with its own.
 
 **Updating:** close Balatro, delete the `Mods\Calculatro` folder, and extract the new release as above.
 
-**Uninstalling:** delete the `Mods\Calculatro` folder. Calculatro also leaves `calculatro.log`,
-`calculatro_state.json` and `calculatro_odds.json` in `%AppData%\Balatro`; you can delete those too. Leave the
-other files there alone: they're Balatro's settings and saves.
+**Uninstalling:** delete the `Mods\Calculatro` folder. Calculatro also leaves `calculatro.log` (and perhaps
+`calculatro.log.1`), `calculatro_state.json` and `calculatro_odds.json` in `%AppData%\Balatro`; you can delete those
+too. Leave the other files there alone: they're Balatro's settings and saves.
 
 ### Troubleshooting
 

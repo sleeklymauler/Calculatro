@@ -17,6 +17,7 @@ from threading import Event
 from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
+from .log import header, open_log
 from .report import Report, build_report
 from .search import Search, best_card_discards, best_discards
 from .source import FileStateSource, StateSource
@@ -193,9 +194,10 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     copy once a payload comes without it.
 
     A calculation or search that fails (a bug, not a cancellation) is logged on
-    stderr, once while the same error repeats, and answered as if there were
-    nothing to show: the panel gets odds without values, a search no options,
-    so neither is left waiting. The next state is calculated as usual.
+    stderr, once per run for each kind of error and place it's raised, and
+    answered as if there were nothing to show: the panel gets odds without
+    values, a search no options, so neither is left waiting. The next state is
+    calculated as usual.
 
     Any other error in the loop (a bad state that `GameState.from_json` didn't
     catch, say) is logged the same way, and the app carries on with the next state.
@@ -212,14 +214,18 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     deadline = 0.0
     unsent: dict | None = None  # the latest payload, until the panel gets it
     retry_at = 0.0
-    last_error = ""  # the latest failure's traceback, so a repeated one is logged once
+    logged: set[tuple] = set()  # the failures reported so far, each only once (a message's values may change)
 
     def failed(what: str, error: Exception) -> None:
-        nonlocal last_error
+        where = tuple((frame.f_code.co_filename, line) for frame, line in traceback.walk_tb(error.__traceback__))
+        if (type(error), where) in logged:
+            return
+        logged.add((type(error), where))
         text = "".join(traceback.format_exception(error))
-        if text != last_error:
+        try:
             print(f"{what} failed:\n{text}", file=sys.stderr, end="", flush=True)
-            last_error = text
+        except Exception:
+            pass  # a full disk, say: this is the last resort for errors, so one here would stop the app
 
     def send(payload: dict) -> None:
         nonlocal unsent, retry_at
@@ -369,7 +375,8 @@ def main(argv: list[str] | None = None) -> int:
             # No console (pythonw): keep errors in a log beside the state file.
             # Open for the life of the process.
             sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-            sys.stderr = open(source.path.parent / "calculatro.log", "w", encoding="utf-8", buffering=1)  # noqa: SIM115
+            sys.stderr = open_log(source.path.parent / "calculatro.log")
+            print(header(source.path, args.game_pid), file=sys.stderr)
             stop = process.exited(args.game_pid)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
