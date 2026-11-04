@@ -55,10 +55,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [x] **[med]** `calculatro.log` was opened with `"w"`, so restarting the game erased the traceback the README and issue template ask players for
   - `failed()` also deduplicated on the full traceback text, so a message with changing values, or odds and search errors alternating, logged a traceback with every snapshot.
   - Fixed: `log.open_log` appends, moving a log over 256 KB to `calculatro.log.1` at startup (not during a session, so there's no strict cap), each session starts with a header (`log.header`), and the home folder is written as `~`, since it holds the player's username. `failed()` logs each exception type and stack once per session, and a failure to log no longer stops the app.
-- [ ] **[low]** Startup failures under pythonw go nowhere (`__main__.py:355-360`)
-  - Silent failures: `APPDATA` unset (`KeyError`), the log failing to open, and argparse errors before stderr is redirected.
-  - `process.exited()` returns "exited" when `OpenProcess` fails (`process.py:34-36`), so the app quits at once with only the header in the log.
-  - The panel now says "App didn't start" for all of these, and the mod logs that the app isn't answering. What's left: a log that can't open still stops a working app, which it needn't.
+- [x] **[low]** Startup failures under pythonw went nowhere
+  - Fixed: a log that can't be opened no longer stops the app (it runs without one), and a game process that can't be found or opened is logged before the app exits.
+  - Won't fix: `APPDATA` unset and argparse errors. The app inherits the game's environment and the mod hardcodes the arguments, so neither is realistic, and the panel's "App didn't start" and the mod's log line cover them, like a failed import of the package.
 - [ ] **[low]** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s forever (`overlay.py:328-342`, `__main__.py:232`)
   - Separate `PermissionError` from other errors, and stop retrying on errors that won't go away (missing directory).
 - [ ] **[low]** `source.poll` stats the file before reading it, so if the file is replaced in between, the newer content is delivered under the older key, and again on the next poll (`source.py:75-90`)

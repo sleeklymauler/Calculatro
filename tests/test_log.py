@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import re
 import sys
 import tomllib
@@ -87,19 +88,51 @@ def test_the_header_hides_the_home_folder(monkeypatch, tmp_path):
     assert str(home) not in text and text.rstrip().endswith(r"watching ~\state.json")
 
 
-def start_from_game(monkeypatch, tmp_path, run_watch, state: Path | None = None) -> str:
-    """`main` as the game starts it; what's in the log after."""
+def start_from_game(monkeypatch, tmp_path, run_watch, state: Path | None = None,
+                    exited=lambda pid: lambda: False) -> str:
+    """`main` as the game starts it, with the game running unless `exited` says not; what's in the log after."""
     state = state or tmp_path / "state.json"
     state.parent.mkdir(exist_ok=True)
     with monkeypatch.context() as patch:
         patch.setattr(sys, "stdout", sys.stdout)  # main replaces them: restored when this ends
         patch.setattr(sys, "stderr", sys.stderr)
         patch.setattr(process, "claim_instance", lambda name: True)
+        patch.setattr(process, "exited", exited)
         patch.setattr(cli, "run_watch", run_watch)
         assert cli.main(["watch", "--file", str(state), "--game-pid", "1"]) == 0
         sys.stdout.close()
         sys.stderr.close()
     return (state.parent / "calculatro.log").read_text(encoding="utf-8")
+
+
+def test_game_start_says_when_the_game_is_missing(monkeypatch, tmp_path):
+    text = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop: None,
+                           exited=lambda pid: lambda: True)
+    assert text.splitlines()[-1] == "Game process 1 isn't running or can't be opened: exiting."
+
+
+def test_game_start_says_nothing_of_a_running_game(monkeypatch, tmp_path):
+    text = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop: None)
+    assert "exiting" not in text
+
+
+@pytest.mark.parametrize("stderr", [None, "kept"])
+def test_game_start_runs_without_a_log(monkeypatch, tmp_path, stderr):
+    """The log is only there to diagnose problems: not being able to open it mustn't stop the odds."""
+    (tmp_path / "calculatro.log").mkdir()  # can't be opened as a file
+    ran = []
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "stdout", sys.stdout)
+        kept = None if stderr is None else io.StringIO()  # None as under pythonw
+        patch.setattr(sys, "stderr", kept)
+        patch.setattr(process, "claim_instance", lambda name: True)
+        patch.setattr(process, "exited", lambda pid: lambda: True)  # and something to report
+        patch.setattr(cli, "run_watch", lambda *args, **kwargs: ran.append(True))
+        assert cli.main(["watch", "--file", str(tmp_path / "state.json"), "--game-pid", "1"]) == 0
+        assert sys.stderr is kept
+        sys.stdout.close()
+    assert ran
+    assert kept is None or "Game process 1" in kept.getvalue()
 
 
 def test_game_start_keeps_the_last_sessions_log(monkeypatch, tmp_path):

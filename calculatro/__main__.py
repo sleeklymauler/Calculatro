@@ -375,9 +375,14 @@ def main(argv: list[str] | None = None) -> int:
             # No console (pythonw): keep errors in a log beside the state file.
             # Open for the life of the process.
             sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-            sys.stderr = open_log(source.path.parent / "calculatro.log")
-            print(header(source.path, args.game_pid), file=sys.stderr)
+            try:
+                sys.stderr = open_log(source.path.parent / "calculatro.log")
+                print(header(source.path, args.game_pid), file=sys.stderr)
+            except OSError:
+                pass  # the odds are still worth having; printing to no stderr (None) does nothing
             stop = process.exited(args.game_pid)
+            if stop():
+                print(f"Game process {args.game_pid} isn't running or can't be opened: exiting.", file=sys.stderr)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
             run_watch(source, lambda text: print(text, flush=True), panel, stop=stop)
