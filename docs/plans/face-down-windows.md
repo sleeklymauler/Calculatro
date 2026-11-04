@@ -342,7 +342,7 @@ The snapshot gains `observations`, a list (at most one entry until stage B):
 - Stage B adds references to discarded latent cards (e.g. `{"gone": n}` with a
   round-local number, never a deck id), defined then.
 
-Bump `schema` in `calculatro.lua` and `SCHEMA` in `state.py` in stage 1, and
+Bump `schema` in `core.lua` and `SCHEMA` in `state.py` in stage 1, and
 make Python parse and validate observations then, even before it uses them.
 
 ## Python

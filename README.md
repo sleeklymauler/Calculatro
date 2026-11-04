@@ -53,8 +53,8 @@ too. Leave the other files there alone: they're Balatro's settings and saves.
   is) and that the mod is at `Mods\Calculatro\lovely.toml`, not in a folder inside that.
 - **The panel says "Waiting for app":** the app isn't answering. If it stopped, the mod starts it again within a
   few seconds.
-- **The panel says "App didn't start":** the mod couldn't start the app, or started it several times without an
-  answer. Check that the mod's folder is named exactly `Calculatro`, then restart the game. Errors go to
+- **The panel says "App didn't start":** the mod couldn't start the app, started it several times without an
+  answer, or can't write its files to `%AppData%\Balatro`. Check that the mod's folder is named exactly `Calculatro`, then restart the game. Errors go to
   `%AppData%\Balatro\calculatro.log`; please include it if you [open an
   issue](https://github.com/sleeklymauler/Calculatro/issues), along with your Balatro and Lovely versions and any
   other mods you have installed.

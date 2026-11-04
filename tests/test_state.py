@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,7 +20,33 @@ from calculatro.state import SCHEMA, GameState, Joker, MalformedState, SchemaMis
 
 pytest.importorskip("lupa")
 
-MOD = Path(__file__).resolve().parents[1] / "mod" / "Calculatro" / "calculatro.lua"
+MOD_DIR = Path(__file__).resolve().parents[1] / "mod" / "Calculatro"
+
+
+@functools.cache
+def mod_sources() -> dict[str, str]:
+    """The mod's modules' code by module name, from the same list Lovely registers them from."""
+    patches = tomllib.loads((MOD_DIR / "lovely.toml").read_text(encoding="utf-8"))["patches"]
+    return {p["module"]["name"]: (MOD_DIR / p["module"]["source"]).read_text(encoding="utf-8")
+            for p in patches if "module" in p}
+
+
+# What Lovely does with a module patch, and starting over if it's been required.
+REGISTER = """
+return function(name, source)
+  package.loaded[name] = nil
+  package.preload[name] = assert(load(source, '=' .. name))
+end
+"""
+
+
+def load_mod(rt, name: str = "calculatro"):
+    """A new instance of the mod's module `name`, in the Lua runtime `rt`."""
+    register = rt.execute(REGISTER)
+    for module, source in mod_sources().items():
+        register(module, source)
+    return rt.execute(f"return (require('{name}'))")  # just the module: Lua 5.4's returns a second value
+
 
 MOCK_G = r"""
 local function card(value, id, suit, opts)
@@ -163,7 +191,7 @@ def lua(request, tmp_path):
     rt.execute(MOCK_G)
     save_dir = str(tmp_path).replace("\\", "/")
     rt.execute(MOCK_FILESYSTEM, save_dir)
-    mod = rt.execute(MOD.read_text(encoding="utf-8"))
+    mod = load_mod(rt)
     if rt.eval("jit") is None:
         mod.replace_file = rt.execute(REPLACE_WITHOUT_FFI)
     mod.launch = rt.eval("function() return false end")  # no test should start the app by accident
@@ -171,8 +199,8 @@ def lua(request, tmp_path):
 
 
 def snapshot_json(lua) -> dict:
-    _, mod = lua
-    return json.loads(mod.encode(mod.snapshot()))
+    rt, mod = lua
+    return json.loads(rt.eval("require('calculatro.json')").encode(mod.snapshot()))
 
 
 def test_snapshot_parses(lua):
@@ -607,7 +635,8 @@ def test_non_ascii_save_directory(lua, tmp_path, request, name):
 @pytest.mark.parametrize("call", ["io.open", "io.lines", "os.rename", "os.remove", "loadfile", "dofile"])
 def test_mod_never_uses_a_function_taking_an_ansi_path(call):
     # They can't find the save directory if the Windows username isn't plain ASCII.
-    assert not re.search(rf"\b{re.escape(call)}\b", MOD.read_text(encoding="utf-8"))
+    used = [name for name, source in mod_sources().items() if re.search(rf"\b{re.escape(call)}\b", source)]
+    assert not used
 
 
 def test_snapshot_that_cannot_be_written_is_tried_again(lua, tmp_path):
@@ -638,7 +667,7 @@ def test_snapshots_that_keep_failing_are_reported_once(lua, tmp_path):
 
 def test_launch_with_nothing_to_start(lua, request):
     rt, _ = lua
-    real = rt.execute(MOD.read_text(encoding="utf-8")).launch  # the fixture replaces the mod's
+    real = load_mod(rt).launch  # the fixture replaces the mod's
     if "luajit" in request.node.name:
         ok, message = rt.eval("pcall")(real)
         assert not ok and "nothing to start" in message

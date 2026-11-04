@@ -476,7 +476,8 @@ def test_write_fails_softly(tmp_path, monkeypatch):
 # --- Lua side --------------------------------------------------------------
 
 def test_decode_round_trip(lua):
-    rt, mod = lua
+    rt, _ = lua
+    mod = rt.eval("require('calculatro.json')")
     lua_error = sys.modules[type(rt).__module__].LuaError  # each lupa runtime has its own
     text = ' {"s":"a\\"b\\\\c\\n\\t\\/\\u00e9\\u4e2d","n":-1.5e2,"i":42,"t":true,"f":false,\n' \
            '  "list":[1,"x",{"k":"v"}],"empty":[]} '

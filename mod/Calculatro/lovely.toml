@@ -3,12 +3,105 @@ version = "0.1.0"
 dump_lua = true
 priority = 0
 
-# Make calculatro.lua available as require("calculatro").
+# The mod's modules, available as require("calculatro") and require("calculatro.<name>").
+# Lovely uses a module's name as is in package.preload, which every mod shares, so
+# they all start with "calculatro". A module missing here fails only in game when
+# it's required; the tests load the mod through this list, so they fail too.
 [[patches]]
 [patches.module]
 source = "calculatro.lua"
 before = "main.lua"
 name = "calculatro"
+
+[[patches]]
+[patches.module]
+source = "core.lua"
+before = "main.lua"
+name = "calculatro.core"
+
+[[patches]]
+[patches.module]
+source = "json.lua"
+before = "main.lua"
+name = "calculatro.json"
+
+[[patches]]
+[patches.module]
+source = "tracked.lua"
+before = "main.lua"
+name = "calculatro.tracked"
+
+[[patches]]
+[patches.module]
+source = "builder.lua"
+before = "main.lua"
+name = "calculatro.builder"
+
+[[patches]]
+[patches.module]
+source = "snapshot.lua"
+before = "main.lua"
+name = "calculatro.snapshot"
+
+[[patches]]
+[patches.module]
+source = "search.lua"
+before = "main.lua"
+name = "calculatro.search"
+
+[[patches]]
+[patches.module]
+source = "files.lua"
+before = "main.lua"
+name = "calculatro.files"
+
+[[patches]]
+[patches.module]
+source = "log.lua"
+before = "main.lua"
+name = "calculatro.log"
+
+[[patches]]
+[patches.module]
+source = "app.lua"
+before = "main.lua"
+name = "calculatro.app"
+
+[[patches]]
+[patches.module]
+source = "widgets.lua"
+before = "main.lua"
+name = "calculatro.widgets"
+
+[[patches]]
+[patches.module]
+source = "uibox.lua"
+before = "main.lua"
+name = "calculatro.uibox"
+
+[[patches]]
+[patches.module]
+source = "anim.lua"
+before = "main.lua"
+name = "calculatro.anim"
+
+[[patches]]
+[patches.module]
+source = "odds.lua"
+before = "main.lua"
+name = "calculatro.odds"
+
+[[patches]]
+[patches.module]
+source = "editor.lua"
+before = "main.lua"
+name = "calculatro.editor"
+
+[[patches]]
+[patches.module]
+source = "panel.lua"
+before = "main.lua"
+name = "calculatro.panel"
 
 # Export game state and update the odds panel once per frame (the module throttles itself).
 [[patches]]

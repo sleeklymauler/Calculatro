@@ -27,9 +27,9 @@ from .report import Report
 from .search import Search
 from .state import GameState
 
-SCHEMA = 5  # `odds_schema` in calculatro.lua
+SCHEMA = 5  # `odds_schema` in the mod's core.lua
 
-# The panel fits 3 columns (`max_columns` in calculatro.lua; a 4th reaches
+# The panel fits 3 columns (`max_columns` in the mod's tracked.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
 # queries each fill columns of their own. The mod won't track more than fits
 # (`Calculatro.columns_needed`).

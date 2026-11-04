@@ -84,7 +84,7 @@ Run them before and after changing the engine or the search. See [docs/performan
 - **The mod runs on LuaJIT (Lua 5.1)**, so avoid Lua 5.2+ features: the Lua tests run under LuaJIT too. The mod may
   not assign globals, and reads only the game's and LuaJIT's (`tests/test_lua_globals.py`).
 - **JSON shapes are versioned.** If you change what the state or odds file contains, bump the schema on both
-  sides (`SCHEMA` in `state.py` with `schema` in `calculatro.lua`, `overlay.SCHEMA` with `odds_schema`).
+  sides (`SCHEMA` in `state.py` with `schema` in `core.lua`, `overlay.SCHEMA` with `odds_schema`).
 - **Panel text must be ASCII:** the game's font has no arrows or suit symbols, so those are drawn instead.
   Place UI relative to game objects in the game's own units, never in pixels, so it works on any screen.
 - **Keep slow work cancellable:** a new selection cancels the odds being calculated (`engine.Cancelled`).

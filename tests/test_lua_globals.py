@@ -13,7 +13,7 @@ import pytest
 
 luajit = pytest.importorskip("lupa.luajit21")
 
-MOD = Path(__file__).resolve().parents[1] / "mod" / "Calculatro" / "calculatro.lua"
+MOD = sorted((Path(__file__).resolve().parents[1] / "mod" / "Calculatro").glob("*.lua"))
 
 # The game's globals the mod uses; add to this when it uses another.
 GAME_GLOBALS = {"G", "love", "Sprite", "UIBox", "UIElement", "prep_draw"}
@@ -86,14 +86,19 @@ return M
     assert sorted(scan(src)) == [("assigns", "cuont", 3), ("reads", "count", 3), ("reads", "tabel", 4)]
 
 
+def test_mod_has_modules_to_scan():
+    assert len(MOD) > 1
+
+
 def test_mod_assigns_no_globals(scan):
-    assigned = [f"line {line}: {name}" for op, name, line in scan(MOD.read_text(encoding="utf-8"), MOD.name)
-                if op == "assigns"]
+    assigned = [f"{path.name} line {line}: {name}" for path in MOD
+                for op, name, line in scan(path.read_text(encoding="utf-8"), path.name) if op == "assigns"]
     assert not assigned, "the mod assigns globals (missing `local`?):\n" + "\n".join(assigned)
 
 
 def test_mod_reads_only_known_globals(scan):
     # LuaJIT's own globals are Lua 5.1's (plus bit, jit), so names new in Lua 5.2+ (utf8, ...) fail here too.
-    unknown = [f"line {line}: {name}" for op, name, line in scan(MOD.read_text(encoding="utf-8"), MOD.name)
+    unknown = [f"{path.name} line {line}: {name}" for path in MOD
+               for op, name, line in scan(path.read_text(encoding="utf-8"), path.name)
                if op == "reads" and name not in scan.allowed]
     assert not unknown, "the mod reads unknown globals (a typo, or add it to GAME_GLOBALS):\n" + "\n".join(unknown)

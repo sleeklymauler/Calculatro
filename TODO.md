@@ -65,12 +65,12 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 
 ### Mod (Lua)
 
-- [ ] **[high, verify in game]** The mod couldn't read or write its files when the Windows user path has non-ASCII characters
+- [ ] **[high, verify release build]** The mod couldn't read or write its files when the Windows user path has non-ASCII characters
   - `love.filesystem.getSaveDirectory()` is UTF-8, but `io.open`/`os.remove`/`os.rename` go through the C runtime in the ANSI code page (`Balatro.exe`'s manifest has no `activeCodePage`).
   - Reproduced with the mod in the game's own `lua51.dll` and `love.dll`, with `APPDATA` set to a non-ASCII folder: no state file, no app started, nothing logged, and the panel on "Calculating..." forever.
   - Fixed: files go through `love.filesystem`, and `Calculatro.replace_file` (FFI `MoveFileExW`) replaces the state file in one step, closing the remove-then-rename gap. A state file that can't be written is logged after 10 snapshots in a row. With no snapshot written, the panel no longer says "Calculating...".
   - The same setup with the fix: the app starts and the odds come back, in `Luké`-style and `Łukasz光`-style folders (LÖVE 11.5, LuaJIT 2.0.5). `love.filesystem.append` works while the app holds the log open.
-  - Not yet checked in game. Close this once it has been.
+  - Checked in game (2026-11-03) with `APPDATA` set to a non-ASCII folder, running the venv's Python through `launch.txt`. Not yet checked: a release build's bundled Python running from such a folder. Close this once it has been.
 - [x] **[med]** Nothing restarted the app, and the player wasn't told why it was missing
   - The mod launched the app only on its first frame. After a crash, or after a by-hand instance holding the mutex was closed, the panel said "Waiting for app" until the game restarted.
   - A failed `ShellExecuteW` (stale `launch.txt`, a missing `python` folder, a renamed mod folder) and `guard` errors only `print`ed to the Lovely console.
@@ -80,12 +80,12 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[med]** The mod only works from a folder named exactly `Calculatro` (`launch_command` hardcodes `Mods/Calculatro/…`)
   - Lovely loads a mod from a folder of any name, so a player who extracts to `Mods\Calculatro-0.1.0-windows\` gets "App didn't start", with a line in the log asking about the folder's name. Troubleshooting mentions it too.
   - Have the mod find its own folder.
-- [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`calculatro.lua:827-834, 906-910`)
+- [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`search.lua:26-28, 95`)
   - `{"nonce":1,"options":[[9]]}` → `chosen[nil] = true` → "table index is nil" every frame until the hand changes.
   - Python never sends this today, so it's hardening. Fix: drop options whose indices aren't integers in `0..#hand-1` in `receive_search`.
 - [x] **[low-med]** `ffi.cdef` of `MultiByteToWideChar`/`ShellExecuteW`/`GetCurrentProcessId` could fail with "attempt to redefine" if another mod declared them first
   - Not a bug: on the game's LuaJIT 2.0.5, functions can be declared again, even with other spellings of the types (`LPCWSTR`, `DWORD`). Only struct clashes raise it, and the mod declares only functions.
-- [ ] **[low]** The editor closes, losing what was being edited, whenever the panel is hidden briefly (pause menu, Run Info, View Deck; `calculatro.lua:997, 2351`)
+- [ ] **[low]** The editor closes, losing what was being edited, whenever the panel is hidden briefly (pause menu, Run Info, View Deck; `panel.lua:26, 183`)
   - Keep the editor's state until the blind ends rather than clearing it whenever `G.OVERLAY_MENU` is set.
 
 ## Information hiding
@@ -114,19 +114,21 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Use the same condition as `_groups`/`evaluate_discard`. The gain is small today.
 - [ ] **[low]** `engine._gc_paused` turns the garbage collector off for the whole process while any job runs
   - With overlapping long searches, it can stay off for long stretches. Count nested pauses, and consider `gc.freeze()` or a raised threshold instead of disabling it.
-- [ ] **[low]** The Lua panel does avoidable work every frame (`calculatro.lua:2352-2358`)
+- [ ] **[low]** The Lua panel does avoidable work every frame (`panel.lua:183-190`)
   - `refresh_panel` builds the model and encodes it twice per frame. `layout_key` is computed before the `key == panel_key` early return, so that work is wasted whenever nothing changed.
   - `panel_model`/`editor_model` call `builder_for` for every query every frame.
   - About 77 µs per unchanged frame in LuaJIT with 5 hands and 5 queries: small, but it's allocation churn on a heap that has already hit GC trouble.
   - Fix: compute `layout_key` after the early return, and store `editable` on the tracked entry when it's added or replaced.
-- [ ] **[low]** Each changed snapshot is encoded twice, once without its `id` and once with it (`calculatro.lua:751-756`)
+- [ ] **[low]** Each changed snapshot is encoded twice, once without its `id` and once with it (`files.lua:74-78`)
   - About 150 µs each with a full deck. Splice the `id` into the first encoding instead.
 
 ## Architecture / cleanup
 
-- [ ] **[med]** Split `calculatro.lua` (2439 lines) into modules: `json`, `builder`, `snapshot`, `search`, `panel`, `editor`, `anim`, `uibox`
-  - Register each with its own `[[patches]] module` in `lovely.toml`, so each can be tested on its own and is easier to navigate.
-  - `Calculatro.definition`, `cards_tab` and `refresh_panel` are the biggest functions to break up.
+- [x] **[med]** Split `calculatro.lua` (2644 lines) into modules
+  - Now `core`, `json`, `tracked`, `builder`, `snapshot`, `search`, `files`, `log`, `app`, `widgets`, `uibox`, `anim`, `odds`, `editor`, `panel` and `calculatro.lua` for the hooks; none over about 350 lines. Each is registered in `lovely.toml` as `calculatro.<file>`, since `package.preload` is shared with other mods.
+  - They still share one `Calculatro` table, which kept the tests' use of the mod nearly unchanged and the move verbatim, but require each other without cycles, so each loads on its own (`tests/test_mod_modules.py`). The tests load the mod from `lovely.toml`, so a file missing there fails them.
+  - `Calculatro.definition`, `cards_tab` and `refresh_panel` are broken up.
+  - Ran in the game's own `lua51.dll` (LuaJIT 2.0.5), registered as Lovely's `module.rs` does, against the mocked game. Not yet checked in game.
 - [ ] **[med]** Slim `CLAUDE.md` (about 4.5k words, loaded into every agent session; the "Odds panel" item alone is one 1,335-word line)
   - Move panel and editor internals (shadow depths, `FONT_PX`, `ARROW_CELL_W`, `register_once` history…) to e.g. `docs/mod-panel.md`, and best-discard details to `docs/performance/best-discard.md`.
   - Keep commands, the contract between the two halves, a short list of must-not-break invariants (schemas, information hiding, cancellability, Lua 5.1, no globals, game units not pixels), and pointers to the docs.
@@ -228,9 +230,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[low]** `docs/blinds.md:33` lists Serpent, Mark and Bell as checking `blind_disabled`, but leaves out `GameState.hook`, which does too
 - [ ] **[low]** `docs/jokers.md`: Splash is tagged `rule` (legend line ~123, table ~217), but its own section and `rules.RULE_JOKERS` treat it as not changing hand types. Untag it or make it `cond`
 - [ ] **[low]** Stale or misplaced comments
-  - `calculatro.lua:2151-2154`: the card-name popup paragraph is merged into `register_once`'s comment; it belongs above `hover_popups` at ~2184.
-  - `calculatro.lua:805-806`: "each target hand's search button" (card rows have them too).
-  - `calculatro.lua:132`: `list(open, close, item)` never uses `open`.
+  - `uibox.lua:107-110`: the card-name popup paragraph is merged into `register_once`'s comment; it belongs above `hover_popups` at 140.
+  - `search.lua:4`: "each target hand's search button" (card rows have them too).
+  - `json.lua:93`: `list(open, close, item)` never uses `open`.
   - `engine.py:77, 1064`: stray line breaks in docstrings.
   - `tests/perf/scenarios.py:246`: "The Mark" comment sits above the Bell scenarios.
   - `report.py:21, 28`: `discard` is also None on the last hand with no discards.
