@@ -49,9 +49,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - `UnicodeDecodeError` (invalid UTF-8) and `RecursionError` (deep nesting) escaped and stopped the app. Invalid UTF-8 is reachable: the Lua encoder writes bytes ≥128 unchanged (`calculatro.lua:51`).
   - A permanently bad file (a BOM, for example) wasn't cached in `_last_key`, so it was re-read 20 times a second forever without a message.
   - Fixed: a file that can't be decoded raises `MalformedState`, so it's reported once and not read again until it changes. `read` no longer returns None for a partial file; the mod replaces the file whole, so it never sees one.
-- [ ] **[med]** Any instance claims the global `Local\Calculatro` mutex, whatever `--file` it watches (`__main__.py:347`, `process.py:195`)
-  - A by-hand `watch --file some\other.json` (for example, reproducing a bug report) makes the game's own app exit, and the panel stays on "Waiting for app".
-  - Fix: name the mutex after the resolved state path, or claim it only for the default path.
+- [x] **[low]** Any instance claimed the global `Local\Calculatro` mutex, whatever `--file` it watched
+  - A by-hand `watch --file some\other.json` (for example, reproducing a bug report) already running when the game launched made the game's own app exit, and the panel stayed on "Waiting for app". Started after the game's app, it wrongly said "already running" and wrote no odds file.
+  - Fixed: the mutex is named after a hash of the resolved state path (`process.instance_name`).
 - [ ] **[med]** `calculatro.log` is opened with `"w"` (`__main__.py:359`), so restarting the game erases the traceback the README and issue template ask players for
   - It also has no size cap. `failed()` deduplicates on the full traceback text, so a message with changing values, or odds and search errors alternating (they share `last_error`), logs at about 5 lines per second.
   - Fix: append with rotation (`calculatro.log.1`), deduplicate by exception type and location, and write a startup header (app version, Python, pid, paths).

@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
+import os
 from collections.abc import Callable
 from ctypes import wintypes
+from pathlib import Path
 
 SYNCHRONIZE = 0x00100000
 WAIT_OBJECT_0 = 0
@@ -34,7 +37,15 @@ def exited(pid: int) -> Callable[[], bool]:
     return lambda: _kernel32.WaitForSingleObject(handle, 0) == WAIT_OBJECT_0
 
 
-def claim_instance(name: str = INSTANCE_MUTEX) -> bool:
+def instance_name(state_path: Path) -> str:
+    """The mutex for the app watching this state file. Instances only clash over
+    the same odds file, which sits beside it. Hashed, since a mutex's name can't
+    contain a path: CreateMutexW rejects a further backslash after the namespace."""
+    resolved = os.path.normcase(state_path.resolve())
+    return f"{INSTANCE_MUTEX}-{hashlib.sha256(resolved.encode()).hexdigest()[:16]}"
+
+
+def claim_instance(name: str) -> bool:
     """Whether this is the only app holding `name`; if so, it's held until the app
     exits. Otherwise it's let go at once, so the one holding it can't be outlived
     by a second that keeps the next app from claiming it."""

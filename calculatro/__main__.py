@@ -355,9 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "watch":
         source = FileStateSource(args.file)
         odds_file = overlay.odds_path(source.path)
-        # Any instance claims it, so the game won't start a second one beside it,
-        # and only one writes the panel's odds: two would clash over its file.
-        first = process.claim_instance()
+        # Any instance claims its state file, so the game won't start a second one
+        # beside it, and only one writes those odds: two would clash over the file.
+        first = process.claim_instance(process.instance_name(source.path))
         if not first and args.game_pid is not None:
             return 0
         panel: Callable[[dict], object] = lambda payload: overlay.write(odds_file, payload)
