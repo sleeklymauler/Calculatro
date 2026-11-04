@@ -58,16 +58,20 @@ class FileStateSource:
         print(f"Ignoring {self.path.name}: it isn't a valid snapshot ({e}).", file=sys.stderr, flush=True)
 
     def read(self) -> GameState | None:
-        """Return the current state, or None if the file is missing or mid-write.
+        """Return the current state, or None if the file is missing or locked.
 
         Raises SchemaMismatch for a file from another version of the mod, and
-        MalformedState for one whose fields don't have the expected shapes.
+        MalformedState for one that isn't JSON (the mod replaces the file whole,
+        so it's never seen half-written) or whose fields don't have the expected
+        shapes.
         """
         try:
-            raw = self.path.read_text(encoding="utf-8")
-            return GameState.from_json(json.loads(raw))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, PermissionError):
             return None
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as e:
+            raise MalformedState(f"{type(e).__name__}: {e}") from e
+        return GameState.from_json(data)
 
     def poll(self) -> GameState | None:
         """The state if the file changed since the last state returned, else None. Doesn't block."""

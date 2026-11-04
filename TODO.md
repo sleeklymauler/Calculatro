@@ -1,6 +1,7 @@
 - [ ] add progress bar/meter for benchmark.py
 - [ ] improve face-down card probabilities by looking at their "windows"
   - The plan (`docs/plans/face-down-windows.md`) now works from ordered "observations" rather than per-card windows (since 2026-10-15). Consider renaming the file and this item. The review found it consistent with the information-hiding contract and with the current code.
+  - Also fixes several DNA copies of a face-down card, which count as separate unseen cards for now. The plan's "Evaluation" section says what it needs, and `test_dna_several_copies_of_a_face_down_card` pins today's behaviour until then.
 - [ ] remove python terminal part?
 
 # Code review (2026-11-02)
@@ -29,19 +30,25 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - [x] Crimson Heart: after a hand played as a discard (no discards left), the game re-enables the debuffed joker and debuffs another. Now modelled (`engine.rules_after`).
   - The Mark: if Pareidolia is gained or lost mid-blind, `_mark_split`'s face-down face cards were flipped under different rules. Documented as a known limitation in `docs/blinds.md`, not fixed (it would need the observation tracking of `docs/plans/face-down-windows.md`).
 - [x] **[low]** DNA isn't modelled when a hand is played as the discard (`docs/jokers.md`)
-  - Now modelled (`engine._dna_copies`, the mod's `dna_copies`). Several copies of a face-down card remain approximate, until `docs/plans/face-down-windows.md`.
+  - Now modelled (`engine._dna_copies`, the mod's `dna_copies`, commit 2177da4): a lone card played as the round's first hand comes back as copies instead of being replaced by a draw, so its odds normally equal Keep's. Counts Blueprint and Brainstorm chains, and doesn't fire under The Psychic. It wasn't rare: using every discard before the first hand is enough.
+  - Not yet checked in game.
+  - Known limitations:
+    - Several copies of a face-down card count as separate unseen cards, though they're the same card (see the windows item above).
+    - With a joker face down (Amber Acorn), only DNA itself counts, since the jokers' order is hidden. This can undercount the copies.
 
 ### App robustness (Python)
 
-- [ ] **[med]** Some malformed snapshots get past `GameState.from_json` and crash `run_watch`, so the app exits and the panel says "Waiting for app" for the rest of the session
-  - Commit 0601cc0 only checks outer shapes. Confirmed crashes:
-    - a non-string `id` together with a `search` request → `AttributeError` in `.split` (`__main__.py:256`);
+- [x] **[low-med]** Some malformed snapshots got past `GameState.from_json` and crashed `run_watch`, so the app exited and the panel said "Waiting for app" for the rest of the session
+  - The mod can't produce these shapes, so it took a hand-edited file or a mod bug. Crashes confirmed:
+    - a non-string `id` together with a `search` request → `AttributeError` in `.split`;
     - a non-string joker `key` → `TypeError` in `summarize`;
-    - a list `rank` or `suit` → unhashable `TypeError` in `rank_counts`/`suit_counts`/`short()`.
-  - Fix: type-check scalar fields in `_parse`, and wrap each snapshot's handling on the main loop in try/except, reporting through `failed()`.
-- [ ] **[med]** `FileStateSource.read` only catches `JSONDecodeError` (`source.py:67-70`)
-  - `UnicodeDecodeError` (invalid UTF-8) and `RecursionError` (deep nesting) escape and stop the app. Invalid UTF-8 is reachable: the Lua encoder writes bytes ≥128 unchanged (`calculatro.lua:51`).
-  - A permanently bad file (a BOM, for example) isn't cached in `_last_key`, so it's re-read 20 times a second forever without a message. Report it once, as `MalformedState` is.
+    - a list `rank` or `suit` → unhashable `TypeError` in `rank_counts`/`suit_counts`/`short()`;
+    - a lone surrogate in a string → `UnicodeEncodeError` when printing or writing the odds file.
+  - Fixed: `run_watch` logs any error on its main loop through `failed()` and carries on, and `from_json` rejects non-string `id`, `state`, `blind`, `rank`, `suit` and joker `key` (`state._text`). Numbers aren't checked, since the encoder can write the game's as floats or `null`.
+- [x] **[med]** `FileStateSource.read` only caught `JSONDecodeError`
+  - `UnicodeDecodeError` (invalid UTF-8) and `RecursionError` (deep nesting) escaped and stopped the app. Invalid UTF-8 is reachable: the Lua encoder writes bytes ≥128 unchanged (`calculatro.lua:51`).
+  - A permanently bad file (a BOM, for example) wasn't cached in `_last_key`, so it was re-read 20 times a second forever without a message.
+  - Fixed: a file that can't be decoded raises `MalformedState`, so it's reported once and not read again until it changes. `read` no longer returns None for a partial file; the mod replaces the file whole, so it never sees one.
 - [ ] **[med]** Any instance claims the global `Local\Calculatro` mutex, whatever `--file` it watches (`__main__.py:347`, `process.py:195`)
   - A by-hand `watch --file some\other.json` (for example, reproducing a bug report) makes the game's own app exit, and the panel stays on "Waiting for app".
   - Fix: name the mutex after the resolved state path, or claim it only for the default path.
@@ -159,8 +166,8 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Existing brute-force tests mostly use `random_card`'s ranks 9–14 and fixed 10–14-card decks. They miss `select_limit` 0/1, hands of 1–3 cards, empty or tiny decks, The Mark + Pareidolia, and modifiers with The Mark/The Hook.
   - 100 random best-discard states take about 5 s.
 - [ ] **[med]** Python app robustness tests
-  - `run_watch` surviving bad snapshots on the main loop.
-  - `poll` with invalid UTF-8, a BOM, or a permanently corrupt file.
+  - [x] `run_watch` surviving bad snapshots on the main loop.
+  - [x] `poll` with invalid UTF-8, a BOM, or a permanently corrupt file.
   - The normal `main(--game-pid)` path: log created, stdout to devnull, loop stopping when the game exits. Only the "already running" exit is tested.
 - [ ] **[med]** Lua tests
   - Encoder edge cases: NaN/inf → `null`, control characters/DEL → `\u00xx`, `2^60`. They behave correctly today but nothing asserts it.

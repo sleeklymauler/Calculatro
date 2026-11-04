@@ -16,6 +16,15 @@ SUITS = ["Spades", "Hearts", "Clubs", "Diamonds"]
 SUIT_SHORT = {"Spades": "♠", "Hearts": "♥", "Clubs": "♣", "Diamonds": "♦"}
 
 
+def _text(d: dict[str, Any], key: str) -> str | None:
+    """A field that's text or absent. Numbers aren't checked like this: the mod's
+    encoder can write the game's as floats or null, and they'd reject real snapshots."""
+    value = d.get(key)
+    if value is not None and not isinstance(value, str):
+        raise TypeError(f"{key} is a {type(value).__name__}, not a string")
+    return value
+
+
 @dataclass(frozen=True)
 class Card:
     rank: str | None = None
@@ -32,9 +41,9 @@ class Card:
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Card:
         return cls(
-            rank=d.get("rank"),
+            rank=_text(d, "rank"),
             rank_id=d.get("rank_id"),
-            suit=d.get("suit"),
+            suit=_text(d, "suit"),
             enhancement=d.get("enhancement"),
             edition=d.get("edition"),
             seal=d.get("seal"),
@@ -136,7 +145,8 @@ class GameState:
 
         Raises SchemaMismatch for one of another schema, and MalformedState for
         one whose fields aren't what the schema says (a hand-edited file or a
-        bug in the mod). Only shapes are checked, not ranges.
+        bug in the mod). Only shapes are checked, not ranges, and of the scalars
+        only those that must be text (`_text`).
         """
         if not isinstance(d, dict):
             raise MalformedState(f"snapshot is a {type(d).__name__}, not an object")
@@ -151,16 +161,16 @@ class GameState:
     @classmethod
     def _parse(cls, d: dict[str, Any]) -> GameState:
         if not d.get("in_run"):
-            return cls(in_run=False, id=d.get("id"))
+            return cls(in_run=False, id=_text(d, "id"))
         tracked = d.get("tracked") or {}
         return cls(
             in_run=True,
-            id=d.get("id"),
-            state=d.get("state"),
+            id=_text(d, "id"),
+            state=_text(d, "state"),
             hand_size=d.get("hand_size") or 0,
             hands_left=d.get("hands_left") or 0,
             discards_left=d.get("discards_left") or 0,
-            blind=d.get("blind") or None,
+            blind=_text(d, "blind") or None,
             blind_disabled=bool(d.get("blind_disabled")),
             hands_played=d.get("hands_played") or 0,
             discards_used=d.get("discards_used") or 0,
@@ -168,7 +178,7 @@ class GameState:
             played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
             discard=_cards(d.get("discard")),
-            jokers=[Joker(j["key"], bool(j.get("debuff", False)), bool(j.get("perished", False)))
+            jokers=[Joker(_text(j, "key"), bool(j.get("debuff", False)), bool(j.get("perished", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
             dna_copies=d.get("dna_copies") or 0,
             tracked_hands=_strings(tracked.get("hands")),

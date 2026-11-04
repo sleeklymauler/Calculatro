@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import gc
+import json
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -13,7 +15,7 @@ from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, probability
 from calculatro.hands import get_target
 from calculatro.rules import Rules
-from calculatro.state import SUITS, Card, GameState
+from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import Job
 
 
@@ -186,6 +188,95 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
     assert capsys.readouterr().err.count("ValueError: boom") == 1
 
 
+BAD_STATES = {
+    # What `GameState.from_json` rejects now, in case another such field gets past it.
+    "id-with-search": lambda: replace(state("A"), id=5, search=("Pair", 1)),
+    "joker-key": lambda: replace(state("A"), jokers=[Joker(5)]),
+    "hand-rank": lambda: replace(state("A"), hand=[Card(rank=["x"])]),
+    "unseen-suit": lambda: replace(state("A"), unseen=[Card(suit=["x"])]),
+    # A valid string that can't be printed or written: no type check catches these.
+    "surrogate-blind": lambda: state("\ud800"),
+    "surrogate-id": lambda: replace(state("A"), id="\ud800"),
+}
+
+
+@pytest.mark.parametrize("bad", BAD_STATES.values(), ids=BAD_STATES.keys())
+def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsys, bad):
+    """A state the loop can't handle doesn't stop the app, and the panel still gets the next one's odds."""
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (f"odds {st.blind}", {"odds": st.blind}))
+    odds_file = tmp_path / "calculatro_odds.json"
+    source, writes = FakeSource(bad(), state("B")), []
+    end = time.monotonic() + 5
+    cli.run_watch(source, lambda text: writes.append(text.encode("utf-8")),  # encoded like the real stdout
+                  lambda payload: cli.overlay.write(odds_file, payload), patience=0.05, poll_interval=0.005,
+                  stop=lambda: b"odds B" in b"".join(writes) or time.monotonic() > end)
+    assert b"odds B" in b"".join(writes)
+    assert json.loads(odds_file.read_text(encoding="utf-8")) == {"odds": "B"}
+    assert "Handling the game state failed" in capsys.readouterr().err
+
+
+def test_bad_state_after_a_running_job_isnt_a_failed_calculation(monkeypatch, capsys):
+    """A bad state has cancelled the running job by the time it fails: that's not the job failing, so no failed odds
+    are reported or sent for the state before it."""
+    def odds(st, t, q, cancel):
+        if st.blind == "A":
+            cancel.wait(5)
+            raise Cancelled
+        return f"odds {st.blind}"
+
+    writes = watch(FakeSource(state("A"), replace(state("X"), jokers=[Joker(5)]), state("B")), odds,
+                   lambda w: any("odds B" in text for text in w), monkeypatch)
+    assert not any(cli.ODDS_FAILED in text for text in writes)
+    assert "Odds for snapshot" not in capsys.readouterr().err
+
+
+def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
+    """An error unrelated to the running job doesn't lose its odds, or the summary printed with them."""
+    release = threading.Event()
+
+    class Broken(FakeSource):
+        def poll(self):
+            if not self.queue and not release.is_set():
+                release.set()
+                raise OSError("boom")
+            return super().poll()
+
+    def odds(st, t, q, cancel):
+        release.wait(5)
+        return "odds A"
+
+    writes = watch(Broken(state("A")), odds, lambda w: any("odds A" in text for text in w), monkeypatch)
+    assert any("Blind: A" in text and "odds A" in text for text in writes)
+    assert "OSError: boom" in capsys.readouterr().err
+
+
+def test_failure_printing_finished_odds_isnt_repeated(monkeypatch, capsys):
+    """Odds that can't be printed are dropped, not printed again on every pass of the loop."""
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (f"odds {st.blind}", {"odds": st.blind}))
+    attempts, writes = [], []
+
+    def write(text):
+        if "odds A" in text:
+            attempts.append(text)
+            raise OSError("boom")
+        writes.append(text)
+
+    source = FakeSource(state("A"))
+    end = time.monotonic() + 5
+    queued = []
+
+    def stop():
+        if attempts and not queued:
+            queued.append(True)
+            source.queue.append(state("B"))
+        return any("odds B" in text for text in writes) or time.monotonic() > end
+
+    cli.run_watch(source, write, patience=5, poll_interval=0.005, stop=stop)
+    assert any("odds B" in text for text in writes)
+    assert len(attempts) == 1
+    assert capsys.readouterr().err.count("OSError: boom") == 1
+
+
 def test_summary_only_without_targets(monkeypatch):
     writes: list[str] = []
     cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,
@@ -204,7 +295,6 @@ def test_tracked_skips_unknown_repeated_and_overflowing():
 
 # --- Best-discard searches ----------------------------------------------------
 
-from dataclasses import replace  # noqa: E402
 from fractions import Fraction  # noqa: E402
 
 from calculatro.search import Search  # noqa: E402

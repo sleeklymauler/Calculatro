@@ -375,11 +375,34 @@ def test_update_writes_file_only_on_change(lua, tmp_path):
     assert FileStateSource(path).read().discards_left == 2
 
 
-def test_missing_or_partial_file_returns_none(tmp_path):
+def test_missing_file_returns_none(tmp_path):
+    assert FileStateSource(tmp_path / "calculatro_state.json").read() is None
+
+
+@pytest.mark.parametrize("content", [
+    b'{"schema": 1, "in_ru',  # truncated
+    b'\xef\xbb\xbf{"schema": 1}',  # a byte order mark
+    b'{"blind": "caf\xe9"}',  # not UTF-8
+    b"[" * 200_000,  # nested too deep to parse
+], ids=["truncated", "bom", "invalid-utf8", "deep-nesting"])
+def test_undecodable_file_reported_once_until_it_changes(tmp_path, capsys, monkeypatch, content):
     path = tmp_path / "calculatro_state.json"
-    assert FileStateSource(path).read() is None
-    path.write_text('{"schema": 1, "in_ru')
-    assert FileStateSource(path).read() is None
+    path.write_bytes(content)
+    source = FileStateSource(path)
+    with pytest.raises(MalformedState):
+        source.read()
+
+    reads = []
+    read_text = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: reads.append(a) or read_text(*a, **k))
+    assert source.poll() is None
+    assert source.poll() is None  # unchanged: not read again
+    assert len(reads) == 1
+    assert capsys.readouterr().err.count("isn't a valid snapshot") == 1
+
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:1", "in_run": False}))
+    state = source.poll()
+    assert state is not None and state.id == "x:1"
 
 
 def test_old_schema_waits_for_a_current_snapshot(lua, tmp_path, capsys):
@@ -418,6 +441,13 @@ def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
     {"schema": SCHEMA, "in_run": True, "hand": [None]},
     {"schema": SCHEMA, "in_run": True, "tracked": ["Pair"]},
     {"schema": SCHEMA, "in_run": True, "jokers": ["j_joker"]},
+    {"schema": SCHEMA, "in_run": False, "id": 5},
+    {"schema": SCHEMA, "in_run": True, "id": 5},
+    {"schema": SCHEMA, "in_run": True, "state": ["SELECTING_HAND"]},
+    {"schema": SCHEMA, "in_run": True, "blind": 1},
+    {"schema": SCHEMA, "in_run": True, "jokers": [{"key": 5}]},
+    {"schema": SCHEMA, "in_run": True, "hand": [{"rank": ["Ace"]}]},
+    {"schema": SCHEMA, "in_run": True, "unseen": [{"suit": ["Spades"]}]},
 ])
 def test_malformed_snapshot_raises(raw):
     with pytest.raises(MalformedState):

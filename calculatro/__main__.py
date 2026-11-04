@@ -196,6 +196,9 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     stderr, once while the same error repeats, and answered as if there were
     nothing to show: the panel gets odds without values, a search no options,
     so neither is left waiting. The next state is calculated as usual.
+
+    Any other error in the loop (a bad state that `GameState.from_json` didn't
+    catch, say) is logged the same way, and the app carries on with the next state.
     """
     job: Job[tuple[str, dict]] | None = None
     job_state: GameState | None = None  # the state the job is for
@@ -264,63 +267,76 @@ def run_watch(source: StateSource, write: Callable[[str], None],
             searching = Job(lambda cancel, state=state, target=target: find_best(state, target, cancel))
 
     while not stop():
-        if unsent is not None and time.monotonic() >= retry_at:
-            send(unsent)
-        state = source.poll()
-        if state is not None:
-            start_search(state)
-            if job is not None:
-                job.cancel()
-            job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
-            targets, queries = tracked(state)
-            if (targets or queries) and state.in_run and not settled(state):
-                # The panel keeps the last odds, greyed out, until the hand settles.
-                write(pending + "\n" + WAITING_FOR_HAND)
-                show(overlay.pending(state))
-                pending = ""
-            elif targets or queries:
-                show(overlay.pending(state))
-                job_state = state
-                job = Job(lambda cancel, state=state, targets=targets, queries=queries:
-                          calculate(state, targets, queries, cancel))
-                deadline = time.monotonic() + patience
-            else:
-                write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
-                show(overlay.odds(state, None))
-                pending = ""
-        if searching is not None and searching.wait(0):
-            _, searched, key, nonce, _ = search_for
-            try:
-                result = searching.result()
-            except Exception as e:
-                failed(f"Best discard search for {key}", e)
-                result = None
-            searching, found = None, overlay.search(key, nonce, result)
-            if result is not None:
-                write(format_search(searched, key, result))
-            if base is not None:
-                show(base)
-        if job is None:
-            time.sleep(poll_interval)
-            continue
-        timeout = poll_interval
-        if pending:
-            timeout = max(0.0, min(timeout, deadline - time.monotonic()))
-        if job.wait(timeout):
-            try:
-                out, payload = job.result()
-            except Exception as e:
-                failed(f"Odds for snapshot {job_state.id}", e)
-                out, payload = ODDS_FAILED, overlay.odds(job_state, None)
+        try:
+            if unsent is not None and time.monotonic() >= retry_at:
+                send(unsent)
+            state = source.poll()
+            if state is not None:
+                start_search(state)
+                if job is not None:
+                    job.cancel()
+                job, pending = None, "\n" + "=" * 72 + "\n" + summarize(state)
+                targets, queries = tracked(state)
+                if (targets or queries) and state.in_run and not settled(state):
+                    # The panel keeps the last odds, greyed out, until the hand settles.
+                    write(pending + "\n" + WAITING_FOR_HAND)
+                    show(overlay.pending(state))
+                    pending = ""
+                elif targets or queries:
+                    show(overlay.pending(state))
+                    job_state = state
+                    job = Job(lambda cancel, state=state, targets=targets, queries=queries:
+                              calculate(state, targets, queries, cancel))
+                    deadline = time.monotonic() + patience
+                else:
+                    write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
+                    show(overlay.odds(state, None))
+                    pending = ""
+            if searching is not None and searching.wait(0):
+                _, searched, key, nonce, _ = search_for
+                try:
+                    result = searching.result()
+                except Exception as e:
+                    failed(f"Best discard search for {key}", e)
+                    result = None
+                searching, found = None, overlay.search(key, nonce, result)
+                if result is not None:
+                    write(format_search(searched, key, result))
+                if base is not None:
+                    show(base)
+            if job is None:
+                time.sleep(poll_interval)
+                continue
+            timeout = poll_interval
             if pending:
-                write(pending + ("\n" + out if out else ""))
-            elif out:
-                write(out)
-            show(payload)
-            job, pending = None, ""
-        elif pending and time.monotonic() >= deadline:
-            write(pending + "\n" + CALCULATING)
-            pending = ""
+                timeout = max(0.0, min(timeout, deadline - time.monotonic()))
+            if job.wait(timeout):
+                finished, summary = job, pending
+                job, pending = None, ""  # delivered once, even if that fails
+                try:
+                    out, payload = finished.result()
+                except Exception as e:
+                    failed(f"Odds for snapshot {job_state.id}", e)
+                    out, payload = ODDS_FAILED, overlay.odds(job_state, None)
+                try:
+                    if summary:
+                        write(summary + ("\n" + out if out else ""))
+                    elif out:
+                        write(out)
+                finally:
+                    show(payload)  # the panel's answer doesn't depend on the console's
+            elif pending and time.monotonic() >= deadline:
+                write(pending + "\n" + CALCULATING)
+                pending = ""
+        except Exception as e:
+            # Something the mod would never send got past `GameState.from_json`, or
+            # printing failed. Skip it like a malformed snapshot: the next one recovers.
+            failed("Handling the game state", e)
+            if job is not None and job.cancelled:
+                job = None  # cancelled for the state that failed; any other keeps its summary to print
+            if job is None:
+                pending = ""
+            time.sleep(poll_interval)
 
 
 def main(argv: list[str] | None = None) -> int:
