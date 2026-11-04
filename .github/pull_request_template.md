@@ -12,4 +12,4 @@
 - [ ] Tested in game (for changes to the mod or the panel)
 - [ ] Schemas bumped on both sides, if the state or odds JSON changed
 - [ ] Performance tests run, if the engine or the search changed (`pytest -m perf`)
-- [ ] CLAUDE.md, the README or `docs/` updated, if they describe what changed
+- [ ] AGENTS.md, the README or `docs/` updated, if they describe what changed

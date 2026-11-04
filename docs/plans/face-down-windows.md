@@ -554,9 +554,10 @@ Proposed release thresholds, to confirm before stage 3:
    fixed tie-breakers across observations.
 4. **Optional:** the `_mark_split` shortcut; a visible marker of what's known.
 
-Update `CLAUDE.md` (the information-hiding bullet, the snapshot contract, the
-probability model) and `docs/blinds.md` (The Wheel, The Fish, The Mark, The
-House) as each stage lands.
+Update `docs/architecture.md` (information hiding, the snapshot contract),
+`docs/probability-model.md`, `AGENTS.md` (its information-hiding rule) and
+`docs/blinds.md` (The Wheel, The Fish, The Mark, The House) as each stage
+lands.
 
 ## Open questions
 

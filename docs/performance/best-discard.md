@@ -7,8 +7,10 @@ whose cards are all different to the target, 638 for 10 cards. Each is an
 `evaluate_discard` call like an odds row (see [engine.md](engine.md)), so the
 work is in calling the engine less often and sharing what the calls have in
 common. The search runs in its own job and a new hand cancels it (see
-`CLAUDE.md`), so a slow search never freezes the app; the button just stays
-dimmed until it's done.
+[panel.md](../panel.md#best-discard-button)), so a slow search never freezes
+the app; the button just stays dimmed until it's done. What the search
+compares is in
+[probability-model.md](../probability-model.md#best-discard).
 
 ## Fewer calculations
 

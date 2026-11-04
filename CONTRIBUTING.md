@@ -14,9 +14,14 @@ Calculatro has two halves, connected by two JSON files in `%AppData%\Balatro`:
 - **The app** (`calculatro/`, Python, no runtime dependencies): reads the state, computes exact odds and the best
   discards, and writes the odds file.
 
-[CLAUDE.md](CLAUDE.md) is the detailed developer reference: the architecture, the contract between the halves, the
-probability model and how the tests work. `docs/` has the rest: [jokers.md](docs/jokers.md) and
-[blinds.md](docs/blinds.md) (the game's rules, from its code) and [performance](docs/performance/README.md).
+The detailed developer reference is in `docs/`: [architecture.md](docs/architecture.md) (both halves and the contract
+between them), [panel.md](docs/panel.md), [probability-model.md](docs/probability-model.md),
+[jokers.md](docs/jokers.md) and [blinds.md](docs/blinds.md) (the game's rules, from its code) and
+[performance](docs/performance/README.md).
+
+If you use a coding agent, [AGENTS.md](AGENTS.md) is its short guide: the commands, the rules that must not break and
+which page to read for what. Most agents read it on their own. `CLAUDE.md` and `GEMINI.md` only import it, for the
+tools that look for those names, so edit `AGENTS.md` rather than them.
 
 ## Setup
 
@@ -95,7 +100,7 @@ Run them before and after changing the engine or the search. See [docs/performan
 
 - Keep each one to one change, with tests for it, and `pytest` and `ruff check .` passing. [CI](.github/workflows/ci.yml)
   runs both on every pull request, the tests on Python 3.11 and 3.14.
-- Update CLAUDE.md, the README or `docs/` when you change what they describe.
+- Update AGENTS.md, the README or `docs/` when you change what they describe.
 
 ## Releases
 

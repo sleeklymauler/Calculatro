@@ -129,9 +129,10 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - They still share one `Calculatro` table, which kept the tests' use of the mod nearly unchanged and the move verbatim, but require each other without cycles, so each loads on its own (`tests/test_mod_modules.py`). The tests load the mod from `lovely.toml`, so a file missing there fails them.
   - `Calculatro.definition`, `cards_tab` and `refresh_panel` are broken up.
   - Ran in the game's own `lua51.dll` (LuaJIT 2.0.5), registered as Lovely's `module.rs` does, against the mocked game. Not yet checked in game.
-- [ ] **[med]** Slim `CLAUDE.md` (about 4.5k words, loaded into every agent session; the "Odds panel" item alone is one 1,335-word line)
-  - Move panel and editor internals (shadow depths, `FONT_PX`, `ARROW_CELL_W`, `register_once` history…) to e.g. `docs/mod-panel.md`, and best-discard details to `docs/performance/best-discard.md`.
-  - Keep commands, the contract between the two halves, a short list of must-not-break invariants (schemas, information hiding, cancellability, Lua 5.1, no globals, game units not pixels), and pointers to the docs.
+- [x] **[med]** Slim `CLAUDE.md` (about 5k words, loaded into every agent session; the "Odds panel" item alone was one 1,335-word line)
+  - Now `AGENTS.md` (about 1k words: commands, a short architecture, must-not-break rules, tests, and which doc to read for what), which `CLAUDE.md` and `GEMINI.md` import.
+  - The details moved to `docs/architecture.md`, `docs/panel.md` and `docs/probability-model.md`.
+  - Not yet checked with the other agents' own tools (Codex, Cursor, Gemini CLI, Copilot); that they read these files comes from their docs.
 - [ ] **[low]** Remove `dump_lua = true` from `lovely.toml` in releases
   - It makes Lovely write dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
 - [ ] **[low]** Engine tidy-ups
