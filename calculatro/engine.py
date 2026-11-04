@@ -58,7 +58,18 @@ from operator import gt
 from threading import Event, Lock
 
 from .cards import CardQuery
-from .hands import WILD, ClassKey, Pattern, Requirement, Target, bell_matters, card_key, forced_patterns, suit_keys
+from .hands import (
+    WILD,
+    ClassKey,
+    Pattern,
+    Requirement,
+    Target,
+    bell_matters,
+    card_key,
+    disjoint_groups,
+    forced_patterns,
+    suit_keys,
+)
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -349,15 +360,42 @@ class Reuse:
         self.necessary: dict[tuple, dict[str, Requirement]] = {}
 
 
+@dataclass(slots=True, eq=False)  # compared by identity: it's part of Reuse.favourable's keys
 class _Layout:
     """What a search depends on besides the kept cards and the number of draws:
     the classes the pool's cards fall into, each pattern's tables, and the
-    parts with their transitions (see _search)."""
-    __slots__ = ("every", "patterns", "masks", "c", "faces", "needs", "members", "classes", "face_class",
-                 "remaining", "faces_left", "part_mask", "part_reqs",
-                 "part_need", "part_bits", "part_single", "single_parts", "intern", "status", "step",
-                 "transitions", "cards_needed", "start", "deferred", "deferred_sets", "in_deferred", "join_at",
-                 "joining_at", "signatures", "memo", "first")
+    parts with their transitions (see _search). _layout's comments explain each."""
+    every: int
+    patterns: list[Pattern]
+    masks: list[int]
+    c: int | None
+    faces: tuple[bool, ...] | None
+    needs: list[tuple[int, ...]]
+    members: dict[object, list[tuple[int, int]]]
+    classes: list[tuple[tuple[tuple[int, int], ...], int]]
+    face_class: list[bool]
+    remaining: list[int]
+    faces_left: list[int]
+    part_mask: list[int]
+    part_reqs: list[tuple[tuple[int, int], ...]]
+    part_need: list[int]
+    part_bits: list[int]
+    part_single: list[tuple[int, int] | None]
+    single_parts: set[int]
+    intern: Callable[[int, list[tuple[int, int]]], int]
+    status: Callable[[int, Sequence[int], int], int]
+    step: Callable[[int, int, int], int]
+    transitions: list[list[dict[int, int]]]
+    cards_needed: Callable[[int, list[int]], int]
+    start: list[int]
+    deferred: list[list[tuple[int, int]]]
+    deferred_sets: list[tuple[int, ...]]
+    in_deferred: list[list[int]]
+    join_at: list[int]
+    joining_at: list[list[int]]
+    signatures: dict[tuple, int]
+    memo: dict[tuple, int]
+    first: list[dict[tuple[int, ...], tuple[int, tuple[int, ...]]]]
 
 
 def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Card], rules: Rules,
@@ -369,7 +407,6 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
         lay = reuse.layouts.get(layout_key)
         if lay is not None:
             return lay
-    lay = _Layout()
 
     every = 0
     for mask in masks:
@@ -579,63 +616,49 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
             if p != c:
                 joining_at[start[p]].append(p)
         first = [{} for _ in patterns]
-    scope = locals()
-    for name in _Layout.__slots__:
-        setattr(lay, name, scope[name])
+    lay = _Layout(
+        every=every, patterns=patterns, masks=masks, c=c, faces=faces, needs=needs, members=members,
+        classes=classes, face_class=face_class, remaining=remaining, faces_left=faces_left,
+        part_mask=part_mask, part_reqs=part_reqs, part_need=part_need, part_bits=part_bits,
+        part_single=part_single, single_parts=single_parts, intern=intern, status=status, step=step,
+        transitions=transitions, cards_needed=cards_needed, start=start, deferred=deferred,
+        deferred_sets=deferred_sets, in_deferred=in_deferred, join_at=join_at, joining_at=joining_at,
+        signatures=signatures, memo=memo, first=first)
     if layout_key is not None:
         reuse.layouts[layout_key] = lay
     return lay
 
 
-def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: Event | None,
-            face_weights: Sequence[tuple[int, int]], shared: bool) -> int:
-    """_favourable's count, for the kept cards' contributions `kept_have` to each requirement.
-    `shared` if other searches will use the layout too (see `signature`)."""
-    every, patterns, c, needs = lay.every, lay.patterns, lay.c, lay.needs
-    masks = list(lay.masks)
-    classes, face_class, remaining, faces_left = lay.classes, lay.face_class, lay.remaining, lay.faces_left
-    part_mask, part_reqs, part_need, part_bits = lay.part_mask, lay.part_reqs, lay.part_need, lay.part_bits
-    part_single, single_parts = lay.part_single, lay.single_parts
-    intern, status, step, transitions = lay.intern, lay.status, lay.step, lay.transitions
-    cards_needed = lay.cards_needed
-    start, deferred, deferred_sets, in_deferred, join_at = (lay.start, lay.deferred, lay.deferred_sets,
-                                                             lay.in_deferred, lay.join_at)
-    n = len(classes)
-    split = lay.faces is not None
-    if split:
-        face_weights = [(a, w) for a, w in face_weights
-                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
-    drawn_from = [0] * len(deferred_sets)
-    initial = {}
-    deficits_of: dict[int, tuple[int, ...]] = {}  # of the patterns still to satisfy, if shared
+def _initial_parts(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int,
+                   shared: bool) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
+    """The patterns that can still be satisfied, each with the cards it needs at
+    least, and, if `shared`, the deficits of those not yet satisfied."""
+    status, part_need = lay.status, lay.part_need
     if not shared:
-        initial = {p: part_need[v] for p in range(len(patterns))
-                   if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}
-    for p, (have, parts) in enumerate(zip(kept_have, lay.first) if shared else ()):
+        return {p: part_need[v] for p in range(len(lay.patterns))
+                if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}, {}
+    initial: dict[int, int] = {}
+    deficits_of: dict[int, tuple[int, ...]] = {}
+    for p, (have, parts) in enumerate(zip(kept_have, lay.first)):
         found = parts.get(have)
         if found is None:
             found = parts[have] = (status(p, have, 0),
-                                   tuple(need - h if need > h else 0 for need, h in zip(needs[p], have)))
+                                   tuple(need - h if need > h else 0 for need, h in zip(lay.needs[p], have)))
         v = found[0]
         if v != DEAD and part_need[v] <= draws:
             initial[p] = part_need[v]
             if initial[p]:
                 deficits_of[p] = found[1]
-    if c is not None:
-        if c not in initial:  # only patterns of every group can be satisfied
-            masks = [m if m == every else 0 for m in masks]
-        if c not in initial or initial[c] == 0:  # nothing left to check
-            initial.pop(c, None)
-            c = None
-    todo = every
-    for p, missing in initial.items():
-        if missing == 0:
-            todo &= ~masks[p]
-    if not todo:
-        if split:
-            return sum(w * comb(faces_left[0], a) * comb(remaining[0] - faces_left[0], draws - a)
-                       for a, w in face_weights)
-        return comb(remaining[0], draws)
+    return initial, deficits_of
+
+
+def _join_tables(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, masks: list[int], c: int | None,
+                 initial: dict[int, int]) -> tuple[list[list[int]], list[int], list, list]:
+    """What ways needs to know of the patterns still to join the search:
+    activate[i], those that join at class i; join_need[p], the fewest draws
+    pattern p can need by then; pending; and tracked."""
+    n = len(lay.classes)
+    start, deferred, deferred_sets = lay.start, lay.deferred, lay.deferred_sets
     activate: list[list[int]] = [[] for _ in range(n)]
     # pending[a][i][r] = groups covered by possible patterns that join at class
     # i or later and may need at most r cards then; a = 0 counts only patterns
@@ -644,24 +667,24 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
     # Deferred caps by (set, join class, minimum draws needed at that class).
     # Even if every deferred requirement is met, the others still need cards.
     defer_caps: dict[tuple[int, int, int], int] = {}
-    join_need = [0] * len(patterns)
+    join_need = [0] * len(lay.patterns)
     for p, need in initial.items():
         if need and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
             if p != c:
                 activate[start[p]].append(p)
             if deferred[p]:  # cards drawn before it joins may count towards it
-                deficits = [k - h if k > h else 0 for k, h in zip(needs[p], kept_have[p])]
+                deficits = [k - h if k > h else 0 for k, h in zip(lay.needs[p], kept_have[p])]
                 undeferred = deficits[:]
                 for q, _ in deferred[p]:
                     undeferred[q] = 0
-                need = cards_needed(p, undeferred)
+                need = lay.cards_needed(p, undeferred)
                 for q, d in deferred[p]:
                     if deficits[q]:
                         key = (d, start[p], need)
                         defer_caps[key] = max(defer_caps.get(key, 0), deficits[q])
             join_need[p] = need
             pending[1][start[p]][need] |= masks[p]
-            if masks[p] == every:
+            if masks[p] == lay.every:
                 pending[0][start[p]][need] |= masks[p]
     # tracked[i][rem] holds only counts that a reachable waiting pattern needs.
     # Once too few draws remain, its history cannot affect any continuation.
@@ -683,25 +706,104 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
                     table[i][r] |= table[i][r - 1]
                 if i < n:
                     table[i][r] |= table[i + 1][r]
-    c_start = start[c] if c is not None else n
-    c_initial = initial[c] if c is not None else 0
-    joined: dict[tuple[int, ...], int] = {}
-    # The count from a class on depends on the kept cards only through the
-    # patterns that haven't joined by then (and the constraint), since the
-    # others' are in their parts: through what each of those still needs, if
-    # it can be satisfied. signature[i] stands for that and the number of
-    # draws, so memo entries hold for every search with this layout: with
-    # Reuse, the discards a best-discard search tries share them. It also
-    # tells the classes apart.
-    # Unshared, the memo only holds this search's entries, so the class will do.
-    signature = list(range(n + 1))
+    return activate, join_need, pending, tracked
+
+
+def _class_signatures(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int,
+                      deficits_of: dict[int, tuple[int, ...]], shared: bool) -> list[int]:
+    """What stands for the class in the memo's keys.
+
+    The count from a class on depends on the kept cards only through the
+    patterns that haven't joined by then (and the constraint), since the
+    others' are in their parts: through what each of those still needs, if
+    it can be satisfied. signature[i] stands for that and the number of
+    draws, so memo entries hold for every search with this layout: with
+    Reuse, the discards a best-discard search tries share them. It also
+    tells the classes apart.
+    Unshared, the memo only holds this search's entries, so the class will do.
+    """
+    signature = list(range(len(lay.classes) + 1))
     if shared:
         signatures = lay.signatures
         sig = signatures.setdefault(("base", draws, kept_have[lay.c] if lay.c is not None else None),
                                     len(signatures))
-        for i in range(n, -1, -1):
+        for i in range(len(lay.classes), -1, -1):
             sig = signature[i] = signatures.setdefault(
                 (sig, tuple([deficits_of.get(p) for p in lay.joining_at[i]])), len(signatures))
+    return signature
+
+
+def _drop_implied(lay: _Layout, live: set[int], singles: set[int], todo: int) -> None:
+    """Remove from `live` the parts that `singles` make redundant: a part that
+    needs a card of some classes does that to any part that needs one of a
+    subset of them (and covers no other groups)."""
+    part_mask, part_reqs, part_bits, part_single = lay.part_mask, lay.part_reqs, lay.part_bits, lay.part_single
+    if lay.every == 1 and len(singles) > 1:
+        # In a plain OR, "one of A or one of B" is "one of A | B".
+        # This also drops parts implied by the union but not by either
+        # original part alone. Different coverage groups must stay apart.
+        bits = 0
+        for pid in singles:
+            bits |= part_bits[pid]
+        merged = lay.intern(1, [(bits, 1)])
+        live.difference_update(singles)
+        live.add(merged)
+        singles = {merged}
+    for s in singles:
+        if s not in live:
+            continue
+        fs, ds = part_single[s]
+        ms = part_mask[s] & todo
+        for pid in [pid for pid in live if part_bits[pid] & fs]:
+            if pid != s and part_mask[pid] & todo & ~ms == 0:
+                for f, d in part_reqs[pid]:
+                    if f & ~fs == 0 and d >= ds:
+                        live.discard(pid)
+                        break
+
+
+def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: Event | None,
+            face_weights: Sequence[tuple[int, int]], shared: bool) -> int:
+    """_favourable's count, for the kept cards' contributions `kept_have` to each requirement.
+    `shared` if other searches will use the layout too (see _class_signatures).
+
+    The setup is in the helpers above. The recursion stays one closure, since it
+    runs millions of times and reads all of this on every call.
+    """
+    every, c = lay.every, lay.c
+    masks = list(lay.masks)
+    classes, face_class, remaining, faces_left = lay.classes, lay.face_class, lay.remaining, lay.faces_left
+    part_mask, part_need, part_bits = lay.part_mask, lay.part_need, lay.part_bits
+    single_parts, status, step, transitions = lay.single_parts, lay.status, lay.step, lay.transitions
+    start, deferred, deferred_sets, in_deferred, join_at = (lay.start, lay.deferred, lay.deferred_sets,
+                                                             lay.in_deferred, lay.join_at)
+    n = len(classes)
+    split = lay.faces is not None
+    if split:
+        face_weights = [(a, w) for a, w in face_weights
+                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
+    drawn_from = [0] * len(deferred_sets)
+    initial, deficits_of = _initial_parts(lay, kept_have, draws, shared)
+    if c is not None:
+        if c not in initial:  # only patterns of every group can be satisfied
+            masks = [m if m == every else 0 for m in masks]
+        if c not in initial or initial[c] == 0:  # nothing left to check
+            initial.pop(c, None)
+            c = None
+    todo = every
+    for p, missing in initial.items():
+        if missing == 0:
+            todo &= ~masks[p]
+    if not todo:
+        if split:
+            return sum(w * comb(faces_left[0], a) * comb(remaining[0] - faces_left[0], draws - a)
+                       for a, w in face_weights)
+        return comb(remaining[0], draws)
+    activate, join_need, pending, tracked = _join_tables(lay, kept_have, draws, masks, c, initial)
+    c_start = start[c] if c is not None else n
+    c_initial = initial[c] if c is not None else 0
+    joined: dict[tuple[int, ...], int] = {}
+    signature = _class_signatures(lay, kept_have, draws, deficits_of, shared)
 
     def join(p: int) -> int:
         key = (p, *(drawn_from[d] for _, d in deferred[p]))
@@ -765,31 +867,8 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
             return total
         keys = [memo_key]
         if len(live) > 1 and (singles := live & single_parts):
-            # A part that needs a card of some classes makes redundant any part
-            # that needs one of a subset of them (and covers no other groups).
             size = len(live)
-            if every == 1 and len(singles) > 1:
-                # In a plain OR, "one of A or one of B" is "one of A | B".
-                # This also drops parts implied by the union but not by either
-                # original part alone. Different coverage groups must stay apart.
-                bits = 0
-                for pid in singles:
-                    bits |= part_bits[pid]
-                merged = intern(1, [(bits, 1)])
-                live.difference_update(singles)
-                live.add(merged)
-                singles = {merged}
-            for s in singles:
-                if s not in live:
-                    continue
-                fs, ds = part_single[s]
-                ms = part_mask[s] & todo
-                for pid in [pid for pid in live if part_bits[pid] & fs]:
-                    if pid != s and part_mask[pid] & todo & ~ms == 0:
-                        for f, d in part_reqs[pid]:
-                            if f & ~fs == 0 and d >= ds:
-                                live.discard(pid)
-                                break
+            _drop_implied(lay, live, singles, todo)
             if len(live) < size:
                 memo_key = (signature[i], rem, todo, frozenset(live), deferred_key, fr)
                 total = memo.get(memo_key)
@@ -879,29 +958,14 @@ def _bound(unmet: list[tuple[int, int]]) -> int:
     classes. The classes are those still to come, so requirements that only
     overlapped on classes already behind count separately.
     """
-    groups: list[tuple[int, int]] = []  # (classes, deficit sum)
-    for f, d in sorted(unmet, key=lambda u: -u[1]):
-        for g, (classes, total) in enumerate(groups):
-            if not classes & f:
-                groups[g] = classes | f, total + d
-                break
-        else:
-            groups.append((f, d))
-    return max((total for _, total in groups), default=0)
+    ordered = sorted(unmet, key=lambda u: -u[1])
+    groups = disjoint_groups([f for f, _ in ordered])
+    return max((sum(ordered[q][1] for q in group) for group in groups), default=0)
 
 
 def _disjoint_groups(pattern: Pattern, present: set[ClassKey]) -> list[tuple[int, ...]]:
     """Greedily split requirement indices into groups that no card of a `present` class counts twice towards."""
-    keys = [req.keys & present for req in pattern]
-    groups: list[list[int]] = []
-    for q in range(len(pattern)):
-        for group in groups:
-            if all(keys[q].isdisjoint(keys[g]) for g in group):
-                group.append(q)
-                break
-        else:
-            groups.append([q])
-    return [tuple(g) for g in groups]
+    return [tuple(g) for g in disjoint_groups([req.keys & present for req in pattern])]
 
 
 @dataclass(frozen=True)
@@ -1146,13 +1210,13 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
         others = len(pool) - f
         face_matches = sum(1 for c, face in zip(pool, faces) if face and query.filter.test(c, rules))
         other_matches = sum(1 for c, face in zip(pool, faces) if not face and query.filter.test(c, rules))
-        # Given k face cards among the unseen cards, they're a uniform sample of all f
-        # (as the face-down ones are), and the other draws - k one of the others.
-        return sum((w * sum(comb(face_matches, x) * comb(f - face_matches, k - x)
-                            * comb(other_matches, y) * comb(others - other_matches, draws - k - y)
-                            for x in range(min(face_matches, k) + 1)
-                            for y in range(min(other_matches, draws - k) + 1) if query.accepts(have + x + y))
-                    for k, w in weights), Fraction(0))
+        # Given a face cards among the unseen cards, they're a uniform sample of all f
+        # (as the face-down ones are), and the other draws - a one of the others.
+        return sum((w * sum(comb(face_matches, x) * comb(f - face_matches, a - x)
+                            * comb(other_matches, y) * comb(others - other_matches, draws - a - y)
+                            for x in range(min(face_matches, a) + 1)
+                            for y in range(min(other_matches, draws - a) + 1) if query.accepts(have + x + y))
+                    for a, w in weights), Fraction(0))
     draws = min(draws, len(pool))
     matches = sum(1 for c in pool if query.filter.test(c, rules))
     others = len(pool) - matches

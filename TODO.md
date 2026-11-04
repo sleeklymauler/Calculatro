@@ -60,7 +60,7 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Won't fix: `APPDATA` unset and argparse errors. The app inherits the game's environment and the mod hardcodes the arguments, so neither is realistic, and the panel's "App didn't start" and the mod's log line cover them, like a failed import of the package.
 - [ ] **[low]** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s forever (`overlay.py:328-342`, `__main__.py:232`)
   - Separate `PermissionError` from other errors, and stop retrying on errors that won't go away (missing directory).
-- [ ] **[low]** `source.poll` stats the file before reading it, so if the file is replaced in between, the newer content is delivered under the older key, and again on the next poll (`source.py:75-90`)
+- [ ] **[low]** `source.poll` stats the file before reading it, so if the file is replaced in between, the newer content is delivered under the older key, and again on the next poll (`source.py:71-85`)
   - The only cost is a restarted odds job. Fix: stat again after reading, or deduplicate on the snapshot `id`.
 
 ### Mod (Lua)
@@ -135,17 +135,18 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Not yet checked with the other agents' own tools (Codex, Cursor, Gemini CLI, Copilot); that they read these files comes from their docs.
 - [ ] **[low]** Remove `dump_lua = true` from `lovely.toml` in releases
   - It makes Lovely write dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
-- [ ] **[low]** Engine tidy-ups
-  - `engine.py:582` fills `_Layout` from `locals()`, so renaming a local breaks it silently. Build it explicitly.
-  - `_search` is a ~280-line closure.
-  - Five near-duplicate greedy "disjoint requirements" helpers could share code: `hands._at_least` ~220, `hands._disjoint` ~312, `engine._cards_within` ~291, `_bound` ~875, `_disjoint_groups` ~893.
-  - `count_probability` (`engine.py:1078-1084`): rename the loop's `k` (it's the total face count, not `_mark_split`'s `k`) to match the docstring.
-- [ ] **[low]** Dead or loose Python code
-  - Unused by the app: `FileStateSource.watch()`, `poll_interval`, and the `StateSource` protocol's `read`/`watch`.
-  - `__main__.odds()` exists only for tests and duplicates `calculate()`. Its `queries: list[CardQuery] = ()` default doesn't match the annotation.
-  - Missing blank lines between `settled()` and `RETRY` (`__main__.py:167-168`).
-  - `_search` accepts `nonce=True`, since bool is an int (`state.py:84`).
-  - `_strings("Pair")` splits a string into characters instead of rejecting it.
+- [x] **[low]** Engine tidy-ups
+  - `_Layout` is a dataclass built explicitly, so renaming a local in `_layout` can't break it silently.
+  - `_search`'s setup moved to `_initial_parts`, `_join_tables` and `_class_signatures`, and pruning to `_drop_implied`. The recursion (`ways`) stays a closure for speed, so `_search` is still about 185 lines.
+  - `hands.disjoint_groups` is now the greedy grouping behind `_at_least`, `_bound`, `_disjoint_groups` and `_cards_within`. `hands._disjoint` doesn't use it: it splits a pattern into an OR of patterns, which isn't grouping.
+  - `count_probability`'s loop variable is now `a`, as in `_mark_split`.
+  - All 559 benchmark scenarios gave their expected results, with total time unchanged (100.4 s before, 99.9 s after, adding each scenario's fastest run).
+- [x] **[low]** Dead or loose Python code
+  - Removed `FileStateSource.watch()`, its `poll_interval`, and `read`/`watch` from the `StateSource` protocol. `FileStateSource.read` stays, since `poll` uses it.
+  - Removed `__main__.odds()`; its tests now go through `calculate()`.
+  - Added the missing blank lines between `settled()` and `RETRY`.
+  - `_search` in `state.py` ignores a request with `nonce=true`.
+  - `_strings` rejects anything but a list, so `"Pair"` or a non-empty object makes the snapshot malformed. An empty Lua table (`{}`) still means an empty list.
 
 ## Tooling / CI / release
 
@@ -186,9 +187,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - It depends on a fake job finishing within `patience=0.05` s. Raise it.
   - `watch_thread` tests leave `run_watch` threads running if an assertion fails.
 - [ ] **[low]** Lines no test reaches
-  - `engine.py:140-141` (Mark fallback when fewer face cards are unseen than face down).
-  - `engine.py:626-629` (626 may be dead, since `_union_by_suit` checks first).
-  - `engine.py:1026` (Bell with an empty final hand).
+  - `engine.py:151-152` (Mark fallback when fewer face cards are unseen than face down).
+  - `engine.py:788-791` (788 may be dead, since `_union_by_suit` checks first).
+  - `engine.py:1162` (Bell with an empty final hand).
   - `hands.py:324`.
   - Cancellation is only tested with the event already set. Add a mid-search latency test; it measured 4–62 ms on the heaviest scenarios.
 - [ ] **[low]** Widen `test_shared_work_gives_the_same_odds` (6 fixed setups) to cover Serpent, Shortcut alone and Smeared+Bell, or make it randomized

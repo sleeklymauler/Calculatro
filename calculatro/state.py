@@ -87,13 +87,20 @@ def _cards(raw: Any) -> list[Card]:
 
 
 def _strings(raw: Any) -> list[str]:
-    return [s for s in raw or [] if isinstance(s, str)]
+    # An empty Lua table may arrive as {} instead of [].
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise TypeError(f"expected a list of strings, not a {type(raw).__name__}")
+    return [s for s in raw if isinstance(s, str)]
 
 
 def _search(raw: Any) -> tuple[str, int] | None:
-    if isinstance(raw, dict) and isinstance(raw.get("key"), str) and isinstance(raw.get("nonce"), int):
-        return raw["key"], raw["nonce"]
-    return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("key"), str):
+        return None
+    nonce = raw.get("nonce")
+    # bool is a kind of int, but `true` isn't a number.
+    return (raw["key"], nonce) if isinstance(nonce, int) and not isinstance(nonce, bool) else None
 
 
 class SchemaMismatch(ValueError):

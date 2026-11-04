@@ -79,14 +79,6 @@ def format_report(report: Report) -> str:
     return "\n".join(lines)
 
 
-def odds(state: GameState, targets: list[Target], queries: list[CardQuery] = (),
-         cancel: Event | None = None) -> str:
-    """Odds of the targets and card queries for keeping the hand vs. discarding
-    the in-game selection, as text."""
-    report = build_report(state, targets, queries, cancel)
-    return format_report(report) if report else ""
-
-
 def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
     """The targets and card queries set in game. Any the app doesn't know, repeats, and
     any past what the panel fits (`overlay.columns_needed`) are left out."""
@@ -163,6 +155,8 @@ def settled(state: GameState) -> bool:
     pack is open, the hand changes card by card, and each snapshot's odds would
     be thrown away by the next."""
     return state.state in (None, "SELECTING_HAND")
+
+
 RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
 ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updates the in-game "
                    "panel: this one only shows the odds here.")

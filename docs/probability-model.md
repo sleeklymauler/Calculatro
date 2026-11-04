@@ -118,9 +118,9 @@ discard and draw only, using `evaluate_discard`.
 - It works out each distinct discard once (`_relabelled`: ranks or suits the target can't tell apart
   are dropped, and relabelled when the patterns are symmetric), bounds "Any target" by its hands' own
   odds so few need the exact union, and passes one `engine.Reuse` to every `evaluate_discard` so the
-  engine shares its pool-dependent setup (`_layout`), results and memo between discards (`_search`'s
-  `signature`). See [best-discard.md](performance/best-discard.md). Four Fingers + Shortcut with
-  Straight Flush still takes seconds.
+  engine shares its pool-dependent setup (`_layout`), results and memo between discards
+  (`_class_signatures`). See [best-discard.md](performance/best-discard.md). Four Fingers + Shortcut
+  with Straight Flush still takes seconds.
 
 `search.best_card_discards` groups hand cards only by whether they match (face-down ones apart), so
 it's a handful of evaluations.

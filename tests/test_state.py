@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from calculatro.__main__ import odds, summarize
+from calculatro.__main__ import calculate, summarize
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.rules import Rules
@@ -297,6 +297,11 @@ def test_rules_from_jokers():
     assert Rules.from_jokers(jokers) == Rules(pareidolia=True)
 
 
+def odds(state, targets, queries=()) -> str:
+    """The odds as the console shows them."""
+    return calculate(state, targets, list(queries))[0]
+
+
 def test_odds_for_selection(lua):
     state = GameState.from_json(snapshot_json(lua))
     # Hand holds 5 of 8, but keeping it draws nothing (the game only refills it
@@ -512,6 +517,8 @@ def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
     "snapshot",
     {"schema": SCHEMA, "in_run": True, "hand": [None]},
     {"schema": SCHEMA, "in_run": True, "tracked": ["Pair"]},
+    {"schema": SCHEMA, "in_run": True, "tracked": {"hands": "Pair"}},
+    {"schema": SCHEMA, "in_run": True, "tracked": {"cards": {"at least 2 queen": True}}},
     {"schema": SCHEMA, "in_run": True, "jokers": ["j_joker"]},
     {"schema": SCHEMA, "in_run": False, "id": 5},
     {"schema": SCHEMA, "in_run": True, "id": 5},
@@ -524,6 +531,22 @@ def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
 def test_malformed_snapshot_raises(raw):
     with pytest.raises(MalformedState):
         GameState.from_json(raw)
+
+
+def test_empty_lua_table_is_an_empty_list():
+    state = GameState.from_json({"schema": SCHEMA, "in_run": True, "tracked": {"hands": {}, "cards": {}}})
+    assert state.tracked_hands == [] and state.tracked_cards == []
+
+
+@pytest.mark.parametrize(("search", "parsed"), [
+    ({"key": "Pair", "nonce": 3}, ("Pair", 3)),
+    ({"key": "Pair", "nonce": True}, None),
+    ({"key": "Pair", "nonce": 3.5}, None),
+    ({"key": 5, "nonce": 3}, None),
+    ("Pair", None),
+])
+def test_search_request(search, parsed):
+    assert GameState.from_json({"schema": SCHEMA, "in_run": True, "search": search}).search == parsed
 
 
 def test_malformed_snapshot_skipped_until_a_valid_one(lua, tmp_path, capsys):

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
@@ -18,17 +16,14 @@ def default_state_path() -> Path:
 
 
 class StateSource(Protocol):
-    def read(self) -> GameState | None: ...
     def poll(self) -> GameState | None: ...
-    def watch(self) -> Iterator[GameState]: ...
 
 
 class FileStateSource:
-    """Polls the mod's state file and yields a GameState whenever it changes."""
+    """The mod's state file, polled for a new GameState whenever it changes."""
 
-    def __init__(self, path: Path | None = None, poll_interval: float = 0.1):
+    def __init__(self, path: Path | None = None):
         self.path = path or default_state_path()
-        self.poll_interval = poll_interval
         self._last_key: tuple[int, int] | None = None
         self._mismatch: object = None  # the last schema reported by _ignore
         self._malformed: str | None = None  # the last error reported by _reject
@@ -96,10 +91,3 @@ class FileStateSource:
             self._last_key = key
             self._malformed = None  # report the next bad one, even if it's the same error
         return state
-
-    def watch(self) -> Iterator[GameState]:
-        while True:
-            state = self.poll()
-            if state is not None:
-                yield state
-            time.sleep(self.poll_interval)

@@ -92,7 +92,7 @@ in it:
 - **A shared memo.** The recursion's memo entries depend on the kept cards
   only through the patterns that haven't joined the search yet at that class
   (the others' are in their parts): through each one's deficits, or none if
-  it can't be satisfied. `_search` gives each class a `signature` standing
+  it can't be satisfied. `_class_signatures` gives each class a signature standing
   for that and the number of draws, puts it in the memo key in place of the
   class index, and shares the memo between every search with the layout.
   Discards that differ only in cards below a class share everything from it

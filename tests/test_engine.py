@@ -25,7 +25,7 @@ from calculatro.engine import (
     probability,
     rules_after,
 )
-from calculatro.hands import TARGETS, Requirement, combine, get_target
+from calculatro.hands import TARGETS, Requirement, combine, disjoint_groups, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState, Joker
 
@@ -1133,3 +1133,13 @@ def test_dna_several_copies_of_a_face_down_card():
     outcome = evaluate_discard(state, get_target("Pair"), [4])
     assert outcome.draws == 0
     assert outcome.probability == probability(get_target("Pair"), hand[:4], state.unseen, 2)
+
+
+@pytest.mark.parametrize(("sets", "groups"), [
+    ([], []),
+    ([0b011, 0b100, 0b110, 0b001], [[0, 1], [2, 3]]),
+    ([frozenset("ab"), frozenset("c"), frozenset("bc"), frozenset("a")], [[0, 1], [2, 3]]),
+    ([frozenset(), frozenset("a"), frozenset()], [[0, 1, 2]]),
+])
+def test_disjoint_groups(sets, groups):
+    assert disjoint_groups(sets) == groups

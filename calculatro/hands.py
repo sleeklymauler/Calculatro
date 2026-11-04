@@ -21,6 +21,7 @@ it: Diamonds are classed as Hearts and Clubs as Spades (see flush_suits).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import cache
 from itertools import combinations, permutations
@@ -209,21 +210,36 @@ def get_target(name: str) -> Target:
     raise KeyError(f"unknown target {name!r}; choose from: {', '.join(TARGETS)} (or trips, quads)")
 
 
-def _at_least(pattern: Pattern, keys: frozenset[ClassKey]) -> int:
-    """Fewest cards with a class in `keys` in a hand that satisfies `pattern`.
+def disjoint_groups(sets: Sequence[frozenset] | Sequence[int]) -> list[list[int]]:
+    """Greedily split the indices of `sets` into groups whose sets don't overlap:
+    each goes in the first group it fits. The sets are frozensets, or ints as bitmasks.
 
-    Requirements with disjoint classes are met by different cards, so a greedy
-    set of them gives a lower bound; it can miss some, which only costs speed.
+    Requirements with disjoint classes are met by different cards, so a group's
+    needs add up to a lower bound on the cards needed. Being greedy, it can
+    miss a better group, which only costs speed.
     """
+    used: list = []
+    groups: list[list[int]] = []
+    for i, s in enumerate(sets):
+        for g, taken in enumerate(used):
+            if not taken & s:
+                used[g] = taken | s
+                groups[g].append(i)
+                break
+        else:
+            used.append(s)
+            groups.append([i])
+    return groups
+
+
+def _at_least(pattern: Pattern, keys: frozenset[ClassKey]) -> int:
+    """Fewest cards with a class in `keys` in a hand that satisfies `pattern`,
+    as far as the group (`disjoint_groups`) with its largest requirement shows."""
     inner = [r for r in pattern if r.keys <= keys]
     if len(inner) < 2:
         return inner[0].need if inner else 0
-    total, used = 0, frozenset()
-    for req in sorted(inner, key=lambda r: -r.need):
-        if req.keys.isdisjoint(used):
-            total += req.need
-            used |= req.keys
-    return total
+    inner.sort(key=lambda r: -r.need)
+    return sum(inner[q].need for q in disjoint_groups([r.keys for r in inner])[0])
 
 
 def _implies(a: Pattern, b: Pattern) -> bool:

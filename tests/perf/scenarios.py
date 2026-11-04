@@ -1,6 +1,6 @@
 """Benchmark scenarios for the probability engine.
 
-Each scenario is one odds row as `__main__.odds` computes it: a game state, the
+Each scenario is one odds row as `report.build_report` computes it: a game state, the
 in-game selection to discard, and a target (several targets are combined into
 the "Any target" row). States are built like the mod exports them, with
 face-down cards hidden in hand and their identities among the `unseen`, so the
