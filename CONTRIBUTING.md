@@ -37,7 +37,7 @@ You need Windows, Balatro with the [Lovely injector](https://github.com/ethangre
    ```
    This replaces `%AppData%\Balatro\Mods\Calculatro` (a release install included) with `mod/Calculatro`, and
    writes the venv's `pythonw.exe` to the mod's `launch.txt`, so the game starts the app from your checkout. Pass
-   `-NoAutoStart` to start the app yourself instead, and `-GameDir <folder>` if Balatro isn't in Steam's default
+   `-NoAutoStart` to start the app yourself instead (until you do, the panel says "App didn't start"), and `-GameDir <folder>` if Balatro isn't in Steam's default
    folder (it's only used to check that Lovely is installed).
 3. Launch Balatro. The app runs in the background and exits with the game; errors go to
    `%AppData%\Balatro\calculatro.log`.

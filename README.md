@@ -51,7 +51,10 @@ too. Leave the other files there alone: they're Balatro's settings and saves.
 
 - **No panel in a blind:** check that Lovely is working (Balatro opens a console window next to the game when it
   is) and that the mod is at `Mods\Calculatro\lovely.toml`, not in a folder inside that.
-- **The panel says "Waiting for app":** the app isn't running, or stopped. Errors go to
+- **The panel says "Waiting for app":** the app isn't answering. If it stopped, the mod starts it again within a
+  few seconds.
+- **The panel says "App didn't start":** the mod couldn't start the app, or started it several times without an
+  answer. Check that the mod's folder is named exactly `Calculatro`, then restart the game. Errors go to
   `%AppData%\Balatro\calculatro.log`; please include it if you [open an
   issue](https://github.com/sleeklymauler/Calculatro/issues), along with your Balatro and Lovely versions and any
   other mods you have installed.
@@ -83,7 +86,7 @@ shows "1/n" and clicking again cycles through them; "Keep hand" means keeping yo
 The panel is only shown while playing a blind (not in the shop, blind select, booster packs or menus, nor while
 a played hand is scored); press `C` to hide or show it. A discard's odds are green when they beat keeping the
 hand and red when they're worse. Odds still being calculated for your latest selection are greyed out, and the
-panel says "Waiting for app" if the app isn't answering.
+panel says "Waiting for app" if the app isn't answering, and "App didn't start" if starting it again hasn't helped.
 
 - Target hands: a target counts if you could play a hand Balatro scores as containing it (a Straight Flush
   counts as a Straight). Several targets also show the odds of hitting any of them.

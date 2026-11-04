@@ -1025,8 +1025,15 @@ def test_strike_runs_through_the_lowercase_letters(lua):
     assert shadow.colour[4] == pytest.approx(0.3) and shadow.x > 0 and shadow.y > line.y
 
 
+COUNT_STARTS = """
+STARTS = 0
+return function() STARTS = STARTS + 1; return true end
+"""
+
+
 def test_panel_without_the_app(lua, tmp_path):
     rt, mod = lua
+    mod.launch = rt.execute(COUNT_STARTS)
     (tmp_path / "calculatro_odds.json").write_text(json.dumps(
         {"schema": overlay.SCHEMA, "id": "an-earlier-session:4", "targets": [{"key": "Pair", "keep": "1%"}]}))
     track(lua, targets=("pair",))
@@ -1039,6 +1046,132 @@ def test_panel_without_the_app(lua, tmp_path):
     assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Calculating...@muted", *stale]
     mod.update(2.0)
     assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Waiting for app@muted", *stale]
+
+
+def title_message(rt) -> str:
+    return panel_texts(rt)[2]
+
+
+def test_silent_app_is_started_again_then_given_up_on(lua, tmp_path):
+    rt, mod = lua
+    mod.launch = rt.execute(COUNT_STARTS)
+    track(lua, targets=("pair",))
+    mod.update(0.5)
+    assert rt.eval("STARTS") == 1
+    mod.update(4.0)
+    assert rt.eval("STARTS") == 1
+    assert title_message(rt) == "Waiting for app@muted"
+    mod.update(0.5)  # 5 seconds of silence
+    assert rt.eval("STARTS") == 2
+    assert title_message(rt) == "Waiting for app@muted"
+    mod.update(15.0)
+    assert rt.eval("STARTS") == 3
+    assert title_message(rt) == "App didn't start@muted"
+    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert "not answering after 3 starts" in log
+    mod.update(45.0)
+    assert rt.eval("STARTS") == 4
+    mod.update(1000.0)
+    assert rt.eval("STARTS") == 4  # no more: each one stalls a frame
+    assert (tmp_path / "calculatro.log").read_text(encoding="utf-8") == log  # once
+
+
+def test_answer_clears_the_failure_and_starts_are_counted_afresh(lua, tmp_path):
+    rt, mod = lua
+    mod.launch = rt.execute(COUNT_STARTS)
+    track(lua, targets=("pair",))
+    for wait in (0.5, 5.0, 15.0, 45.0):
+        mod.update(wait)
+    assert rt.eval("STARTS") == 4
+    reply(tmp_path)  # started by hand, say
+    mod.update(0.1)
+    assert "App didn't start@muted" not in panel_texts(rt)
+    # It stops again: the next snapshot goes unanswered.
+    track(lua, targets=("pair", "trips"))
+    mod.update(0.2)
+    assert rt.eval("STARTS") == 4
+    mod.update(2.0)
+    assert title_message(rt) == "Waiting for app@muted"
+    mod.update(3.0)
+    assert rt.eval("STARTS") == 5
+
+
+def test_answering_app_is_left_alone(lua, tmp_path):
+    rt, mod = lua
+    mod.launch = rt.execute(COUNT_STARTS)
+    track(lua, targets=("pair",))
+    mod.update(0.5)
+    reply(tmp_path)
+    for _ in range(100):
+        mod.update(1.0)
+    assert rt.eval("STARTS") == 1
+
+
+def test_app_windows_refused_to_start_is_reported_and_not_retried(lua, tmp_path):
+    rt, mod = lua
+    rt.execute(r"""
+      love.filesystem.getUserDirectory = function() return 'C:/Users/Some One/' end
+      STARTS = 0
+    """)
+    mod.launch = rt.execute(r"""
+      return function()
+        STARTS = STARTS + 1
+        error('could not start C:\\Users\\Some One\\venv\\pythonw.exe (ShellExecuteW error 2)')
+      end
+    """)
+    track(lua, targets=("pair",))
+    mod.update(0.5)
+    mod.update(2.0)
+    assert title_message(rt) == "App didn't start@muted"  # at the first timeout, without waiting for restarts
+    mod.update(1000.0)
+    assert rt.eval("STARTS") == 1
+    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert log.startswith("=== Calculatro mod, session ")
+    assert r"could not start ~\venv\pythonw.exe (ShellExecuteW error 2)" in log
+    assert "Some One" not in log
+
+
+def test_nothing_to_start_says_so(lua):
+    rt, mod = lua
+    track(lua, targets=("pair",))
+    mod.update(0.5)
+    mod.update(2.0)
+    assert title_message(rt) == "App didn't start@muted"
+
+
+@pytest.mark.parametrize("text, logged", [
+    (r"C:\Users\Some One\x.exe", r"~\x.exe"),
+    ("c:/users/some one/x.exe", "~/x.exe"),  # however it's written
+    (r"'C:\Users\Some One': missing", "'~': missing"),
+    (r"C:\Users\Some One", "~"),
+    (r"C:\Users\Some Oneself\x.exe", r"C:\Users\Some Oneself\x.exe"),  # someone else's
+    (r"a C:\Users\Some One\x and C:\Users\Some One\y", r"a ~\x and ~\y"),
+])
+def test_mod_log_hides_the_home_folder(lua, tmp_path, text, logged):
+    rt, mod = lua
+    rt.execute("love.filesystem.getUserDirectory = function() return [[C:\\Users\\Some One]] end")
+    mod.log_error(text)
+    assert (tmp_path / "calculatro.log").read_text(encoding="utf-8").splitlines()[1] == f"[mod] {logged}"
+
+
+def test_mod_adds_to_the_log_the_app_has_open(lua, tmp_path):
+    _, mod = lua
+    with cli.open_log(tmp_path / "calculatro.log") as log:
+        print("from the app", file=log)
+        mod.log_error("from the mod")
+        print("from the app again", file=log)
+    lines = (tmp_path / "calculatro.log").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "from the app" and lines[2] == "[mod] from the mod" and lines[3] == "from the app again"
+
+
+def test_broken_step_is_logged_once(lua, tmp_path):
+    rt, mod = lua
+    mod.launch = rt.execute(COUNT_STARTS)
+    mod.check_round = rt.eval("function() error('oops') end")
+    for _ in range(3):
+        mod.update(0.1)
+    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert log.count("round failed") == 1 and "oops" in log
 
 
 def test_nothing_tracked_needs_no_app(lua):

@@ -20,6 +20,9 @@ local Calculatro = {
     state_id = nil,  -- id of the last snapshot written
     changed_at = 0,  -- clock when it was written
     ack_id = nil,    -- id the odds file last answered (pending or done)
+    app_started = false,  -- whether Windows started the app, the last time the mod tried
+    restarts = 0,    -- times the app was started again since it last answered
+    silent_since = 0,  -- clock at its last answer or start, whichever is later
     odds = nil,      -- last finished odds from this session and round
     round = nil,     -- G.GAME.round, and Calculatro.seq when it last changed
     round_seq = 0,
@@ -1013,7 +1016,8 @@ end
 -- pythonw.exe) in the mod's launch.txt. Without one, a release's own Python
 -- (build_release.ps1 puts it and the app in the mod's python folder) is run if
 -- it's there. The app exits with the game (by its pid), and on its own if one
--- is already running.
+-- is already running, so starting it again when it's there does nothing (see
+-- `check_app`).
 function Calculatro.launch_command(pid)
     local exe
     local f = io.open(save_path('Mods/Calculatro/launch.txt'), 'rb')
@@ -1032,19 +1036,25 @@ function Calculatro.launch_command(pid)
 end
 
 -- Through Windows itself rather than os.execute, whose cmd.exe would flash a
--- console window over the game.
+-- console window over the game. Returns true if Windows started it, which
+-- says nothing about whether it's still running a moment later.
 function Calculatro.launch()
     local ok, ffi = pcall(require, 'ffi')
-    if not ok then return end  -- not LuaJIT (the tests)
-    ffi.cdef [[
-        unsigned long GetCurrentProcessId(void);
-        int MultiByteToWideChar(unsigned int page, unsigned long flags, const char *s, int n,
-                                uint16_t *out, int size);
-        void *ShellExecuteW(void *hwnd, const uint16_t *op, const uint16_t *file,
-                            const uint16_t *params, const uint16_t *dir, int show);
-    ]]
+    if not ok then return false end  -- not LuaJIT (the tests)
+    if not Calculatro.declared then
+        ffi.cdef [[
+            unsigned long GetCurrentProcessId(void);
+            int MultiByteToWideChar(unsigned int page, unsigned long flags, const char *s, int n,
+                                    uint16_t *out, int size);
+            void *ShellExecuteW(void *hwnd, const uint16_t *op, const uint16_t *file,
+                                const uint16_t *params, const uint16_t *dir, int show);
+        ]]
+        Calculatro.declared = true
+    end
     local exe, params = Calculatro.launch_command(ffi.C.GetCurrentProcessId())
-    if not exe then return end
+    if not exe then
+        error("nothing to start: no launch.txt or python folder in Mods/Calculatro (is that the mod's folder name?)")
+    end
     local function wide(s)
         local n = ffi.C.MultiByteToWideChar(65001, 0, s, -1, nil, 0)
         local out = ffi.new('uint16_t[?]', n)
@@ -1052,9 +1062,11 @@ function Calculatro.launch()
         return out
     end
     local result = ffi.load('shell32').ShellExecuteW(nil, wide('open'), wide(exe), wide(params), nil, 0)
-    if tonumber(ffi.cast('intptr_t', result)) <= 32 then
-        error('could not start ' .. exe)
+    local code = tonumber(ffi.cast('intptr_t', result))
+    if code <= 32 then
+        error(string.format('could not start %s (ShellExecuteW error %d)', exe, code))
     end
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -1109,7 +1121,7 @@ function Calculatro.panel_model()
     if not (odds and odds.id == Calculatro.state_id) then
         local waited = Calculatro.clock - Calculatro.changed_at
         if Calculatro.ack_id ~= Calculatro.state_id and waited >= Calculatro.timeout then
-            model.message = 'Waiting for app'
+            model.message = Calculatro.app_failed() and "App didn't start" or 'Waiting for app'
         elseif waited >= Calculatro.patience then
             model.message = 'Calculating...'
         end
@@ -1158,8 +1170,8 @@ local COLUMN_W = CARD_NAME_W + DISCARD_W + SEARCH_W + REMOVE_W
 -- comes out of their names' width.
 local EDIT_W = 0.3
 local TITLE_W, PLUS_W, COLUMN_GAP = 1.6, 0.35, 0.2
--- Fits "Calculating..." and "Waiting for app" beside the
--- title and its + button.
+-- Fits "Calculating..." and "Waiting for app" beside the title and its +
+-- button. A column leaves more than this, enough for "App didn't start".
 local MESSAGE_W = 1.5
 local SCALE = 0.32
 
@@ -2477,12 +2489,93 @@ end
 ---------------------------------------------------------------------------
 Calculatro.reported = {}
 
--- Runs fn, printing its first error only: a broken step must not crash the game.
+-- Writes the home folder as `~`, as the app's log does (log.py): players post
+-- the log publicly, and the folder's path holds their Windows username. The
+-- game's name for it, since it's UTF-8 like launch.txt and the save directory.
+local function hide_home(text)
+    local function folded(s) return (s:lower():gsub('/', '\\')) end  -- each byte stays in its place
+    local get = love.filesystem.getUserDirectory
+    local home = get and (folded(get()):gsub('\\+$', ''))
+    if not home or home == '' then return text end
+    local seen, out, at, from = folded(text), {}, 1, 1
+    while true do
+        local first, last = seen:find(home, from, true)
+        if not first then break end
+        if seen:sub(last + 1):find('^[\\\'"%s,:;%)%]]') or last == #seen then
+            out[#out + 1] = text:sub(at, first - 1) .. '~'
+            at = last + 1
+        end
+        from = last + 1
+    end
+    out[#out + 1] = text:sub(at)
+    return table.concat(out)
+end
+
+-- Adds a line to the app's log, where a player is told to look; when the app
+-- never starts, it's the only thing there. The app has the file open too, which
+-- Windows allows since both only append.
+function Calculatro.log_error(text)
+    local f = io.open(save_path('calculatro.log'), 'ab')
+    if not f then return end
+    if not Calculatro.log_started then
+        Calculatro.log_started = true
+        f:write('=== Calculatro mod, session ', Calculatro.session, ', ', os.date('%Y-%m-%d %H:%M:%S'), '\n')
+    end
+    f:write('[mod] ', hide_home(text), '\n')
+    f:close()
+end
+
+-- Reports `what` the first time only.
+local function report(what, text)
+    if Calculatro.reported[what] then return end
+    Calculatro.reported[what] = true
+    print('[Calculatro] ' .. text)
+    pcall(Calculatro.log_error, text)
+end
+
+-- Runs fn, reporting its first error only: a broken step must not crash the game.
 local function guard(what, fn, ...)
     local ok, err = pcall(fn, ...)
-    if not ok and not Calculatro.reported[what] then
-        Calculatro.reported[what] = true
-        print('[Calculatro] ' .. what .. ' failed: ' .. tostring(err))
+    if not ok then report(what, what .. ' failed: ' .. tostring(err)) end
+end
+
+-- Seconds without an answer before starting the app again, each counted from
+-- the last start. Nothing notices it's gone but its silence: ShellExecuteW
+-- succeeds even if Python dies straight away, or once it crashes later on.
+-- Each start stalls a frame, so it stops after these until the app answers.
+local RESTART_AFTER = { 5, 15, 45 }
+local FAILED_AFTER = 2  -- restarts before the panel says so, about 20 seconds in
+
+function Calculatro.start_app()
+    Calculatro.app_started = false
+    guard('starting the app', function() Calculatro.app_started = Calculatro.launch() end)
+    Calculatro.silent_since = Calculatro.clock
+end
+
+-- Whether the panel should say the app isn't coming: Windows couldn't start it,
+-- or it's been started again and again without answering.
+function Calculatro.app_failed()
+    return not Calculatro.app_started or Calculatro.restarts >= FAILED_AFTER
+end
+
+-- An answer to the latest snapshot means it's running, whoever started it, and
+-- it gets restarts afresh if it stops later. A start Windows refused isn't
+-- tried again: a path that's wrong now will still be wrong in 5 seconds.
+function Calculatro.check_app()
+    if Calculatro.state_id and Calculatro.ack_id == Calculatro.state_id then
+        Calculatro.app_started, Calculatro.restarts, Calculatro.silent_since = true, 0, Calculatro.clock
+        return
+    end
+    if not Calculatro.app_started then return end
+    local wait = RESTART_AFTER[Calculatro.restarts + 1]
+    if wait and Calculatro.clock - Calculatro.silent_since >= wait then
+        Calculatro.restarts = Calculatro.restarts + 1
+        Calculatro.start_app()
+        if Calculatro.app_started and Calculatro.restarts >= FAILED_AFTER then
+            local exe = Calculatro.launch_command(0)
+            report('the app answering', string.format('the app is not answering after %d starts of %s',
+                                                      Calculatro.restarts + 1, tostring(exe)))
+        end
     end
 end
 
@@ -2490,7 +2583,7 @@ function Calculatro.update(dt)
     dt = dt or 0
     if not Calculatro.launched then
         Calculatro.launched = true
-        guard('starting the app', Calculatro.launch)
+        Calculatro.start_app()
     end
     Calculatro.clock = Calculatro.clock + dt
     Calculatro.elapsed = Calculatro.elapsed + dt
@@ -2505,6 +2598,7 @@ function Calculatro.update(dt)
         Calculatro.odds_elapsed = 0
         guard('reading odds', Calculatro.read_odds)
     end
+    guard('checking on the app', Calculatro.check_app)
     guard('panel', Calculatro.refresh_panel)
 end
 

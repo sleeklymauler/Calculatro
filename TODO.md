@@ -57,7 +57,8 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Fixed: `log.open_log` appends, moving a log over 256 KB to `calculatro.log.1` at startup (not during a session, so there's no strict cap), each session starts with a header (`log.header`), and the home folder is written as `~`, since it holds the player's username. `failed()` logs each exception type and stack once per session, and a failure to log no longer stops the app.
 - [ ] **[low]** Startup failures under pythonw go nowhere (`__main__.py:355-360`)
   - Silent failures: `APPDATA` unset (`KeyError`), the log failing to open, and argparse errors before stderr is redirected.
-  - `process.exited()` returns "exited" when `OpenProcess` fails (`process.py:189-191`), so the app quits at once without saying why.
+  - `process.exited()` returns "exited" when `OpenProcess` fails (`process.py:34-36`), so the app quits at once with only the header in the log.
+  - The panel now says "App didn't start" for all of these, and the mod logs that the app isn't answering. What's left: a log that can't open still stops a working app, which it needn't.
 - [ ] **[low]** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s forever (`overlay.py:328-342`, `__main__.py:232`)
   - Separate `PermissionError` from other errors, and stop retrying on errors that won't go away (missing directory).
 - [ ] **[low]** `source.poll` stats the file before reading it, so if the file is replaced in between, the newer content is delivered under the older key, and again on the next poll (`source.py:75-90`)
@@ -70,16 +71,15 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - In game this would mean no state file, no odds, and no `launch.txt`, so the panel says "Waiting for app" forever with nothing logged.
   - Fix: use `love.filesystem.read`/`write` relative to the save dir, and FFI `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING)` for an atomic replace. The mod already has `wide()`. That also closes the remove-then-rename gap in `write_state`.
   - Add a test with a non-ASCII `getSaveDirectory`.
-- [ ] **[med]** Nothing restarts the app, and the player isn't told why it's missing (`calculatro.lua:943-984`, `2400-2406`)
-  - The mod launches the app only on its first frame. After a crash (see above), or after a by-hand instance holding the mutex is closed, the panel says "Waiting for app" until the game restarts.
-  - A failed `ShellExecuteW` (stale `launch.txt`, a missing `python` folder, a renamed mod folder) and `guard` errors only `print` to the Lovely console.
-  - Suggestions:
-    - after the "Waiting for app" timeout, relaunch with backoff (the mutex already prevents duplicates);
-    - show "App didn't start" on the title row;
-    - append mod errors to `calculatro.log`.
+- [x] **[med]** Nothing restarted the app, and the player wasn't told why it was missing
+  - The mod launched the app only on its first frame. After a crash, or after a by-hand instance holding the mutex was closed, the panel said "Waiting for app" until the game restarted.
+  - A failed `ShellExecuteW` (stale `launch.txt`, a missing `python` folder, a renamed mod folder) and `guard` errors only `print`ed to the Lovely console.
+  - Fixed: `check_app` starts the app again after 5, 15 and 45 seconds of silence, counted afresh once it answers. The title row says "App didn't start" if Windows refused the start or nothing could be started (neither is retried), or after the second restart. Mod errors go to `calculatro.log` with the home folder as `~`.
+  - Real launches checked outside the game through LuaJIT's FFI (kill the app, the mod restarts it). Not yet checked in game.
+  - Known limitation: a schema mismatch (mod not reinstalled after an update) also says "App didn't start", though the app is running and rejecting the snapshots; the log has its message.
 - [ ] **[med]** The mod only works from a folder named exactly `Calculatro` (`launch_command` hardcodes `Mods/Calculatro/…`)
-  - Lovely loads a mod from a folder of any name, so a player who extracts to `Mods\Calculatro-0.1.0-windows\` gets "Waiting for app" and no log.
-  - Have the mod find its own folder. At least document it under Troubleshooting.
+  - Lovely loads a mod from a folder of any name, so a player who extracts to `Mods\Calculatro-0.1.0-windows\` gets "App didn't start", with a line in the log asking about the folder's name. Troubleshooting mentions it too.
+  - Have the mod find its own folder.
 - [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`calculatro.lua:827-834, 906-910`)
   - `{"nonce":1,"options":[[9]]}` → `chosen[nil] = true` → "table index is nil" every frame until the hand changes.
   - Python never sends this today, so it's hardening. Fix: drop options whose indices aren't integers in `0..#hand-1` in `receive_search`.
@@ -174,7 +174,6 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Encoder edge cases: NaN/inf → `null`, control characters/DEL → `\u00xx`, `2^60`. They behave correctly today but nothing asserts it.
   - Decoder rejection: trailing commas, `null`, truncated input.
   - `write_state` failing (`last_json` stays unset, the snapshot is retried, `seq`/`round_seq` stay right).
-  - `guard` reports once and the game continues.
   - Malformed or out-of-range search replies.
   - Non-ASCII save directory.
   - Optional: a test that `refresh_panel` with an unchanged model returns early.

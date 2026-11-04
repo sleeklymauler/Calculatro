@@ -123,6 +123,7 @@ def lua(request, tmp_path):
     save_dir = str(tmp_path).replace("\\", "/")
     rt.execute(f"love = {{filesystem = {{getSaveDirectory = function() return '{save_dir}' end}}}}")
     mod = rt.execute(MOD.read_text(encoding="utf-8"))
+    mod.launch = rt.eval("function() return false end")  # no test should start the app by accident
     return rt, mod
 
 
@@ -504,6 +505,16 @@ def test_launch_command(lua, tmp_path):
     (mod_dir / "launch.txt").write_text(r"C:\venv\Scripts\pythonw.exe" "\r\n", encoding="utf-8")
     assert tuple(mod.launch_command(1234)) == (
         r"C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")
+
+
+def test_launch_with_nothing_to_start(lua, request):
+    rt, _ = lua
+    real = rt.execute(MOD.read_text(encoding="utf-8")).launch  # the fixture replaces the mod's
+    if "luajit" in request.node.name:
+        ok, message = rt.eval("pcall")(real)
+        assert not ok and "nothing to start" in message
+    else:
+        assert real() is False  # no FFI outside LuaJIT
 
 
 @pytest.mark.parametrize("jokers, copies", [
