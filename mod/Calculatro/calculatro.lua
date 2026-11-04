@@ -18,6 +18,7 @@ local Calculatro = {
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
     seq = 0,
     state_id = nil,  -- id of the last snapshot written
+    write_failures = 0,  -- snapshots in a row that couldn't be written
     changed_at = 0,  -- clock when it was written
     ack_id = nil,    -- id the odds file last answered (pending or done)
     app_started = false,  -- whether Windows started the app, the last time the mod tried
@@ -807,21 +808,65 @@ end
 ---------------------------------------------------------------------------
 -- Files
 ---------------------------------------------------------------------------
+-- Files go through love.filesystem, with names relative to the save directory,
+-- or Windows' wide functions, never Lua's own: the save directory's path is
+-- UTF-8, which those read in the system's ANSI code page, so they can't find it
+-- if the Windows username isn't plain ASCII.
 local function save_path(name)
     return love.filesystem.getSaveDirectory() .. '/' .. name
 end
 
-local function write_state(json)
-    local path = save_path('calculatro_state.json')
-    local tmp = path .. '.tmp'
-    local f = io.open(tmp, 'wb')
-    if not f then return false end
-    f:write(json)
-    f:close()
-    -- Windows os.rename won't overwrite; the reader retries on a missing file.
-    os.remove(path)
-    return os.rename(tmp, path)
+-- LuaJIT's FFI with the Windows functions the mod calls declared, or nil outside
+-- LuaJIT (the tests). Another mod declaring these too is fine: LuaJIT lets a
+-- function be declared again, unlike a struct.
+local function windows()
+    local ok, ffi = pcall(require, 'ffi')
+    if not ok then return nil end
+    if not Calculatro.declared then
+        ffi.cdef [[
+            unsigned long GetCurrentProcessId(void);
+            unsigned long GetLastError(void);
+            int MoveFileExW(const uint16_t *from, const uint16_t *to, unsigned long flags);
+            int MultiByteToWideChar(unsigned int page, unsigned long flags, const char *s, int n,
+                                    uint16_t *out, int size);
+            void *ShellExecuteW(void *hwnd, const uint16_t *op, const uint16_t *file,
+                                const uint16_t *params, const uint16_t *dir, int show);
+        ]]
+        Calculatro.declared = true
+    end
+    return ffi
 end
+
+local function wide(ffi, s)
+    local n = ffi.C.MultiByteToWideChar(65001, 0, s, -1, nil, 0)
+    local out = ffi.new('uint16_t[?]', n)
+    ffi.C.MultiByteToWideChar(65001, 0, s, -1, out, n)
+    return out
+end
+
+-- Replaces one file in the save directory with another in one step, so the app
+-- never finds the file missing. It fails while the app has the file open; the
+-- next snapshot tries again.
+function Calculatro.replace_file(from, to)
+    local ffi = windows()
+    if not ffi then return false, 'no FFI' end
+    local MOVEFILE_REPLACE_EXISTING = 1
+    if ffi.C.MoveFileExW(wide(ffi, save_path(from)), wide(ffi, save_path(to)), MOVEFILE_REPLACE_EXISTING) ~= 0 then
+        return true
+    end
+    return false, string.format('MoveFileExW error %d', tonumber(ffi.C.GetLastError()))
+end
+
+local function write_state(json)
+    local path = 'calculatro_state.json'
+    local ok, err = love.filesystem.write(path .. '.tmp', json)
+    if not ok then return false, err end
+    return Calculatro.replace_file(path .. '.tmp', path)
+end
+
+-- Snapshots in a row that couldn't be written (2 seconds' worth) before it's
+-- reported: one now and then is normal, while the app is reading the file.
+local WRITE_FAILURES = 10
 
 -- Writes the snapshot if it changed, tagged with a new id.
 function Calculatro.write_snapshot()
@@ -830,10 +875,17 @@ function Calculatro.write_snapshot()
     if json == Calculatro.last_json then return end
     Calculatro.seq = Calculatro.seq + 1
     snapshot.id = Calculatro.session .. ':' .. Calculatro.seq
-    if write_state(encode(snapshot)) then
+    local ok, err = write_state(encode(snapshot))
+    if ok then
         Calculatro.last_json = json
         Calculatro.state_id = snapshot.id
         Calculatro.changed_at = Calculatro.clock
+        Calculatro.write_failures = 0
+    else
+        Calculatro.write_failures = Calculatro.write_failures + 1
+        if Calculatro.write_failures >= WRITE_FAILURES then
+            error('could not write the state file: ' .. tostring(err))
+        end
     end
 end
 
@@ -863,11 +915,8 @@ end
 -- the odds once they're calculated. Odds left over from an earlier game
 -- session or round are ignored.
 function Calculatro.read_odds()
-    local f = io.open(save_path('calculatro_odds.json'), 'rb')
-    if not f then return end
-    local raw = f:read('*a')
-    f:close()
-    if raw == Calculatro.odds_raw then return end
+    local raw = love.filesystem.read('calculatro_odds.json')
+    if not raw or raw == Calculatro.odds_raw then return end
     Calculatro.odds_raw = raw
     local ok, odds = pcall(decode, raw)
     if not ok or type(odds) ~= 'table' or odds.schema ~= Calculatro.odds_schema or not own_id(odds.id) then
@@ -1020,17 +1069,13 @@ end
 -- `check_app`).
 function Calculatro.launch_command(pid)
     local exe
-    local f = io.open(save_path('Mods/Calculatro/launch.txt'), 'rb')
-    if f then
-        exe = (f:read('*l') or ''):match('^%s*(.-)%s*$')
-        f:close()
+    local text = love.filesystem.read('Mods/Calculatro/launch.txt')
+    if text then
+        exe = text:match('^[^\n]*'):match('^%s*(.-)%s*$')
         if exe == '' then return end
     else
-        exe = save_path('Mods/Calculatro/python/pythonw.exe')
-        f = io.open(exe, 'rb')
-        if not f then return end
-        f:close()
-        exe = exe:gsub('/', '\\')
+        if not love.filesystem.getInfo('Mods/Calculatro/python/pythonw.exe') then return end
+        exe = save_path('Mods/Calculatro/python/pythonw.exe'):gsub('/', '\\')
     end
     return exe, '-m calculatro watch --game-pid ' .. string.format('%d', pid)
 end
@@ -1039,29 +1084,13 @@ end
 -- console window over the game. Returns true if Windows started it, which
 -- says nothing about whether it's still running a moment later.
 function Calculatro.launch()
-    local ok, ffi = pcall(require, 'ffi')
-    if not ok then return false end  -- not LuaJIT (the tests)
-    if not Calculatro.declared then
-        ffi.cdef [[
-            unsigned long GetCurrentProcessId(void);
-            int MultiByteToWideChar(unsigned int page, unsigned long flags, const char *s, int n,
-                                    uint16_t *out, int size);
-            void *ShellExecuteW(void *hwnd, const uint16_t *op, const uint16_t *file,
-                                const uint16_t *params, const uint16_t *dir, int show);
-        ]]
-        Calculatro.declared = true
-    end
+    local ffi = windows()
+    if not ffi then return false end  -- not LuaJIT (the tests)
     local exe, params = Calculatro.launch_command(ffi.C.GetCurrentProcessId())
     if not exe then
         error("nothing to start: no launch.txt or python folder in Mods/Calculatro (is that the mod's folder name?)")
     end
-    local function wide(s)
-        local n = ffi.C.MultiByteToWideChar(65001, 0, s, -1, nil, 0)
-        local out = ffi.new('uint16_t[?]', n)
-        ffi.C.MultiByteToWideChar(65001, 0, s, -1, out, n)
-        return out
-    end
-    local result = ffi.load('shell32').ShellExecuteW(nil, wide('open'), wide(exe), wide(params), nil, 0)
+    local result = ffi.load('shell32').ShellExecuteW(nil, wide(ffi, 'open'), wide(ffi, exe), wide(ffi, params), nil, 0)
     local code = tonumber(ffi.cast('intptr_t', result))
     if code <= 32 then
         error(string.format('could not start %s (ShellExecuteW error %d)', exe, code))
@@ -1120,7 +1149,9 @@ function Calculatro.panel_model()
     local odds = Calculatro.odds
     if not (odds and odds.id == Calculatro.state_id) then
         local waited = Calculatro.clock - Calculatro.changed_at
-        if Calculatro.ack_id ~= Calculatro.state_id and waited >= Calculatro.timeout then
+        -- With no snapshot written yet, there's nothing for the app to answer.
+        local unanswered = not Calculatro.state_id or Calculatro.ack_id ~= Calculatro.state_id
+        if unanswered and waited >= Calculatro.timeout then
             model.message = Calculatro.app_failed() and "App didn't start" or 'Waiting for app'
         elseif waited >= Calculatro.patience then
             model.message = 'Calculating...'
@@ -2515,14 +2546,13 @@ end
 -- never starts, it's the only thing there. The app has the file open too, which
 -- Windows allows since both only append.
 function Calculatro.log_error(text)
-    local f = io.open(save_path('calculatro.log'), 'ab')
-    if not f then return end
+    local header = ''
     if not Calculatro.log_started then
-        Calculatro.log_started = true
-        f:write('=== Calculatro mod, session ', Calculatro.session, ', ', os.date('%Y-%m-%d %H:%M:%S'), '\n')
+        header = '=== Calculatro mod, session ' .. Calculatro.session .. ', ' .. os.date('%Y-%m-%d %H:%M:%S') .. '\n'
     end
-    f:write('[mod] ', hide_home(text), '\n')
-    f:close()
+    if love.filesystem.append('calculatro.log', header .. '[mod] ' .. hide_home(text) .. '\n') then
+        Calculatro.log_started = true
+    end
 end
 
 -- Reports `what` the first time only.

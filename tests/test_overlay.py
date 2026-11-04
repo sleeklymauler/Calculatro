@@ -1107,6 +1107,18 @@ def test_answering_app_is_left_alone(lua, tmp_path):
     assert rt.eval("STARTS") == 1
 
 
+def test_no_snapshot_written_is_not_called_calculating(lua, tmp_path):
+    # Nothing for the app to answer, which isn't the same as waiting for its answer.
+    rt, mod = lua
+    mod.launch = rt.eval("function() error('could not start it') end")
+    track(lua, targets=("pair",))
+    (tmp_path / "calculatro_state.json.tmp").mkdir()
+    mod.update(0.5)
+    mod.update(2.0)
+    assert mod.state_id is None
+    assert title_message(rt) == "App didn't start@muted"
+
+
 def test_app_windows_refused_to_start_is_reported_and_not_retried(lua, tmp_path):
     rt, mod = lua
     rt.execute(r"""

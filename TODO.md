@@ -65,11 +65,12 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 
 ### Mod (Lua)
 
-- [ ] **[high, verify in game]** The mod can't read or write its files when the Windows user path has non-ASCII characters (`calculatro.lua:740, 745-746, 789, 945, 952`)
-  - `love.filesystem.getSaveDirectory()` is UTF-8, but `io.open`/`os.remove`/`os.rename` go through the C runtime in the ANSI code page. In Lua and LuaJIT, `io.open('…/Łukasz é/x.json', 'wb')` fails.
-  - In game this would mean no state file, no odds, and no `launch.txt`, so the panel says "Waiting for app" forever with nothing logged.
-  - Fix: use `love.filesystem.read`/`write` relative to the save dir, and FFI `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING)` for an atomic replace. The mod already has `wide()`. That also closes the remove-then-rename gap in `write_state`.
-  - Add a test with a non-ASCII `getSaveDirectory`.
+- [ ] **[high, verify in game]** The mod couldn't read or write its files when the Windows user path has non-ASCII characters
+  - `love.filesystem.getSaveDirectory()` is UTF-8, but `io.open`/`os.remove`/`os.rename` go through the C runtime in the ANSI code page (`Balatro.exe`'s manifest has no `activeCodePage`).
+  - Reproduced with the mod in the game's own `lua51.dll` and `love.dll`, with `APPDATA` set to a non-ASCII folder: no state file, no app started, nothing logged, and the panel on "Calculating..." forever.
+  - Fixed: files go through `love.filesystem`, and `Calculatro.replace_file` (FFI `MoveFileExW`) replaces the state file in one step, closing the remove-then-rename gap. A state file that can't be written is logged after 10 snapshots in a row. With no snapshot written, the panel no longer says "Calculating...".
+  - The same setup with the fix: the app starts and the odds come back, in `Luké`-style and `Łukasz光`-style folders (LÖVE 11.5, LuaJIT 2.0.5). `love.filesystem.append` works while the app holds the log open.
+  - Not yet checked in game. Close this once it has been.
 - [x] **[med]** Nothing restarted the app, and the player wasn't told why it was missing
   - The mod launched the app only on its first frame. After a crash, or after a by-hand instance holding the mutex was closed, the panel said "Waiting for app" until the game restarted.
   - A failed `ShellExecuteW` (stale `launch.txt`, a missing `python` folder, a renamed mod folder) and `guard` errors only `print`ed to the Lovely console.
@@ -82,8 +83,8 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`calculatro.lua:827-834, 906-910`)
   - `{"nonce":1,"options":[[9]]}` → `chosen[nil] = true` → "table index is nil" every frame until the hand changes.
   - Python never sends this today, so it's hardening. Fix: drop options whose indices aren't integers in `0..#hand-1` in `receive_search`.
-- [ ] **[low-med, unverified]** `ffi.cdef` of `MultiByteToWideChar`/`ShellExecuteW`/`GetCurrentProcessId` can fail with "attempt to redefine" if another mod declared them first (`calculatro.lua:965-971`)
-  - Auto-start would then fail silently. Wrap each declaration in its own `pcall`, or check `ffi.C.X` before declaring it.
+- [x] **[low-med]** `ffi.cdef` of `MultiByteToWideChar`/`ShellExecuteW`/`GetCurrentProcessId` could fail with "attempt to redefine" if another mod declared them first
+  - Not a bug: on the game's LuaJIT 2.0.5, functions can be declared again, even with other spellings of the types (`LPCWSTR`, `DWORD`). Only struct clashes raise it, and the mod declares only functions.
 - [ ] **[low]** The editor closes, losing what was being edited, whenever the panel is hidden briefly (pause menu, Run Info, View Deck; `calculatro.lua:997, 2351`)
   - Keep the editor's state until the blind ends rather than clearing it whenever `G.OVERLAY_MENU` is set.
 
@@ -172,9 +173,9 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[med]** Lua tests
   - Encoder edge cases: NaN/inf → `null`, control characters/DEL → `\u00xx`, `2^60`. They behave correctly today but nothing asserts it.
   - Decoder rejection: trailing commas, `null`, truncated input.
-  - `write_state` failing (`last_json` stays unset, the snapshot is retried, `seq`/`round_seq` stay right).
+  - [x] `write_state` failing: the snapshot is retried, and repeated failures are reported once. `seq`/`round_seq` staying right is still untested.
   - Malformed or out-of-range search replies.
-  - Non-ASCII save directory.
+  - [x] Non-ASCII save directory (with a stand-in for `love.filesystem`; the real one was only checked by hand).
   - Optional: a test that `refresh_panel` with an unchanged model returns early.
 - [ ] **[low]** Split `tests/test_state.py`
   - Its module-level `importorskip("lupa")` also skips the pure-Python `GameState` tests when lupa is missing. Separate the parse tests from the Lua tests.

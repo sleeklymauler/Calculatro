@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,46 @@ end
 """
 
 
+# The game's love.filesystem. Lua's own file functions stand in for it, which
+# can't take a non-ASCII path; see test_non_ascii_save_directory for those.
+MOCK_FILESYSTEM = r"""
+local dir = ...
+local function open(name, mode) return io.open(dir .. '/' .. name, mode) end
+local function put(name, mode, text)
+  local f = open(name, mode)
+  if not f then return false, 'could not open ' .. name end
+  f:write(text)
+  f:close()
+  return true
+end
+love = {filesystem = {
+  getSaveDirectory = function() return dir end,
+  read = function(name)
+    local f = open(name, 'rb')
+    if not f then return nil, 'does not exist' end
+    local text = f:read('*a')
+    f:close()
+    return text, #text
+  end,
+  write = function(name, text) return put(name, 'wb', text) end,
+  append = function(name, text) return put(name, 'ab', text) end,
+  getInfo = function(name)
+    local f = open(name, 'rb')
+    if f then f:close(); return {type = 'file'} end
+  end,
+}}
+"""
+
+# Outside LuaJIT there's no FFI for the mod's MoveFileExW.
+REPLACE_WITHOUT_FFI = r"""
+return function(from, to)
+  local dir = love.filesystem.getSaveDirectory()
+  os.remove(dir .. '/' .. to)
+  return os.rename(dir .. '/' .. from, dir .. '/' .. to)
+end
+"""
+
+
 # The game runs LuaJIT (Lua 5.1) and lupa's default runtime is a newer Lua, so the
 # mod's tests run in both: a 5.2+ feature fails in the LuaJIT run.
 @pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])
@@ -121,8 +162,10 @@ def lua(request, tmp_path):
     rt = importlib.import_module(request.param).LuaRuntime()
     rt.execute(MOCK_G)
     save_dir = str(tmp_path).replace("\\", "/")
-    rt.execute(f"love = {{filesystem = {{getSaveDirectory = function() return '{save_dir}' end}}}}")
+    rt.execute(MOCK_FILESYSTEM, save_dir)
     mod = rt.execute(MOD.read_text(encoding="utf-8"))
+    if rt.eval("jit") is None:
+        mod.replace_file = rt.execute(REPLACE_WITHOUT_FFI)
     mod.launch = rt.eval("function() return false end")  # no test should start the app by accident
     return rt, mod
 
@@ -505,6 +548,92 @@ def test_launch_command(lua, tmp_path):
     (mod_dir / "launch.txt").write_text(r"C:\venv\Scripts\pythonw.exe" "\r\n", encoding="utf-8")
     assert tuple(mod.launch_command(1234)) == (
         r"C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")
+
+
+# What the game's love.filesystem can do and Lua's own functions can't: a UTF-8 path.
+def unicode_filesystem(rt, save_dir):
+    def read(name):
+        path = save_dir / name
+        return path.read_bytes().decode("utf-8") if path.is_file() else None
+
+    def write(name, text):
+        (save_dir / name).write_bytes(text.encode("utf-8"))
+        return True
+
+    def append(name, text):
+        with (save_dir / name).open("ab") as f:
+            f.write(text.encode("utf-8"))
+        return True
+
+    fs = rt.eval("love.filesystem")
+    fs.getSaveDirectory = rt.eval("function(dir) return function() return dir end end")(save_dir.as_posix())
+    fs.read, fs.write, fs.append = read, write, append
+    fs.getInfo = lambda name: True if (save_dir / name).exists() else None
+
+
+@pytest.mark.parametrize("name", ["Luké", "Łukasz", "光"])
+def test_non_ascii_save_directory(lua, tmp_path, request, name):
+    if "luajit" not in request.node.name:
+        pytest.skip("the state file is replaced through LuaJIT's FFI")
+    rt, mod = lua
+    save_dir = tmp_path / name
+    (save_dir / "Mods" / "Calculatro").mkdir(parents=True)
+    unicode_filesystem(rt, save_dir)
+    state_file = save_dir / "calculatro_state.json"
+
+    mod.write_snapshot()  # the first creates the file, the next replaces it
+    first = mod.state_id
+    assert json.loads(state_file.read_text(encoding="utf-8"))["id"] == first
+    rt.execute("G.GAME.current_round.hands_left = 1")
+    mod.write_snapshot()
+    assert mod.state_id != first
+    assert json.loads(state_file.read_text(encoding="utf-8"))["id"] == mod.state_id
+    assert not state_file.with_suffix(".json.tmp").exists()
+
+    (save_dir / "calculatro_odds.json").write_text(
+        json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
+    mod.read_odds()
+    assert mod.ack_id == mod.state_id
+
+    exe = rf"C:\{name}\pythonw.exe"
+    (save_dir / "Mods" / "Calculatro" / "launch.txt").write_text(exe + "\r\n", encoding="utf-8")
+    command, _ = mod.launch_command(1234)
+    assert command == exe
+
+    mod.log_error("something broke")
+    assert "[mod] something broke" in (save_dir / "calculatro.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("call", ["io.open", "io.lines", "os.rename", "os.remove", "loadfile", "dofile"])
+def test_mod_never_uses_a_function_taking_an_ansi_path(call):
+    # They can't find the save directory if the Windows username isn't plain ASCII.
+    assert not re.search(rf"\b{re.escape(call)}\b", MOD.read_text(encoding="utf-8"))
+
+
+def test_snapshot_that_cannot_be_written_is_tried_again(lua, tmp_path):
+    rt, mod = lua
+    mod.write_snapshot()
+    written = mod.state_id
+    (tmp_path / "calculatro_state.json.tmp").mkdir()  # in the new one's way
+    rt.execute("G.GAME.current_round.hands_left = 1")
+    mod.write_snapshot()
+    assert mod.state_id == written
+    (tmp_path / "calculatro_state.json.tmp").rmdir()
+    mod.write_snapshot()
+    assert mod.state_id != written
+    assert json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))["id"] == mod.state_id
+
+
+def test_snapshots_that_keep_failing_are_reported_once(lua, tmp_path):
+    rt, mod = lua
+    (tmp_path / "calculatro_state.json.tmp").mkdir()
+    for _ in range(9):  # now and then is normal, while the app reads the file
+        mod.update(mod.interval)
+    assert not (tmp_path / "calculatro.log").exists()
+    for _ in range(10):
+        mod.update(mod.interval)
+    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert log.count("could not write the state file") == 1
 
 
 def test_launch_with_nothing_to_start(lua, request):
