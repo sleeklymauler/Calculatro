@@ -8,6 +8,32 @@ local report, guard = log.report, log.guard
 ---------------------------------------------------------------------------
 -- Starting the app
 ---------------------------------------------------------------------------
+local function holds_mod(folder)
+    local toml = love.filesystem.read(folder .. '/lovely.toml')
+    return toml and toml:find('name = "calculatro.core"', 1, true)
+        and not love.filesystem.getInfo(folder .. '/.lovelyignore')  -- Lovely skips these
+end
+
+-- The mod's folder, relative to the save directory, or nil. Lovely loads a mod
+-- from a folder of any name but doesn't tell it which, so it's the one holding
+-- this mod's lovely.toml. With several copies, Lovely loads them all and there's
+-- no telling which is running, so Calculatro is preferred and the player told.
+function Calculatro.mod_folder()
+    local found = {}
+    for _, name in ipairs(love.filesystem.getDirectoryItems('Mods')) do
+        if holds_mod('Mods/' .. name) then found[#found + 1] = name end
+    end
+    if #found == 0 then return end
+    table.sort(found)
+    if #found > 1 then
+        report('copies of the mod', 'more than one copy of the mod in Mods, keep only one: ' .. table.concat(found, ', '))
+    end
+    for _, name in ipairs(found) do
+        if name == 'Calculatro' then return 'Mods/Calculatro' end
+    end
+    return 'Mods/' .. found[1]
+end
+
 -- install_mod.ps1 leaves the Python interpreter to run (the venv's
 -- pythonw.exe) in the mod's launch.txt. Without one, a release's own Python
 -- (build_release.ps1 puts it and the app in the mod's python folder) is run if
@@ -15,14 +41,17 @@ local report, guard = log.report, log.guard
 -- is already running, so starting it again when it's there does nothing (see
 -- `check_app`).
 function Calculatro.launch_command(pid)
+    local folder = Calculatro.mod_folder()
+    if not folder then return end
     local exe
-    local text = love.filesystem.read('Mods/Calculatro/launch.txt')
+    local text = love.filesystem.read(folder .. '/launch.txt')
     if text then
         exe = text:match('^[^\n]*'):match('^%s*(.-)%s*$')
         if exe == '' then return end
     else
-        if not love.filesystem.getInfo('Mods/Calculatro/python/pythonw.exe') then return end
-        exe = save_path('Mods/Calculatro/python/pythonw.exe'):gsub('/', '\\')
+        local python = folder .. '/python/pythonw.exe'
+        if not love.filesystem.getInfo(python) then return end
+        exe = save_path(python):gsub('/', '\\')
     end
     return exe, '-m calculatro watch --game-pid ' .. string.format('%d', pid)
 end
@@ -35,7 +64,7 @@ function Calculatro.launch()
     if not ffi then return false end  -- not LuaJIT (the tests)
     local exe, params = Calculatro.launch_command(ffi.C.GetCurrentProcessId())
     if not exe then
-        error("nothing to start: no launch.txt or python folder in Mods/Calculatro (is that the mod's folder name?)")
+        error("nothing to start: no launch.txt or python folder found for the mod in Mods (was its zip extracted?)")
     end
     local result = ffi.load('shell32').ShellExecuteW(nil, wide(ffi, 'open'), wide(ffi, exe), wide(ffi, params), nil, 0)
     local code = tonumber(ffi.cast('intptr_t', result))

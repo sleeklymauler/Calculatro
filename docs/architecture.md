@@ -87,7 +87,11 @@ Lovely injector DLL next to `Balatro.exe`). It also writes the venv's `pythonw.e
 installed mod's `launch.txt` (skip with `-NoAutoStart`).
 
 - **Starting.** On its first frame the mod starts `pythonw -m calculatro watch --game-pid <pid>`
-  through LuaJIT's FFI (`ShellExecuteW`; `os.execute` would flash a console).
+  through LuaJIT's FFI (`ShellExecuteW`; `os.execute` would flash a console). Lovely loads a mod from
+  a folder of any name without saying which, so `Calculatro.mod_folder` looks in `Mods` for the folder
+  whose `lovely.toml` registers `calculatro.core`, skipping any with a `.lovelyignore`. With several
+  copies it prefers `Calculatro` and logs a warning. A custom `--mod-dir` isn't supported, since
+  `love.filesystem` can't reach it.
 - **Restarting.** It starts it again after 5, 15 and 45 seconds with no answer to the latest snapshot,
   counted afresh once it answers (`Calculatro.check_app`). A start Windows refuses isn't retried.
 - **Stopping.** With `--game-pid` the app exits when the game does (`process.exited`).

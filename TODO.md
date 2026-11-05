@@ -77,9 +77,10 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Fixed: `check_app` starts the app again after 5, 15 and 45 seconds of silence, counted afresh once it answers. The title row says "App didn't start" if Windows refused the start or nothing could be started (neither is retried), or after the second restart. Mod errors go to `calculatro.log` with the home folder as `~`.
   - Real launches checked outside the game through LuaJIT's FFI (kill the app, the mod restarts it). Not yet checked in game.
   - Known limitation: a schema mismatch (mod not reinstalled after an update) also says "App didn't start", though the app is running and rejecting the snapshots; the log has its message.
-- [ ] **[med]** The mod only works from a folder named exactly `Calculatro` (`launch_command` hardcodes `Mods/Calculatro/…`)
-  - Lovely loads a mod from a folder of any name, so a player who extracts to `Mods\Calculatro-0.1.0-windows\` gets "App didn't start", with a line in the log asking about the folder's name. Troubleshooting mentions it too.
-  - Have the mod find its own folder.
+- [x] **[low]** The mod only worked from a folder named exactly `Calculatro` (`launch_command` hardcoded `Mods/Calculatro/…`)
+  - Lovely loads a mod from a folder of any name, so a renamed folder got "App didn't start". This doesn't cover the zip extracted to Explorer's suggested destination: that's one folder too deep for Lovely, so no mod code runs. The zip keeps its top-level `Calculatro` folder.
+  - Fixed: `Calculatro.mod_folder` looks in `Mods` for the folder whose `lovely.toml` registers `calculatro.core`, skipping any with a `.lovelyignore`. With several copies it prefers `Calculatro` and logs a warning.
+  - Not yet checked in game, including what several copies do when Lovely loads them all.
 - [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`search.lua:26-28, 95`)
   - `{"nonce":1,"options":[[9]]}` → `chosen[nil] = true` → "table index is nil" every frame until the hand changes.
   - Python never sends this today, so it's hardening. Fix: drop options whose indices aren't integers in `0..#hand-1` in `receive_search`.
@@ -227,7 +228,6 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - The Psychic under 5 cards.
   - Windows only.
   - Steamodded and other mods are untested (custom suits and ranks, `rank_id` > 14, modded enhancements and bosses aren't handled).
-  - The mod folder name must be `Calculatro`.
 - [ ] **[low]** README:9 "Find the optimal discard selection for a target hand" leaves out that card query rows can be searched too
 - [ ] **[low]** `docs/blinds.md:33` lists Serpent, Mark and Bell as checking `blind_disabled`, but leaves out `GameState.hook`, which does too
 - [ ] **[low]** `docs/jokers.md`: Splash is tagged `rule` (legend line ~123, table ~217), but its own section and `rules.RULE_JOKERS` treat it as not changing hand types. Untag it or make it `cond`

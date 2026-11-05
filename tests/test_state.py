@@ -6,6 +6,7 @@ import functools
 import importlib
 import json
 import re
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -183,6 +184,14 @@ end
 """
 
 
+# Lua's own functions can't list a directory.
+def directory_items(rt, save_dir):
+    def items(name):
+        path = save_dir / name
+        return rt.table_from([p.name for p in path.iterdir()] if path.is_dir() else [])
+    return items
+
+
 # The game runs LuaJIT (Lua 5.1) and lupa's default runtime is a newer Lua, so the
 # mod's tests run in both: a 5.2+ feature fails in the LuaJIT run.
 @pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])
@@ -191,6 +200,7 @@ def lua(request, tmp_path):
     rt.execute(MOCK_G)
     save_dir = str(tmp_path).replace("\\", "/")
     rt.execute(MOCK_FILESYSTEM, save_dir)
+    rt.eval("love.filesystem").getDirectoryItems = directory_items(rt, tmp_path)
     mod = load_mod(rt)
     if rt.eval("jit") is None:
         mod.replace_file = rt.execute(REPLACE_WITHOUT_FFI)
@@ -586,11 +596,20 @@ def test_poll_tolerates_a_locked_file(tmp_path, monkeypatch):
     assert source.poll() is not None
 
 
-def test_launch_command(lua, tmp_path):
+def install(save_dir, folder: str = "Calculatro"):
+    mod_dir = save_dir / "Mods" / folder
+    mod_dir.mkdir(parents=True)
+    shutil.copy(MOD_DIR / "lovely.toml", mod_dir)
+    return mod_dir
+
+
+@pytest.mark.parametrize("folder", ["Calculatro", "Calculatro-0.1.0 - Copy"])
+def test_launch_command(lua, tmp_path, folder):
     _, mod = lua
-    assert mod.launch_command(1234) is None  # no launch.txt or python folder: the app isn't started
-    mod_dir = tmp_path / "Mods" / "Calculatro"
-    (mod_dir / "python").mkdir(parents=True)
+    assert mod.launch_command(1234) is None  # no mod folder: the app isn't started
+    mod_dir = install(tmp_path, folder)
+    assert mod.launch_command(1234) is None  # no launch.txt or python folder
+    (mod_dir / "python").mkdir()
     (mod_dir / "python" / "pythonw.exe").write_bytes(b"")
     # A release: its own Python, with a Windows path.
     assert tuple(mod.launch_command(1234)) == (
@@ -599,6 +618,39 @@ def test_launch_command(lua, tmp_path):
     (mod_dir / "launch.txt").write_text(r"C:\venv\Scripts\pythonw.exe" "\r\n", encoding="utf-8")
     assert tuple(mod.launch_command(1234)) == (
         r"C:\venv\Scripts\pythonw.exe", "-m calculatro watch --game-pid 1234")
+
+
+def test_mod_folder_is_the_one_holding_the_mods_lovely_toml(lua, tmp_path):
+    _, mod = lua
+    (tmp_path / "Mods" / "lovely").mkdir(parents=True)  # Lovely's own
+    (tmp_path / "Mods" / "notes.txt").write_text("not a folder", encoding="utf-8")
+    other = tmp_path / "Mods" / "Another Mod"
+    other.mkdir()
+    (other / "lovely.toml").write_text('[manifest]\nversion = "1.0.0"\n', encoding="utf-8")
+    assert mod.mod_folder() is None
+    install(tmp_path, "Renamed")
+    assert mod.mod_folder() == "Mods/Renamed"
+    assert not (tmp_path / "calculatro.log").exists()
+
+
+def test_mod_folder_skips_one_lovely_ignores(lua, tmp_path):
+    _, mod = lua
+    (install(tmp_path) / ".lovelyignore").write_bytes(b"")
+    assert mod.mod_folder() is None
+    install(tmp_path, "Renamed")
+    assert mod.mod_folder() == "Mods/Renamed"
+
+
+def test_mod_folder_with_several_copies_is_reported_once(lua, tmp_path):
+    _, mod = lua
+    install(tmp_path, "A copy")
+    install(tmp_path, "Z copy")
+    assert mod.mod_folder() == "Mods/A copy"
+    install(tmp_path)
+    assert mod.mod_folder() == "Mods/Calculatro"
+    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert log.count("more than one copy of the mod") == 1
+    assert "A copy, Z copy" in log
 
 
 # What the game's love.filesystem can do and Lua's own functions can't: a UTF-8 path.
@@ -620,6 +672,7 @@ def unicode_filesystem(rt, save_dir):
     fs.getSaveDirectory = rt.eval("function(dir) return function() return dir end end")(save_dir.as_posix())
     fs.read, fs.write, fs.append = read, write, append
     fs.getInfo = lambda name: True if (save_dir / name).exists() else None
+    fs.getDirectoryItems = directory_items(rt, save_dir)
 
 
 @pytest.mark.parametrize("name", ["Luké", "Łukasz", "光"])
@@ -628,7 +681,7 @@ def test_non_ascii_save_directory(lua, tmp_path, request, name):
         pytest.skip("the state file is replaced through LuaJIT's FFI")
     rt, mod = lua
     save_dir = tmp_path / name
-    (save_dir / "Mods" / "Calculatro").mkdir(parents=True)
+    mod_dir = install(save_dir, f"Calculatro {name}")  # the folder's name can be non-ASCII too
     unicode_filesystem(rt, save_dir)
     state_file = save_dir / "calculatro_state.json"
 
@@ -647,7 +700,7 @@ def test_non_ascii_save_directory(lua, tmp_path, request, name):
     assert mod.ack_id == mod.state_id
 
     exe = rf"C:\{name}\pythonw.exe"
-    (save_dir / "Mods" / "Calculatro" / "launch.txt").write_text(exe + "\r\n", encoding="utf-8")
+    (mod_dir / "launch.txt").write_text(exe + "\r\n", encoding="utf-8")
     command, _ = mod.launch_command(1234)
     assert command == exe
 
