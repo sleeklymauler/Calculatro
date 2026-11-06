@@ -55,6 +55,7 @@ from functools import cache
 from itertools import combinations, product, repeat
 from math import comb, lcm, prod
 from operator import gt
+from random import Random
 from threading import Event, Lock
 
 from .cards import CardQuery
@@ -1110,6 +1111,38 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
             return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
         return _bell_after_draw(target, known, d.pool, unseen, rules, cancel, reuse)
     return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse)
+
+
+def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200) -> bool:
+    """Whether a draw that makes none of `target`'s hands was found, so that the
+    odds after discarding `discard` are certainly below 1. False proves nothing.
+
+    Much quicker than the odds, so a search that has already found odds of 1
+    can rule a discard out. It only tries uniform draws, so it gives up (False)
+    where the draw isn't uniform or the kept cards are random: The Mark's split,
+    Cerulean Bell's forced card and The Hook. Otherwise it mirrors _discard_odds.
+    With several rules the final hand may be judged under (`rules_after`), a
+    miss under one is enough, since each has some chance.
+    """
+    d = _discard(state, discard)
+    if d.marked or d.hooked or state.bell:
+        return False
+    rules = rules_after(state, discard)[0][0]
+    patterns = target.patterns(rules)
+
+    def holds(have: Counter) -> bool:
+        return any(all(sum(n for key, n in have.items() if key in req.keys) >= req.need for req in pattern)
+                   for pattern in patterns)
+
+    known = Counter(k for c in (*d.kept_known, *d.added) if (k := card_key(c, rules)) is not None)
+    if holds(known):
+        return False  # whatever is drawn
+    draws = min(d.hidden_kept + d.added_hidden + d.draws, len(d.pool))
+    keys = [card_key(c, rules) for c in d.pool]
+    for _ in range(tries if draws else 1):
+        if not holds(known + Counter(k for k in rng.sample(keys, draws) if k is not None)):
+            return True
+    return False
 
 
 def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,

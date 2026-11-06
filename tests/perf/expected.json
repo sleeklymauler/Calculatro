@@ -548,6 +548,8 @@
  "standard | Best discard: 8 cards, DNA + Blueprint, played | Full House | No jokers": "29223/543004 (56 options, first [0, 1, 2, 5, 6])",
  "standard | Best discard: 8 cards, DNA + Blueprint, played | Straight Flush | No jokers": "3273/271502 (1 options, first [2, 3, 4, 5, 6])",
  "standard | Best discard: 8 cards, DNA + Blueprint, played | Flush + Straight + Full House (any) | No jokers": "10465/19393 (1 options, first [3, 4, 5, 6])",
+ "standard | Best discard: 11 cards, holding a Full House | Flush + Straight + Full House (any) | No jokers": "1 (63 options, first [])",
+ "standard | Best discard: 11 cards, holding no target | Flush + Straight + Full House (any) | No jokers": "26678/28823 (1 options, first [0, 2, 3, 7, 9])",
  "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Straight | Four Fingers + Shortcut": "1 (1 options, first [])",
  "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Flush | Four Fingers + Shortcut": "53693/98728 (1 options, first [2, 3, 4, 5, 6])",
  "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Full House | Four Fingers + Shortcut": "29223/543004 (56 options, first [0, 1, 2, 5, 6])",

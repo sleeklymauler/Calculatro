@@ -7,7 +7,8 @@ so the search only enumerates how many to discard of each group of them
 (_groups), evaluating one discard per choice. Choices that are the same up to
 relabelling ranks or suits share their odds (_relabelled), and for several
 hands the odds of each bound those of any of them, which rules out most
-choices (best_discards). The engine's work is shared between the discards
+choices (best_discards). Once odds of 1 are found, one draw that misses rules
+a choice out (engine.can_miss). The engine's work is shared between the discards
 (engine.Reuse), since they all draw from the same unseen cards. The best
 choices are then expanded into concrete discards, one for each distinct set
 of cards the player could throw away (identical cards are one), ordered by
@@ -25,10 +26,11 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from itertools import pairwise, product
+from random import Random
 from threading import Event
 
 from .cards import CardQuery
-from .engine import Cancelled, Reuse, evaluate_cards, evaluate_discard, rules_after
+from .engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard, rules_after
 from .hands import RANKS, WILD, ClassKey, Pattern, Target, bell_matters, card_key, flush_suits, get_target
 from .rules import Rules
 from .state import SUITS, Card, GameState
@@ -90,12 +92,20 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
             lows[j], highs[j] = max(each), min(Fraction(1), sum(each))
     floor = max(lows)
 
+    rng = Random(0)  # only decides how quickly a miss is found, never the result
     best: Fraction | None = None
     winners: list[tuple[int, ...] | None] = []
     for j in sorted(range(len(choices)), key=lambda j: -highs[j]):
+        if cancel is not None and cancel.is_set():
+            raise Cancelled
         if highs[j] < max(floor, best or 0):
             break
-        p = lows[j] if lows[j] == highs[j] else odds(target, discards[j])
+        if lows[j] == highs[j]:
+            p = lows[j]
+        elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng):
+            continue  # below 1, so it can't tie, and how far below doesn't matter
+        else:
+            p = odds(target, discards[j])
         if best is None or p > best:
             best, winners = p, [choices[j]]
         elif p == best:

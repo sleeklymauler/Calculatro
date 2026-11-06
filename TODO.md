@@ -108,11 +108,13 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - Each target's rows, "Any target", the `_union_by_suit` terms and best-discard choices are independent, but all run on one thread under the GIL.
   - A persistent process pool (patterns built per worker, cancel through a shared event) could scale with cores. The docs never discuss it.
   - Don't retry conditioning on drawn Wild Cards: the docs record it was tried twice and dropped.
-- [ ] **[med]** "Any target" best-discard is slow when the best odds are 1 (`search.py:83-100`)
-  - A random 11-card hand with Flush + Straight + Full House and no jokers took 3.9 s: 389 exact unions (3.83 s) against about 0.1 s of single-hand bounds.
+- [x] **[med]** "Any target" best-discard was slow when the best odds are 1
+  - Now `engine.can_miss` looks for one draw that makes none of the hands, which rules a choice out once odds of 1 are known. The 11-card hand went from 3.46 s to 0.54 s, and Four Fingers + Shortcut on 8 cards from 2.39 s to 0.23 s, with the same results in all 91 search scenarios.
+  - Not used under The Mark, Cerulean Bell or The Hook, whose draws aren't uniform; those still work out the exact odds.
+- [ ] **[med]** "Any target" best-discard is still slow on big hands when the best odds are below 1 (`search.py`)
+  - Random 11-card hands with Flush + Straight + Full House and no jokers take 4.3–4.6 s, as long as the case above did before its fix, and these hands are as common (2 of 4 random ones). The sum bound is 1 for over 400 of about 1000 choices, and each exact union costs about 10 ms. Scenario: "Best discard: 11 cards, holding no target".
   - Hands of 10–11 cards are reachable (Juggler, Troubadour, Turtle Bean).
-  - `docs/performance/best-discard.md`'s "What's still slow" only mentions Four Fingers + Shortcut, so widen it. Its untried idea (cheaply proving a choice is below 1) would help here.
-  - Add a benchmark scenario for it.
+  - Tighter bounds from pairs of hands were tried and don't pay; see "What's still slow" in `docs/performance/best-discard.md`. Cheaper exact unions, or parallelism below, are what's left.
 - [ ] **[low]** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:199-200`)
   - Use the same condition as `_groups`/`evaluate_discard`. The gain is small today.
 - [ ] **[low]** `engine._gc_paused` turns the garbage collector off for the whole process while any job runs
@@ -202,7 +204,7 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[low]** Perf scenarios to add
   - The Serpent (none today).
   - A single Hook odds row (only best-discard ones exist).
-  - The 11-card "Any target" case (see Performance).
+  - [x] The 11-card "Any target" case (see Performance).
   - `benchmarks.md` was last updated 2026-10-11, but the engine changed on 10-13 and 10-15; re-run it.
 
 ## Query parser (terminal input)

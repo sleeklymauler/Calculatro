@@ -291,6 +291,15 @@ SEARCH_CRIMSON = [
     (Hand("Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed", tuple(HAND), blind="Crimson Heart",
           discards=0, jokers=(Joker("j_four_fingers", debuff=True), Joker("j_joker"))), "Shortcut"),
 ]
+# Hand-size jokers reach 11 cards. "Any target" then has about 1000 choices, and the sum of the hands' odds
+# is at least 1 for hundreds of them: the first hand holds a Full House, so the best odds are 1, and the
+# second doesn't, so they're below 1.
+SEARCH_LARGE = [
+    Hand("Best discard: 11 cards, holding a Full House",
+         ("QD", "JS", "KC", "JH", "4S", "AC", "8H", "KS", "JC", "7S", "5C")),
+    Hand("Best discard: 11 cards, holding no target",
+         ("4C", "AS", "8D", "4D", "AC", "9S", "7S", "QC", "3S", "QD", "9C")),
+]
 SEARCH_TARGETS = [("Pair",), ("Two Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
                   ("Flush", "Straight", "Full House")]
 SEARCH_JOKERS = ["No jokers", "Four Fingers + Shortcut", "Smeared"]
@@ -300,6 +309,7 @@ def _search_scenarios() -> list[BestDiscard]:
     out = [BestDiscard(h, t, j) for j in SEARCH_JOKERS for h in SEARCH_HANDS for t in SEARCH_TARGETS]
     out += [BestDiscard(h, t, "No jokers") for h in SEARCH_BOSSES
             for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
+    out += [BestDiscard(h, ("Flush", "Straight", "Full House"), "No jokers") for h in SEARCH_LARGE]
     out += [BestDiscard(h, t, j) for h, j in SEARCH_CRIMSON
             for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
                       ("Flush", "Straight", "Full House"))]

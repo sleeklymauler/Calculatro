@@ -12,7 +12,7 @@ from itertools import combinations
 import pytest
 
 from calculatro.cards import CardQuery, parse_query
-from calculatro.engine import Cancelled, Reuse, evaluate_cards, evaluate_discard
+from calculatro.engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
 from calculatro.search import _identity, best_card_discards, best_discards
 from calculatro.state import SUITS, Card, GameState, Joker
@@ -187,6 +187,63 @@ def test_selection_limit_and_no_discards():
     found = best_discards(last_hand, get_target("Flush"))
     assert found.options == [[]]
     assert found.probability == evaluate_discard(last_hand, get_target("Flush"), []).probability
+
+
+@pytest.mark.parametrize("jokers", [[], ["j_four_fingers", "j_shortcut"], ["j_smeared"]])
+@pytest.mark.parametrize("seed", range(6))
+def test_every_discard_tied_at_certain_odds_is_found(seed, jokers):
+    # A pair in hand makes the best odds 1, so draws that miss rule discards out
+    # (can_miss), which must never lose a tied one.
+    state = random_state(random.Random(seed), hand=9, deck=12, jokers=[Joker(j) for j in jokers])
+    check(state, combine([get_target(n) for n in ("Pair", "Flush", "Straight")]))
+    check(state, get_target("Pair"))
+
+
+def test_certain_only_with_several_hands_together():
+    # The draw is one of two cards, one making a Flush and the other a Straight.
+    hand = [card(10, "Spades"), card(11, "Spades"), card(12, "Spades"), card(13, "Spades"), card(2, "Hearts")]
+    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand,
+                      unseen=[card(5, "Spades"), card(14, "Diamonds")])
+    assert best_discards(state, get_target("Flush")).probability == Fraction(1, 2)
+    assert best_discards(state, get_target("Straight")).probability == Fraction(1, 2)
+    assert check(state, combine([get_target("Flush"), get_target("Straight")])) == [[4]]
+
+
+@pytest.mark.parametrize("blind, discards, kw", [
+    (None, 3, {}),
+    (None, 0, {"dna_copies": 2}),
+    ("The Serpent", 3, {}),
+    ("The House", 3, {}),
+    ("The Mark", 3, {}),
+    ("Cerulean Bell", 3, {}),
+    ("The Hook", 0, {}),
+    ("Crimson Heart", 0, {"jokers": [Joker("j_four_fingers", debuff=True), Joker("j_shortcut")]}),
+])
+def test_a_miss_means_odds_below_1(blind, discards, kw):
+    misses = 0
+    for seed in range(8):
+        rng = random.Random(seed)
+        state = replace(random_state(rng, deck=10, blind=blind, **kw), discards_left=discards, hands_left=3)
+        if blind in ("The House", "The Mark"):  # the last two cards go face down
+            state = replace(state, unseen=[*state.unseen, *state.hand[-2:]],
+                            hand=[*state.hand[:-2], Card(hidden=True), Card(hidden=True)])
+        for target in (get_target("Pair"), get_target("Straight"),
+                       combine([get_target("Flush"), get_target("Three of a Kind")])):
+            for discard in ([], [0], [1, 2], [0, 3, 5], [0, 1, 2, 3, 4]):
+                if can_miss(state, target, discard, rng):
+                    misses += 1
+                    assert evaluate_discard(state, target, discard).probability < 1, (seed, target, discard)
+                    # The Hook only takes cards after a play, not when keeping the hand.
+                    assert blind != "The Hook" or not discard
+    # It gives up on the bosses that don't draw uniformly, and finds misses otherwise.
+    assert (misses == 0) == (blind in ("The Mark", "Cerulean Bell"))
+
+
+def test_no_miss_when_the_kept_cards_hold_the_target():
+    hand = [card(5, "Spades"), card(5, "Hearts"), card(9, "Clubs")]
+    state = GameState(in_run=True, hand_size=3, discards_left=1, hand=hand, unseen=[card(2, "Clubs"), card(3, "Clubs")])
+    assert not can_miss(state, get_target("Pair"), [2], random.Random(0))
+    assert can_miss(state, get_target("Pair"), [0], random.Random(0))
 
 
 def test_cancelled():

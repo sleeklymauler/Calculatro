@@ -66,7 +66,30 @@ How much this saves depends on how likely the hands are. Without jokers,
 Flush + Straight + Full House on 8 cards needs the exact odds of a few
 choices out of 219. With Four Fingers and Shortcut the benchmark hands
 already hold a Straight, so the best odds are 1, and over 100 choices have a
-sum of at least 1 that has to be checked exactly.
+sum of at least 1. The next section is what saves those.
+
+### A draw that misses
+
+Once odds of 1 are known (from a hand certain alone, or from an exact
+calculation), a choice only matters if it's also at 1, and a single draw that
+makes none of the target's hands shows it isn't. `engine.can_miss` tries up to
+200 random draws for one, which is much quicker than the exact odds. Every
+choice below 1 on the random 8- and 11-card hands measured was ruled out this way, none needing
+over 200 tries. It never changes a result: if no miss turns up, the search
+works out the exact odds as it would have. The random draws only decide how
+quickly a miss is found, and are seeded so that a search takes the same path
+each time. It also covers single hands, where it takes Straight from 120 ms to
+36 ms on 10 cards.
+
+A miss only proves the odds are below 1 if the draw could really happen, so
+`can_miss` gives up (and the exact odds are worked out) where the draw isn't
+uniform or the kept cards are random: The Mark's split, Cerulean Bell and The
+Hook. It tests a kept hand first, since a choice that already holds the target
+can't miss, and sampling for it would be wasted.
+
+The check costs a little where it can't help: choices whose odds were already
+known through relabelling now pay for it too. "10 cards, Flush" with Smeared
+went from 4 ms to 14 ms, and a few other single hands by under 10 ms.
 
 ## Sharing the engine's work: `engine.Reuse`
 
@@ -128,25 +151,25 @@ the same results in every scenario.
 |---|---|---|---|---|
 | 8 cards | Pair | 67 ms → 6.2 ms | 70 ms → 6.3 ms | 111 ms → 6.3 ms |
 | 8 cards | Two Pair | 234 ms → 13 ms | 244 ms → 13 ms | 389 ms → 14 ms |
-| 8 cards | Straight | 98 ms → 40 ms | 300 ms → 112 ms | 148 ms → 43 ms |
+| 8 cards | Straight | 98 ms → 40 ms | 300 ms → 57 ms | 148 ms → 43 ms |
 | 8 cards | Flush | 33 ms → 9.4 ms | 47 ms → 12 ms | 2.3 ms → 1.8 ms |
 | 8 cards | Full House | 358 ms → 21 ms | 368 ms → 20 ms | 582 ms → 20 ms |
 | 8 cards | Straight Flush | 294 ms → 46 ms | 8.83 s → 2.56 s | 227 ms → 44 ms |
-| 8 cards | Flush + Straight + Full House (any) | 2.86 s → 86 ms | 5.49 s → 2.25 s | 1.53 s → 93 ms |
+| 8 cards | Flush + Straight + Full House (any) | 2.86 s → 86 ms | 5.49 s → 228 ms | 1.53 s → 93 ms |
 | 8 cards, two pairs | Pair | 26 ms → 7.8 ms | 27 ms → 6.6 ms | 42 ms → 6.9 ms |
 | 8 cards, two pairs | Two Pair | 118 ms → 16 ms | 121 ms → 17 ms | 191 ms → 18 ms |
 | 8 cards, two pairs | Straight | 56 ms → 18 ms | 172 ms → 56 ms | 82 ms → 19 ms |
 | 8 cards, two pairs | Flush | 35 ms → 9.3 ms | 45 ms → 13 ms | 3.2 ms → 1.2 ms |
 | 8 cards, two pairs | Full House | 196 ms → 26 ms | 195 ms → 28 ms | 304 ms → 26 ms |
 | 8 cards, two pairs | Straight Flush | 291 ms → 46 ms | 8.84 s → 2.03 s | 226 ms → 47 ms |
-| 8 cards, two pairs | Flush + Straight + Full House (any) | 3.37 s → 94 ms | 5.58 s → 1.66 s | 1.29 s → 106 ms |
+| 8 cards, two pairs | Flush + Straight + Full House (any) | 3.37 s → 94 ms | 5.58 s → 232 ms | 1.29 s → 106 ms |
 | 10 cards | Pair | 204 ms → 20 ms | 206 ms → 19 ms | 222 ms → 19 ms |
 | 10 cards | Two Pair | 755 ms → 25 ms | 775 ms → 26 ms | 996 ms → 27 ms |
-| 10 cards | Straight | 326 ms → 115 ms | 671 ms → 190 ms | 348 ms → 121 ms |
+| 10 cards | Straight | 326 ms → 36 ms | 671 ms → 190 ms | 348 ms → 37 ms |
 | 10 cards | Flush | 62 ms → 10 ms | 91 ms → 15 ms | 4.4 ms → 3.5 ms |
 | 10 cards | Full House | 1.39 s → 33 ms | 1.22 s → 33 ms | 1.56 s → 36 ms |
 | 10 cards | Straight Flush | 1.60 s → 140 ms | 54.91 s → 15.14 s | 604 ms → 152 ms |
-| 10 cards | Flush + Straight + Full House (any) | 16.83 s → 236 ms | 24.49 s → 7.07 s | 2.83 s → 176 ms |
+| 10 cards | Flush + Straight + Full House (any) | 16.83 s → 236 ms | 24.49 s → 1.87 s | 2.83 s → 176 ms |
 | 8 cards, 2 face-down | Flush | 89 ms → 12 ms | - | - |
 | 8 cards, 2 face-down | Full House | 382 ms → 22 ms | - | - |
 | 8 cards, 2 face-down | Straight Flush | 373 ms → 44 ms | - | - |
@@ -160,6 +183,14 @@ the same results in every scenario.
 | 8 cards, The Hook, played | Straight Flush | 3.24 s → 329 ms | - | - |
 | 8 cards, The Hook, played | Flush + Straight + Full House (any) | 52.04 s → 470 ms | - | - |
 
+The 11-card hands were added later, so they have no first-version timing. Before
+`can_miss`, the first took 3.46 s; the second is unchanged by it.
+
+| Hand (no jokers) | Target | Time |
+|---|---|---|
+| 11 cards, holding a Full House | Flush + Straight + Full House (any) | 543 ms |
+| 11 cards, holding no target | Flush + Straight + Full House (any) | 4.55 s |
+
 ### What's still slow
 
 - **Four Fingers + Shortcut with Straight Flush**: 2.0–2.6 s on 8 cards, about
@@ -167,9 +198,11 @@ the same results in every scenario.
   card that completes the run"), so no two discards look alike to the
   per-suit terms, and each of about 200 choices costs four 3 ms searches.
   Four Fingers alone is under 1 s.
-- **"Any target" with Four Fingers + Shortcut** when the hand already holds
-  one of the hands: the sum bound is 1 for most choices, so they all need
-  exact odds (1.7–2.3 s on 8 cards, 7 s on 10).
+- **"Any target" on a big hand whose best odds are below 1**: 4.3–4.6 s on
+  random 11-card hands. The sum bound is 1 for over 400 of about 1000 choices,
+  a miss proves nothing since the best is below 1 too, and each exact union
+  costs about 10 ms, so that's almost all the time. Four Fingers + Shortcut on
+  8 cards is the same (about 2 s, 185 choices of 219).
 - **Crimson Heart with no discards left**, where the selection is played and
   the boss then swaps which joker is debuffed (`engine.rules_after`): each
   odds value averages over the rules left by the swap, and the search can
@@ -178,14 +211,20 @@ the same results in every scenario.
   for a Flush, say), and in a search `Reuse` shares the rest, so the averaging
   itself costs little (the "Crimson Heart, played" scenarios: 17–210 ms on
   8 cards outside Straight Flush and "Any target"). The cost is that the swap
-  can turn on Four Fingers beside Shortcut, the case above: with Shortcut on
-  and Four Fingers debuffed, Straight Flush takes 3.7 s and "Any target"
-  2.3 s, against 0.1 s and 0.75 s without the boss, where Four Fingers stays
-  off.
+  can turn on Four Fingers beside Shortcut, the first case above: with Shortcut
+  on and Four Fingers debuffed, Straight Flush takes 3.7 s, against 0.1 s
+  without the boss, where Four Fingers stays off.
 
 Ideas not yet tried:
 
-- Proving cheaply that a choice's odds are below 1 (a single draw that makes
-  none of the hands), which would cut the second case.
 - Ordering by a cheap estimate and bounding single targets too, e.g.
   Straight Flush by the per-suit terms of the choices already computed.
+
+Tried for "Any target" with best odds below 1, and dropped:
+
+- **Tighter upper bounds from pairs of hands.** The Hunter-Worsley bound using
+  every pair leaves only about 7 of 422 exact unions, but the pairs cost as much
+  as the unions they save (Flush + Full House alone took 3.4 s for all the choices). Using only the cheap pairs,
+  P(Flush or Straight) + P(Straight or Full House) - P(Straight), took 11 cards
+  from 4.5 s to 3.3 s but 10 cards from 450 ms to 675 ms. P(Flush) + P(Straight
+  or Full House), the cheapest, barely cuts any (422 to 356).

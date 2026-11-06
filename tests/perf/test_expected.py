@@ -41,16 +41,14 @@ SLOW = {
     "standard | 8 unknown: The Mark, 3 face-down, draw 5 | Full House + Straight Flush (any) "
     "| Four Fingers + Shortcut + Smeared",
     "standard | Best discard: 8 cards | Straight Flush | Four Fingers + Shortcut",
-    "standard | Best discard: 8 cards | Flush + Straight + Full House (any) | Four Fingers + Shortcut",
     "standard | Best discard: 8 cards, two pairs | Straight Flush | Four Fingers + Shortcut",
-    "standard | Best discard: 8 cards, two pairs | Flush + Straight + Full House (any) | Four Fingers + Shortcut",
     "standard | Best discard: 10 cards | Straight Flush | Four Fingers + Shortcut",
     "standard | Best discard: 10 cards | Flush + Straight + Full House (any) | Four Fingers + Shortcut",
     "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Straight Flush "
     "| Four Fingers + Shortcut",
     "standard | Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed | Straight Flush | Shortcut",
-    "standard | Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed "
-    "| Flush + Straight + Full House (any) | Shortcut",
+    "standard | Best discard: 11 cards, holding a Full House | Flush + Straight + Full House (any) | No jokers",
+    "standard | Best discard: 11 cards, holding no target | Flush + Straight + Full House (any) | No jokers",
 }
 
 
