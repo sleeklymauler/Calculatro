@@ -231,7 +231,7 @@ the reply.
 card query (`__main__.search_target`, which looks hands up first: no query's text is a hand's name, so
 the request has no kind; `find_best`), in a job of its own. The job is cancelled only when the hand,
 deck, jokers, blind or discards change (`search_basis` ignores the selection, so the search's own
-selection doesn't cancel it) or the row's target does (`search_target`: "Any target"'s hands). Its
+selection doesn't cancel it) or the row's target does (`search_target`, compared by `report.row_key`: "Any target"'s hands). Its
 result (`overlay.search`: every tied option as 0-based hand indices, best first; no options for an
 untracked key) goes on every payload until then.
 

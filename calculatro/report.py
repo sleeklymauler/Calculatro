@@ -39,6 +39,12 @@ class Report:
     redraw: bool = True  # False on the last hand with no discards: nothing is drawn after it
 
 
+def row_key(row: Target | CardQuery | None) -> object:
+    """What tells a row's target apart from another's. A query goes by its text, since
+    two parses of the same text may not be equal (their filters can be closures)."""
+    return (row.text or row) if isinstance(row, CardQuery) else row
+
+
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
                  cancel: Event | None = None, known: dict | None = None) -> Report | None:
     """Odds of the target hands and card queries for keeping the hand vs.
@@ -58,9 +64,8 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
 
     def odds(row: Target | CardQuery, discard: list[int]) -> DiscardOutcome:
         # By the cards, not their positions: sorting the hand doesn't change the odds.
-        # By a query's text, since two parses of it aren't equal (their filters are closures).
         picked = frozenset(Counter(replace(state.hand[i], highlighted=False) for i in discard).items())
-        key = (row.text or row) if isinstance(row, CardQuery) else row, picked
+        key = row_key(row), picked
         found = known.get(key)
         if found is None:
             found = known[key] = (evaluate_cards(state, row, discard) if isinstance(row, CardQuery)

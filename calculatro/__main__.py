@@ -19,7 +19,7 @@ from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
 from .log import header, open_log
-from .report import Report, build_report
+from .report import Report, build_report, row_key
 from .search import Search, best_card_discards, best_discards
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
@@ -254,7 +254,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         nonlocal searching, search_for, found, seen
         basis = search_basis(state)
         if search_for is not None and (search_for[0] != basis
-                                       or search_target(state, search_for[2]) != search_for[4]):
+                                       or row_key(search_target(state, search_for[2])) != row_key(search_for[4])):
             # What it was worked out from has changed (or the row's target, as
             # for "Any target" when a hand is added): drop it, and search again
             # if the mod is still asking (it stops once it has a reply), so it

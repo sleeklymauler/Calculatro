@@ -519,6 +519,46 @@ def test_any_target_search_follows_its_hands(monkeypatch):
         t.join(5)
 
 
+@pytest.mark.parametrize("query", ["at least 2 queen", "2+ nines", "no face"])
+def test_card_query_search_survives_selecting(monkeypatch, query):
+    """Each snapshot parses the row's query anew, and two parses of one may not be equal: that
+    isn't a change of target, which would restart the search and lose the options it found."""
+    release, calls = threading.Event(), []
+
+    def search(state, target, cancel):
+        calls.append(state.id)
+        while not release.is_set():
+            if cancel.is_set():
+                raise Cancelled
+            time.sleep(0.001)
+        return Search([[2]], Fraction(1))
+
+    def asking(n: int, selected=(), request=(query, 1)) -> GameState:
+        return replace(hand_state(n, selected, request), tracked_hands=[], tracked_cards=[query])
+
+    monkeypatch.setattr(cli, "best_card_discards", search)
+    source, sent = FakeSource(asking(1)), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: any(p["id"] == "s:1" and "cards" in p for p in sent))
+        source.queue.append(asking(2, selected=(0,)))  # while it's searching
+        wait_for(lambda: any(p["id"] == "s:2" and "cards" in p for p in sent))
+        release.set()
+        reply = {"nonce": 1, "key": query, "options": [[2]]}
+        wait_for(lambda: sent[-1].get("search") == reply)
+        source.queue.append(asking(3, selected=(2,), request=None))  # the search's own selection
+        wait_for(lambda: sent[-1]["id"] == "s:3" and "cards" in sent[-1])
+        assert all(p.get("search") == reply for p in sent if p["id"] == "s:3")
+        assert calls == ["s:1"]
+        # No longer tracked: the result goes.
+        source.queue.append(replace(asking(4, selected=(2,), request=None), tracked_cards=["queen"]))
+        wait_for(lambda: sent[-1]["id"] == "s:4" and "cards" in sent[-1])
+        assert not any("search" in p for p in sent if p["id"] == "s:4")
+    finally:
+        stopped.set()
+        t.join(5)
+
+
 def test_failed_search_answered_without_options(monkeypatch, capsys):
     """A search that fails is logged and answered with no options, so the mod's button comes back; another click
     (a new nonce) searches again."""
