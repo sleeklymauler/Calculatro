@@ -4,7 +4,7 @@
 
 local Calculatro = {
     interval = 0.2,       -- seconds between snapshots
-    odds_interval = 0.05, -- seconds between reads of the odds file
+    odds_interval = 0.1, -- seconds between reads of the odds file
     patience = 0.3,       -- seconds before odds for an older state are greyed out
     timeout = 2,          -- seconds without a reply before assuming the app isn't running
     toggle_key = 'c',     -- shows/hides the panel
@@ -19,6 +19,8 @@ local Calculatro = {
     seq = 0,
     state_id = nil,  -- id of the last snapshot written
     write_failures = 0,  -- snapshots in a row that couldn't be written
+    worker = nil,    -- the files' thread (worker.lua); false if it can't run
+    writing = nil,   -- id of the last snapshot handed to it
     changed_at = 0,  -- clock when it was written
     ack_id = nil,    -- id the odds file last answered (pending or done)
     app_started = false,  -- whether Windows started the app, the last time the mod tried

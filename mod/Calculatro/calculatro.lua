@@ -4,7 +4,7 @@
 
 -- This module is what the game's hooks call (see lovely.toml). The rest are its
 -- parts, each requiring the ones it needs: core (shared table), json, tracked,
--- builder, snapshot, search, files, log, app, widgets, uibox, anim, odds, editor,
+-- builder, snapshot, search, worker, files, log, app, widgets, uibox, anim, odds, editor,
 -- panel. Every one must be registered in lovely.toml, under calculatro.<name>:
 -- other mods share package.preload, and some of them have a json too.
 
@@ -26,6 +26,7 @@ function Calculatro.update(dt)
     Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
     guard('round', Calculatro.check_round)
     guard('search', Calculatro.check_search)  -- before the snapshot, which sends its request
+    guard('file thread', Calculatro.check_worker)
     if Calculatro.elapsed >= Calculatro.interval then
         Calculatro.elapsed = 0
         guard('snapshot', Calculatro.write_snapshot)

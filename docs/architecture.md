@@ -32,6 +32,7 @@ have no cycles, and each loads on its own), and returns only what other modules 
 | `builder` | the card query builder |
 | `snapshot` | what's exported |
 | `search` | best discard's mod side |
+| `worker` | the thread that uses the state and odds files |
 | `files` | the state and odds files, the Windows FFI |
 | `log` | `guard`, `report` |
 | `app` | starting the app |
@@ -46,9 +47,19 @@ have no cycles, and each loads on its own), and returns only what other modules 
 
 `Calculatro.update` throttles itself to ~5 snapshots/sec, serializes Balatro's global `G` with its
 own JSON encoder, and writes `%AppData%\Balatro\calculatro_state.json` only when the output changes:
-it writes to `.tmp`, then does `MoveFileExW` over it (`Calculatro.replace_file`). A write that
-fails, as when the app has the file open, is tried again with the next snapshot, and reported after
-10 in a row. Each written snapshot gets an `id` (`<session>:<seq>`).
+it writes to `.tmp`, then does `MoveFileExW` over it. A write that fails, as when the app has the file
+open, is tried again with the next snapshot, and reported after 10 in a row. Each written snapshot
+gets an `id` (`<session>:<seq>`).
+
+The files are used on a thread of its own (`worker.lua`), since creating the `.tmp` now and then takes
+Windows hundreds of milliseconds, which froze the game on the main thread. Reading the odds file has
+to be there too: `love.filesystem` takes a lock (PhysFS's) that a stalled write in another thread holds,
+so a read on the main thread froze the game just as long. It skips to the newest snapshot it was given,
+and `Calculatro.check_worker` hears each frame what was written (`state_id` is the last one written, not
+the last one handed over) and gets any new odds file. The thread is its own Lua state, so it has its
+own copy of the FFI calls. Nothing may escape it, since an error in a thread stops the game
+(`love.threaderror`). Without `love.thread`, or once the thread has stopped, the mod uses the files
+itself (`Calculatro.replace_file`, `read_odds`).
 
 ### File access
 

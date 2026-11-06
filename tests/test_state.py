@@ -741,6 +741,157 @@ def test_snapshots_that_keep_failing_are_reported_once(lua, tmp_path):
     assert log.count("could not write the state file") == 1
 
 
+# love.thread, with the "thread" run by hand and in the same Lua state: RUN_THREAD does
+# what's been asked of it, up to the point it would wait for more (a coroutine's yield).
+MOCK_THREAD = r"""
+local channels = {}
+local function channel(name)
+  channels[name] = channels[name] or {
+    items = {},
+    getCount = function(self) return #self.items end,
+    push = function(self, item) self.items[#self.items + 1] = item end,
+    pop = function(self) return table.remove(self.items, 1) end,
+    demand = function(self)
+      if #self.items == 0 then coroutine.yield() end
+      return table.remove(self.items, 1)
+    end,
+  }
+  return channels[name]
+end
+THREAD_RUNNING = true
+THREADS = {}
+love.thread = {
+  getChannel = channel,
+  newThread = function(code)
+    local thread = {
+      code = code,
+      start = function(self, ...) self.args = {...} end,
+      isRunning = function() return THREAD_RUNNING end,
+    }
+    THREADS[#THREADS + 1] = thread
+    return thread
+  end,
+}
+for _, name in ipairs({'love.thread', 'love.filesystem'}) do
+  package.preload[name] = function() return love end
+end
+function RUN_THREAD()
+  local thread = THREADS[1]
+  thread.co = thread.co or coroutine.create(assert(load(thread.code)))
+  assert(coroutine.resume(thread.co, unpack(thread.args)))
+end
+"""
+
+
+@pytest.fixture
+def threaded(lua, request):
+    if "luajit" not in request.node.name:
+        pytest.skip("the thread replaces the state file through LuaJIT's FFI")
+    lua[0].execute(MOCK_THREAD)
+    return lua
+
+
+def test_thread_writes_the_state_file_away_from_the_game(threaded, tmp_path):
+    rt, mod = threaded
+    path = tmp_path / "calculatro_state.json"
+    mod.write_snapshot()
+    assert not path.exists() and mod.state_id is None  # only handed over
+
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    assert json.loads(path.read_text(encoding="utf-8"))["id"] == mod.state_id is not None
+    assert not path.with_suffix(".json.tmp").exists()
+
+
+def test_thread_skips_to_the_newest_snapshot(threaded, tmp_path):
+    rt, mod = threaded
+    mod.write_snapshot()
+    rt.execute("G.GAME.current_round.hands_left = 1")
+    mod.write_snapshot()
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    written = json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))
+    assert written["hands_left"] == 1 and written["id"] == mod.state_id
+
+
+def test_snapshot_is_sent_to_the_thread_once(threaded):
+    rt, mod = threaded
+    mod.write_snapshot()
+    mod.write_snapshot()  # unchanged, though not written yet
+    assert rt.eval("#love.thread.getChannel('calculatro_state_requests').items") == 1
+
+
+def test_failed_write_on_the_thread_is_sent_again_and_reported(threaded, tmp_path):
+    rt, mod = threaded
+    real = rt.eval("love.filesystem").write
+    rt.eval("love.filesystem").write = rt.eval("function() return false, 'locked' end")
+    for _ in range(10):
+        mod.write_snapshot()
+        rt.eval("RUN_THREAD")()
+        rt.eval("require('calculatro.log').guard")("state file", mod.check_worker)
+    assert mod.state_id is None
+    assert "could not write the state file: locked" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+
+    rt.eval("love.filesystem").write = real
+    mod.write_snapshot()
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    assert mod.state_id is not None and mod.write_failures == 0
+
+
+def test_mod_writes_the_file_itself_once_the_thread_stops(threaded, tmp_path):
+    rt, mod = threaded
+    path = tmp_path / "calculatro_state.json"
+    mod.write_snapshot()  # handed to the thread, which never gets to it
+    rt.execute("THREAD_RUNNING = false")
+    mod.check_worker()
+    mod.write_snapshot()
+    assert json.loads(path.read_text(encoding="utf-8"))["id"] == mod.state_id is not None
+
+
+def test_thread_reads_the_odds_file_away_from_the_game(threaded, tmp_path):
+    rt, mod = threaded
+    mod.write_snapshot()
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    (tmp_path / "calculatro_odds.json").write_text(
+        json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
+
+    filesystem = rt.eval("love.filesystem")
+    real = filesystem.read
+    filesystem.read = rt.eval("function() error('read on the game thread') end")
+    mod.read_odds()  # would wait for the lock a stalled write holds, freezing the game
+    assert mod.ack_id is None
+    filesystem.read = real
+
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    assert mod.ack_id == mod.state_id
+
+
+def test_mod_reads_the_odds_file_itself_once_the_thread_stops(threaded, tmp_path):
+    rt, mod = threaded
+    mod.write_snapshot()
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    rt.execute("THREAD_RUNNING = false")
+    mod.check_worker()
+    (tmp_path / "calculatro_odds.json").write_text(
+        json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
+    mod.read_odds()
+    assert mod.ack_id == mod.state_id
+
+
+def test_thread_that_cannot_start_is_reported_without_stopping(threaded, tmp_path):
+    rt, mod = threaded
+    rt.execute("package.preload['love.filesystem'] = function() error('no filesystem') end\n"
+               "package.loaded['love.filesystem'] = nil")
+    mod.write_snapshot()
+    rt.eval("RUN_THREAD")()  # raises nothing: an error escaping a thread would stop the game
+    mod.check_worker()
+    assert "no filesystem" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+
+
 def test_launch_with_nothing_to_start(lua, request):
     rt, _ = lua
     real = load_mod(rt).launch  # the fixture replaces the mod's

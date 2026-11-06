@@ -1,5 +1,7 @@
 local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
+local worker = require('calculatro.worker')
+local report = require('calculatro.log').report
 require('calculatro.snapshot')
 require('calculatro.search')
 
@@ -68,24 +70,39 @@ end
 -- reported: one now and then is normal, while the app is reading the file.
 local WRITE_FAILURES = 10
 
--- Writes the snapshot if it changed, tagged with a new id.
+local function write_succeeded(id)
+    Calculatro.state_id = id
+    Calculatro.changed_at = Calculatro.clock
+    Calculatro.write_failures = 0
+end
+
+local function write_failed(err)
+    Calculatro.write_failures = Calculatro.write_failures + 1
+    if Calculatro.write_failures >= WRITE_FAILURES then
+        error('could not write the state file: ' .. tostring(err))
+    end
+end
+
+-- Writes the snapshot if it changed, tagged with a new id: on the worker's thread
+-- (`Calculatro.check_worker` hears how it went), or here if there isn't one.
 function Calculatro.write_snapshot()
     local snapshot = Calculatro.snapshot()
     local json = encode(snapshot)
     if json == Calculatro.last_json then return end
     Calculatro.seq = Calculatro.seq + 1
     snapshot.id = Calculatro.session .. ':' .. Calculatro.seq
+    local thread = worker.start()
+    if thread then
+        thread.requests:push({ id = snapshot.id, json = encode(snapshot) })
+        Calculatro.last_json, Calculatro.writing = json, snapshot.id
+        return
+    end
     local ok, err = write_state(encode(snapshot))
     if ok then
         Calculatro.last_json = json
-        Calculatro.state_id = snapshot.id
-        Calculatro.changed_at = Calculatro.clock
-        Calculatro.write_failures = 0
+        write_succeeded(snapshot.id)
     else
-        Calculatro.write_failures = Calculatro.write_failures + 1
-        if Calculatro.write_failures >= WRITE_FAILURES then
-            error('could not write the state file: ' .. tostring(err))
-        end
+        write_failed(err)
     end
 end
 
@@ -114,8 +131,7 @@ end
 -- The app answers each snapshot first with {id, pending = true}, then with
 -- the odds once they're calculated. Odds left over from an earlier game
 -- session or round are ignored.
-function Calculatro.read_odds()
-    local raw = love.filesystem.read('calculatro_odds.json')
+local function receive_odds(raw)
     if not raw or raw == Calculatro.odds_raw then return end
     Calculatro.odds_raw = raw
     local ok, odds = pcall(decode, raw)
@@ -125,6 +141,37 @@ function Calculatro.read_odds()
     Calculatro.ack_id = odds.id
     if not odds.pending and this_round(odds.id) then Calculatro.odds = odds end
     Calculatro.receive_search(odds.search)
+end
+
+function Calculatro.read_odds()
+    if worker.start() then return end  -- `check_worker` gets them from the thread
+    receive_odds(love.filesystem.read('calculatro_odds.json'))
+end
+
+-- What the worker's thread has done, each frame. Only the latest snapshot's failure
+-- matters: clearing last_json sends it again with the next snapshot. If the thread
+-- has stopped, the mod goes back to using the files itself, starting with whatever
+-- the thread didn't get to.
+function Calculatro.check_worker()
+    local thread = Calculatro.worker
+    if not thread then return end
+    while true do
+        local result = thread.results:pop()
+        if not result then break end
+        if result.odds then
+            receive_odds(result.odds)
+        elseif result.failed then
+            report('the file thread', 'the file thread stopped: ' .. result.failed)
+        elseif result.ok then
+            write_succeeded(result.id)
+        elseif result.id == Calculatro.writing then
+            Calculatro.last_json = nil
+            write_failed(result.err)
+        end
+    end
+    if not thread.thread:isRunning() then
+        Calculatro.worker, Calculatro.last_json = false, nil
+    end
 end
 
 return { save_path = save_path, windows = windows, wide = wide }

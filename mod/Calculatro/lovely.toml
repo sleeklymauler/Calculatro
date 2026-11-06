@@ -51,6 +51,12 @@ name = "calculatro.search"
 
 [[patches]]
 [patches.module]
+source = "worker.lua"
+before = "main.lua"
+name = "calculatro.worker"
+
+[[patches]]
+[patches.module]
 source = "files.lua"
 before = "main.lua"
 name = "calculatro.files"
