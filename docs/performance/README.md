@@ -26,7 +26,10 @@ how to measure it.
 Slow calculations never freeze the app: `__main__.run_watch` computes odds
 in a background `worker.Job`, a new game state cancels it, and anything
 slower than ~0.25 s shows "Calculating odds..." first. The goal here is to
-keep that text rare, not to remove it.
+keep that text rare, not to remove it. A row's odds are only calculated once
+per selection while the hand, deck, jokers and blind stay the same (`known`
+in [architecture.md](../architecture.md#the-app)), so the benchmarks' timings
+are for a selection's first time.
 
 ## Measuring
 

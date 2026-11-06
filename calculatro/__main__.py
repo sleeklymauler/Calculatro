@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from fractions import Fraction
@@ -105,9 +106,9 @@ def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
 
 
 def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
-              cancel: Event | None = None) -> tuple[str, dict]:
-    """The odds as text, and as the payload for the mod's panel."""
-    report = build_report(state, targets, queries, cancel)
+              cancel: Event | None = None, known: dict | None = None) -> tuple[str, dict]:
+    """The odds as text, and as the payload for the mod's panel. `known`: see `build_report`."""
+    report = build_report(state, targets, queries, cancel, known)
     return (format_report(report) if report else ""), overlay.odds(state, report)
 
 
@@ -133,6 +134,13 @@ def search_basis(state: GameState) -> GameState:
     (the search selects cards itself), what's tracked or the game's state name."""
     return replace(state, id=None, state=None, hand=[replace(c, highlighted=False) for c in state.hand],
                    tracked_hands=[], tracked_cards=[], search=None)
+
+
+def odds_basis(state: GameState) -> tuple[GameState, Counter]:
+    """What a row's odds depend on besides its target and selection: `search_basis`,
+    but not the hand's order, which the odds don't look at."""
+    basis = search_basis(state)
+    return replace(basis, hand=[]), Counter(basis.hand)
 
 
 def format_search(state: GameState, key: str, found: Search) -> str:
@@ -172,7 +180,9 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     A new state cancels the running calculation, so the view keeps up with the
     game however slow the odds are. Odds ready within `patience` seconds print
     together with the state summary; slower ones print the summary first with
-    a placeholder line, then follow directly below it.
+    a placeholder line, then follow directly below it. Each row's finished odds
+    are kept until `odds_basis` changes, so selecting the same cards again
+    doesn't calculate them again.
 
     `panel` receives the payloads for the mod's odds panel: a `pending` one as
     soon as a state arrives, then its odds (only the pending one while the
@@ -198,6 +208,8 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     """
     job: Job[tuple[str, dict]] | None = None
     job_state: GameState | None = None  # the state the job is for
+    known: dict = {}  # finished rows for `known_for`. A job keeps the one it started with, so an
+    known_for: tuple[GameState, Counter] | None = None  # older job can't add to a newer state's.
     searching: Job[Search] | None = None
     search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
     # basis, state, key, nonce, target
@@ -285,8 +297,11 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 elif targets or queries:
                     show(overlay.pending(state))
                     job_state = state
-                    job = Job(lambda cancel, state=state, targets=targets, queries=queries:
-                              calculate(state, targets, queries, cancel))
+                    basis = odds_basis(state)
+                    if basis != known_for:
+                        known, known_for = {}, basis
+                    job = Job(lambda cancel, state=state, targets=targets, queries=queries, known=known:
+                              calculate(state, targets, queries, cancel, known))
                     deadline = time.monotonic() + patience
                 else:
                     write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))

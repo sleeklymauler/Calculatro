@@ -11,6 +11,7 @@ from dataclasses import replace
 import pytest
 
 import calculatro.__main__ as cli
+from calculatro import report
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, probability
 from calculatro.hands import get_target
@@ -96,7 +97,7 @@ def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str
 
 def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
     """Run the watch loop until `done(writes)`, returning everything it wrote."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (fake_odds(st, t, q, cancel), {}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (fake_odds(st, t, q, cancel), {}))
     writes: list[str] = []
     end = time.monotonic() + timeout
     cli.run_watch(source, writes.append, patience=0.05, poll_interval=0.005,
@@ -111,8 +112,8 @@ def test_no_odds_until_the_hand_settles(monkeypatch):
     calculated: list[str] = []
     source = FakeSource(state("A", game_state="DRAW_TO_HAND"), state("B", game_state="HAND_PLAYED"), state("C"))
     sent: list[dict] = []
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (calculated.append(st.blind) or f"odds {st.blind}",
-                                                                     {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (
+        calculated.append(st.blind) or f"odds {st.blind}", {"odds": st.blind}))
     writes: list[str] = []
     end = time.monotonic() + 5
     cli.run_watch(source, writes.append, sent.append, patience=0.05, poll_interval=0.005,
@@ -149,7 +150,7 @@ def test_new_state_cancels_running_odds(monkeypatch):
     source = FakeSource(state("A"))
     cancelled = threading.Event()
 
-    def odds(st, t, q, cancel):
+    def odds(st, t, q, cancel, known=None):
         if st.blind == "B":
             return "odds B"
         while not cancel.is_set():
@@ -172,7 +173,7 @@ def test_new_state_cancels_running_odds(monkeypatch):
 def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
     """A bug in the odds doesn't stop the app: it's logged (once while it repeats), the panel gets odds without
     values rather than waiting on them, and the next state is calculated as usual."""
-    def odds(st, t, q, cancel):
+    def odds(st, t, q, cancel, known=None):
         if st.blind != "C":
             raise ValueError("boom")
         return "odds C", {"odds": "C"}
@@ -191,7 +192,7 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
 
 def failing_odds(monkeypatch, fail) -> list[dict]:
     """The panel's payloads from running the watch loop over states A, B, X and Y, whose odds call `fail`, then C."""
-    def odds(st, t, q, cancel):
+    def odds(st, t, q, cancel, known=None):
         if st.blind == "C":
             return "odds C", {"odds": "C"}
         fail(st.blind)
@@ -257,7 +258,7 @@ BAD_STATES = {
 @pytest.mark.parametrize("bad", BAD_STATES.values(), ids=BAD_STATES.keys())
 def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsys, bad):
     """A state the loop can't handle doesn't stop the app, and the panel still gets the next one's odds."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (f"odds {st.blind}", {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (f"odds {st.blind}", {"odds": st.blind}))
     odds_file = tmp_path / "calculatro_odds.json"
     source, writes = FakeSource(bad(), state("B")), []
     end = time.monotonic() + 5
@@ -272,7 +273,7 @@ def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsy
 def test_bad_state_after_a_running_job_isnt_a_failed_calculation(monkeypatch, capsys):
     """A bad state has cancelled the running job by the time it fails: that's not the job failing, so no failed odds
     are reported or sent for the state before it."""
-    def odds(st, t, q, cancel):
+    def odds(st, t, q, cancel, known=None):
         if st.blind == "A":
             cancel.wait(5)
             raise Cancelled
@@ -295,7 +296,7 @@ def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
                 raise OSError("boom")
             return super().poll()
 
-    def odds(st, t, q, cancel):
+    def odds(st, t, q, cancel, known=None):
         release.wait(5)
         return "odds A"
 
@@ -306,7 +307,7 @@ def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
 
 def test_failure_printing_finished_odds_isnt_repeated(monkeypatch, capsys):
     """Odds that can't be printed are dropped, not printed again on every pass of the loop."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel: (f"odds {st.blind}", {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (f"odds {st.blind}", {"odds": st.blind}))
     attempts, writes = [], []
 
     def write(text):
@@ -562,3 +563,62 @@ def test_search_target():
     with_cards = replace(state, tracked_cards=["2+ queens"])
     assert cli.search_target(with_cards, "2+ queens").label == parse_query("2+ queens").label
     assert cli.search_target(with_cards, "3+ queens") is None
+
+
+def test_odds_basis():
+    hand = [Card(rank="9", rank_id=9, suit="Spades"), Card(rank="2", rank_id=2, suit="Clubs")]
+    base = GameState(in_run=True, id="s:1", state="SELECTING_HAND", hand=hand, discards_left=2)
+    basis = cli.odds_basis(base)
+    for same in (replace(base, id="s:2"), replace(base, state=None), replace(base, tracked_hands=["Pair"]),
+                 replace(base, search=("Pair", 1)), replace(base, hand=hand[::-1]),
+                 replace(base, hand=[replace(hand[0], highlighted=True), hand[1]])):
+        assert cli.odds_basis(same) == basis
+    for changed in (replace(base, discards_left=1), replace(base, jokers=[Joker("j_joker")]),
+                    replace(base, unseen=hand[:1]), replace(base, blind="The Hook"),
+                    replace(base, hand=hand[:1]), replace(base, hand=[replace(hand[0], debuff=True), hand[1]])):
+        assert cli.odds_basis(changed) != basis
+
+
+def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
+    """Finished rows last until something they depend on changes, and answer the snapshot asking for them."""
+    calls: list[tuple] = []
+    real = report.evaluate_discard
+
+    def counted(state, target, discard, *rest):
+        calls.append(tuple(state.hand[i].rank_id for i in discard))
+        return real(state, target, discard, *rest)
+
+    monkeypatch.setattr(report, "evaluate_discard", counted)
+    hand = [Card(rank=str(r), rank_id=r, suit="Spades", enhancement="c_base") for r in (9, 10, 12)]
+    unseen = [Card(rank=str(r), rank_id=r, suit="Hearts", enhancement="c_base") for r in (9, 10, 12, 13)]
+    base = GameState(in_run=True, state="SELECTING_HAND", hand_size=3, hands_left=2, discards_left=2,
+                     hand=hand, unseen=unseen, tracked_hands=["Pair"])
+
+    def picked(n: int, ranks: tuple[int, ...], **changes) -> GameState:
+        st = replace(base, id=f"s:{n}", **changes)
+        return replace(st, hand=[replace(c, highlighted=c.rank_id in ranks) for c in st.hand])
+
+    steps = [
+        (picked(1, (9,)), [(), (9,)]),
+        (picked(2, (10,)), [(10,)]),  # another selection: Keep is known
+        (picked(3, (9,)), []),  # back to the first
+        (picked(4, (9,), hand=hand[::-1]), []),  # the hand sorted
+        (picked(5, (9,), tracked_hands=["Pair", "Pair"]), []),
+        (picked(6, (9,), jokers=[Joker("j_joker")]), [(), (9,)]),  # a joker gained: nothing carries over
+        (picked(7, (10,), jokers=[Joker("j_joker")]), [(10,)]),
+    ]
+    source, answers = FakeSource(steps[0][0]), []
+
+    def panel(payload):
+        if not payload.get("pending"):
+            answers.append(payload)
+            if len(answers) < len(steps):
+                source.queue.append(steps[len(answers)][0])
+
+    end = time.monotonic() + 10
+    cli.run_watch(source, lambda text: None, panel, patience=0.05, poll_interval=0.005,
+                  stop=lambda: len(answers) == len(steps) or time.monotonic() > end)
+    assert [a["id"] for a in answers] == [st.id for st, _ in steps]
+    expected = [call for _, step in steps for call in step]
+    assert calls == expected
+    assert answers[2]["targets"] == answers[0]["targets"] == answers[3]["targets"]

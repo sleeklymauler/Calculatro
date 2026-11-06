@@ -68,6 +68,13 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready.
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
   when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
+- **Odds already worked out.** `build_report` stores each row's odds in `known` as soon as they're
+  done, by the row and the cards selected, so going back to an earlier selection calculates nothing,
+  and rows finished before a job was cancelled aren't lost. `run_watch` starts a new `known` whenever
+  `odds_basis` changes (`search_basis` without the hand's order, since sorting the hand doesn't change
+  the odds, `test_odds_do_not_depend_on_the_hands_order`). A row's key uses the cards, not their
+  positions, and a query's text, not the query: two parses of one aren't equal. There's no size limit:
+  one hand has only so many selections, and everything goes at the next discard.
 - **Failures in a job.** A job that fails (anything but `Cancelled`) doesn't stop the app: `run_watch`
   logs the traceback on stderr (once per run for each exception type and stack; a failure to log is
   ignored) and answers as if there were nothing to show, odds without values

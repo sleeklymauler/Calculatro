@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from threading import Event
 
 from .cards import CardQuery
-from .engine import evaluate_cards, evaluate_discard
+from .engine import DiscardOutcome, evaluate_cards, evaluate_discard
 from .hands import Target, combine
 from .search import can_redraw
 from .state import Card, GameState
@@ -39,20 +40,38 @@ class Report:
 
 
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
-                 cancel: Event | None = None) -> Report | None:
+                 cancel: Event | None = None, known: dict | None = None) -> Report | None:
     """Odds of the target hands and card queries for keeping the hand vs.
     discarding the in-game selection. None outside a run, with an empty hand,
     or with nothing to calculate. With no way left to throw cards away and draw
     (`can_redraw`), the selection is the hand to be played, so there are no
     discard odds.
+
+    `known` holds each row's odds as soon as they're worked out, so they outlive
+    a cancelled report and come straight back when the same cards are selected
+    again. Share it only between states with the same `__main__.odds_basis`.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
+    if known is None:
+        known = {}
+
+    def odds(row: Target | CardQuery, discard: list[int]) -> DiscardOutcome:
+        # By the cards, not their positions: sorting the hand doesn't change the odds.
+        # By a query's text, since two parses of it aren't equal (their filters are closures).
+        picked = frozenset(Counter(replace(state.hand[i], highlighted=False) for i in discard).items())
+        key = (row.text or row) if isinstance(row, CardQuery) else row, picked
+        found = known.get(key)
+        if found is None:
+            found = known[key] = (evaluate_cards(state, row, discard) if isinstance(row, CardQuery)
+                                  else evaluate_discard(state, row, discard, cancel))
+        return found
+
     named = [(t.name, t) for t in targets]
     if len(targets) > 1:
         named.insert(0, ("Any target", combine(targets)))
-    keep = [evaluate_discard(state, t, [], cancel) for _, t in named]
-    card_keep = [evaluate_cards(state, q, []) for q in queries]
+    keep = [odds(t, []) for _, t in named]
+    card_keep = [odds(q, []) for q in queries]
 
     redraw = can_redraw(state)
     selected = state.selected if redraw else []
@@ -61,10 +80,10 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         cards = [CardOdds(q, k.probability, None) for q, k in zip(queries, card_keep)]
         return Report(rows, cards, [], 0, state.discards_left, redraw)
 
-    after = [evaluate_discard(state, t, selected, cancel) for _, t in named]
-    card_after = [evaluate_cards(state, q, selected) for q in queries]
-    first = (after or card_after)[0]
+    after = [odds(t, selected) for _, t in named]
+    card_after = [odds(q, selected) for q in queries]
     rows = [TargetOdds(name, k.probability, a.probability)
             for (name, _), k, a in zip(named, keep, after)]
     cards = [CardOdds(q, k.probability, a.probability) for q, k, a in zip(queries, card_keep, card_after)]
-    return Report(rows, cards, first.discarded, first.draws, state.discards_left)
+    # This state's cards, in its order: a known outcome may be from before the hand was sorted.
+    return Report(rows, cards, [state.hand[i] for i in selected], (after or card_after)[0].draws, state.discards_left)

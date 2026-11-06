@@ -99,9 +99,11 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 
 ## Performance
 
-- [ ] **[med]** Cache odds between snapshots
-  - Nothing is cached between snapshots, so clicking a card (changing only the selection) cancels the job and recomputes every Keep row, which doesn't depend on the selection. Heavy rows take 0.4–14 s.
-  - An LRU keyed on `(search_basis(state), target, discard)` in `report`/`__main__` would make selection changes nearly free. Deselecting back to an earlier selection would also hit.
+- [x] **[med]** Cache odds between snapshots
+  - Each row's odds are kept until `odds_basis` changes (`build_report`'s `known`), so going back to an earlier selection is instant (a 2 s row took 0.08 ms), including after sorting the hand. Rows finished before a job is cancelled are kept; one cancelled midway starts again.
+  - Keep rows turned out to be cheap (a full face-up hand draws nothing), so the gain is in Discard rows.
+  - Not yet checked in game.
+  - Not done: a best-discard search's result isn't stored, so the row it selects is calculated again.
 - [ ] **[med]** Consider parallelism
   - Each target's rows, "Any target", the `_union_by_suit` terms and best-discard choices are independent, but all run on one thread under the GIL.
   - A persistent process pool (patterns built per worker, cancel through a shared event) could scale with cores. The docs never discuss it.
