@@ -33,6 +33,7 @@ function Calculatro.update(dt)
     if Calculatro.elapsed >= Calculatro.interval then
         Calculatro.elapsed = 0
         guard('snapshot', Calculatro.write_snapshot)
+        guard('unseen pool check', Calculatro.check_unseen)
     end
     if Calculatro.odds_elapsed >= Calculatro.odds_interval then
         Calculatro.odds_elapsed = 0

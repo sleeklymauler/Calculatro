@@ -126,6 +126,10 @@ installed mod's `launch.txt` (skip with `-NoAutoStart`).
   publicly. A log that can't be opened doesn't stop the app, which runs without it.
 - **Mod errors.** Mod errors (`guard`, once each) also go to `calculatro.log`, with the home folder as
   `~` (`Calculatro.log_error`).
+- **The pool check.** For each new snapshot while selecting, `Calculatro.check_unseen` compares `unseen`
+  with View Deck's rule (of `G.playing_cards`, those in the deck or marked `wheel_flipped`). A mismatch is
+  logged once a session, as counts only, since players post the log. It's there because the tests only know
+  the game through its mock. Look for `the unseen pool doesn't match` after trying a change in game.
 
 By hand, `.venv/Scripts/python -m calculatro watch` shows the console output (`--file` overrides the
 state file path). What to calculate is set in game, with the panel's target editor.

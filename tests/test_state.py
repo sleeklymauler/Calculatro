@@ -447,6 +447,85 @@ def test_cards_discarded_face_up_have_been_seen(lua):
     assert (len(state.unseen), state.deck_size) == (5, 4)
 
 
+# Every card where the game has it, with the areas it sets on them. Face-down
+# discards and hand cards are marked, as the game marks them when they're drawn.
+PLAYING_CARDS = """
+G.playing_cards = {}
+for _, area in ipairs({G.deck, G.hand, G.discard}) do
+  for _, c in ipairs(area.cards) do
+    c.area = area
+    G.playing_cards[#G.playing_cards + 1] = c
+    if area == G.hand and c.facing == 'back' then c.ability.wheel_flipped = true end
+  end
+end
+"""
+
+
+def pool_problem(lua, tmp_path):
+    """What the check logged, after a new snapshot: None if nothing."""
+    rt, mod = lua
+    mod.seq = (mod.seq or 0) + 1
+    mod.check_unseen()
+    log = tmp_path / "calculatro.log"
+    return log.read_text(encoding="utf-8") if log.exists() else None
+
+
+def test_unseen_pool_check_agrees_with_the_game(lua, tmp_path):
+    rt, _ = lua
+    rt.execute(PLAYING_CARDS)
+    rt.execute("""local c = table.remove(G.deck.cards, 1)
+                  c.facing, c.area, c.ability.wheel_flipped = 'back', G.discard, true
+                  G.discard.cards[2] = c""")  # discarded face down
+    assert pool_problem(lua, tmp_path) is None
+
+
+def test_unseen_pool_check_allows_a_tarot_leaving_a_card_face_down(lua, tmp_path):
+    rt, _ = lua
+    rt.execute(PLAYING_CARDS)
+    rt.execute("G.hand.cards[5].ability.wheel_flipped = nil")  # flipping it up cleared the mark
+    assert pool_problem(lua, tmp_path) is None
+
+
+@pytest.mark.parametrize("change, counts", [
+    # The game calls a card played that the mod has in its pool.
+    ("table.remove(G.playing_cards, 1)", "mod 5, game 4 (1 extra, 0 missing)"),
+    # The game has one unseen that the mod doesn't find in the areas it looks at.
+    ("G.discard.cards[1].area = G.deck", "mod 5, game 6 (0 extra, 1 missing)"),
+    # The right total with different cards.
+    ("G.playing_cards[1] = {area = G.deck, base = {id = 3, suit = 'Clubs'}, config = {}, ability = {}}",
+     "mod 5, game 5 (1 extra, 1 missing)"),
+])
+def test_unseen_pool_check_reports_a_mismatch_once(lua, tmp_path, change, counts):
+    rt, _ = lua
+    rt.execute(PLAYING_CARDS)
+    rt.execute(change)
+    log = pool_problem(lua, tmp_path)
+    assert f"the unseen pool doesn't match the game's: {counts} in Big Blind" in log
+    # Only how many: not which cards, which could give away the face-down ones.
+    assert not any(word in log for word in ("Hearts", "Spades", "Clubs", "Diamonds", "Queen"))
+    assert pool_problem(lua, tmp_path) == log
+
+
+def test_unseen_pool_check_waits_for_a_settled_hand(lua, tmp_path):
+    rt, mod = lua
+    rt.execute(PLAYING_CARDS)
+    rt.execute("table.remove(G.playing_cards, 1); G.STATE = G.STATES.DRAW_TO_HAND")
+    assert pool_problem(lua, tmp_path) is None
+    # And it only looks again at a new snapshot.
+    rt.execute("G.STATE = G.STATES.SELECTING_HAND")
+    mod.check_unseen()
+    assert not (tmp_path / "calculatro.log").exists()
+    assert pool_problem(lua, tmp_path) is not None
+
+
+def test_unseen_pool_check_runs_with_the_snapshots(lua, tmp_path):
+    rt, mod = lua
+    rt.execute(PLAYING_CARDS)
+    rt.execute("table.remove(G.playing_cards, 1)")
+    mod.update(1)
+    assert "mod 5, game 4" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+
+
 def test_not_in_run(lua):
     rt, _ = lua
     rt.execute("G.STAGE = G.STAGES.MAIN_MENU")

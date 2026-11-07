@@ -1,5 +1,6 @@
 local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
+local report = require('calculatro.log').report
 require('calculatro.tracked')
 
 local array, encode = json.array, json.encode
@@ -125,6 +126,55 @@ local function unseen_pool()
     return sorted_cards(cards)
 end
 Calculatro.unseen_pool = unseen_pool
+
+-- What a card counts as in check_unseen: as printed, so copies match each other.
+local function pool_key(info)
+    if info.enhancement == 'm_stone' then return 'stone' end
+    return tostring(info.rank_id) .. ' ' .. tostring(info.suit)
+end
+
+-- Compares the unseen pool with the game's own idea of it, View Deck's: of all the
+-- playing cards, those in the deck or marked wheel_flipped (G.UIDEF.view_deck). The
+-- pool is everything the odds rest on, and it's worked out differently, area by area,
+-- so this notices when the two part, as they did when every discard counted as unseen.
+-- The tests can't: they only know the game as far as its mock does.
+--
+-- Run for each new snapshot while selecting, as cards are on the move otherwise, until
+-- it finds a mismatch. It says only how many cards differ: players post the log
+-- publicly, and which cards they were could give away the face-down ones.
+function Calculatro.check_unseen()
+    if Calculatro.seq == Calculatro.checked_seq or Calculatro.reported['unseen pool'] then return end
+    Calculatro.checked_seq = Calculatro.seq
+    if not (G and G.GAME and G.deck and G.hand and G.playing_cards and G.STAGES and G.STAGE == G.STAGES.RUN
+            and G.STATE == G.STATES.SELECTING_HAND) then
+        return
+    end
+    local pool = unseen_pool()
+    local counts, game_total = {}, 0
+    for _, info in ipairs(pool) do
+        local key = pool_key(info)
+        counts[key] = (counts[key] or 0) + 1
+    end
+    for _, card in ipairs(G.playing_cards) do
+        -- A Tarot can leave a card in hand face down without the mark. The game then
+        -- calls it played, but the player sees a card face down, so the mod doesn't.
+        local marked_down = card.ability and card.ability.wheel_flipped
+        if card.area == G.deck or marked_down or (card.area == G.hand and card.facing == 'back') then
+            local key = pool_key(card_info(card, false))
+            counts[key] = (counts[key] or 0) - 1
+            game_total = game_total + 1
+        end
+    end
+    local extra, missing = 0, 0
+    for _, n in pairs(counts) do
+        if n > 0 then extra = extra + n else missing = missing - n end
+    end
+    if extra > 0 or missing > 0 then
+        local blind = G.GAME.blind and G.GAME.blind.name or 'no blind'
+        report('unseen pool', string.format("the unseen pool doesn't match the game's: mod %d, game %d (%d extra, %d missing) in %s",
+                                            #pool, game_total, extra, missing, blind))
+    end
+end
 
 local function state_name(state)
     if G.STATES then
