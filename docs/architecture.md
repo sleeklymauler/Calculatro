@@ -41,6 +41,8 @@ have no cycles, and each loads on its own), and returns only what other modules 
 | `anim` | the panel's animation |
 | `odds`, `editor` | the panel's two views: model, definition |
 | `panel` | placing and refreshing it |
+| `observe` | what the hand's order has shown about its face-down cards |
+| `hint` | the box over a hovered face-down card |
 | `calculatro.lua` | only the hooks |
 
 ### Snapshots
@@ -170,12 +172,19 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
 Information hiding is deliberate. Don't add anything to the export that reveals information a player
 couldn't see.
 
-- The undrawn deck and the face-down cards, in hand or discarded (the game doesn't turn a discarded
+- The undrawn deck and the face-down cards, in hand or discarded (the game doesn't reveal a discarded
   face-down card up; View Deck still counts it as unplayed), go out together as one **sorted
   multiset**, `unseen` (`unseen_pool`). So neither draw order nor which cards are face down or were
   discarded face down leaks, not even by comparing snapshots as a card is drawn face down.
 - The jokers are sorted too (Amber Acorn shuffles them face down).
-- Face-down cards in hand and in the discard pile are exported as `{hidden: true}`. The deck's size is
+- The face-down hint ([panel.md](panel.md#face-down-hint)) isn't exported, but keeps to the same rule. It
+  works from `unseen_pool` and the observations (`observe.lua`), never a face-down card's own values, and
+  trusts the hand's order because of public events (draws, Sort presses, drags, consumables), never by
+  checking it against the true order.
+- Face-down cards in hand and in the discard pile are exported as `{hidden: true}`. The game turns every
+  card in the discard pile over, so `facing` says nothing there: a card discarded face down is one with
+  `ability.wheel_flipped`, as in View Deck, and the rest have been seen and are exported as they are.
+  The deck's size is
   `len(unseen)` less their number (`GameState.deck_size`, `hidden`, `discarded_hidden`), and under The
   Mark the discarded ones count as face cards too.
 - The engine draws kept face-down cards from `unseen` like the new cards, except that under The Mark

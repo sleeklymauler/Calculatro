@@ -5,7 +5,7 @@
 -- This module is what the game's hooks call (see lovely.toml). The rest are its
 -- parts, each requiring the ones it needs: core (shared table), json, tracked,
 -- builder, snapshot, search, worker, files, log, app, widgets, uibox, anim, odds, editor,
--- panel. Every one must be registered in lovely.toml, under calculatro.<name>:
+-- panel, observe, hint. Every one must be registered in lovely.toml, under calculatro.<name>:
 -- other mods share package.preload, and some of them have a json too.
 
 local Calculatro = require('calculatro.core')
@@ -14,6 +14,8 @@ require('calculatro.files')
 require('calculatro.search')
 require('calculatro.app')
 require('calculatro.panel')
+require('calculatro.observe')
+require('calculatro.hint')
 
 function Calculatro.update(dt)
     dt = dt or 0
@@ -25,6 +27,7 @@ function Calculatro.update(dt)
     Calculatro.elapsed = Calculatro.elapsed + dt
     Calculatro.odds_elapsed = Calculatro.odds_elapsed + dt
     guard('round', Calculatro.check_round)
+    guard('hand order', Calculatro.track_hand)  -- every frame: snapshots' throttle would miss events
     guard('search', Calculatro.check_search)  -- before the snapshot, which sends its request
     guard('file thread', Calculatro.check_worker)
     if Calculatro.elapsed >= Calculatro.interval then
@@ -37,6 +40,7 @@ function Calculatro.update(dt)
     end
     guard('checking on the app', Calculatro.check_app)
     guard('panel', Calculatro.refresh_panel)
+    guard('hint', Calculatro.refresh_hint)
 end
 
 function Calculatro.key_press(key)

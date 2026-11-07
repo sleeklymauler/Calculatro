@@ -138,17 +138,36 @@ end
 -- of it means (`about`, lines of "Field: value", from the builder) if known,
 -- in the panel's colours: light text on its dark inset, in its frame.
 local POPUP_SCALE = 0.36
-function Calculatro.popup_definition(name, about)
+
+local function popup_line(nodes)
+    return { n = G.UIT.R, config = { align = 'cl', padding = 0.02 }, nodes = nodes }
+end
+
+local function popup_name(name)
+    return name_label(name, function(text) return label(text, G.C.UI.TEXT_LIGHT, POPUP_SCALE) end)
+end
+
+local function popup_box(rows)
     local C = G.C
-    local function line(nodes) return { n = G.UIT.R, config = { align = 'cl', padding = 0.02 }, nodes = nodes } end
-    local rows = { line({ name_label(name, function(text) return label(text, C.UI.TEXT_LIGHT, POPUP_SCALE) end) }) }
-    for text in (about or ''):gmatch('[^\n]+') do
-        local field, value = text:match('^(.-): (.*)$')
-        rows[#rows + 1] = line({ label(field .. ': ', C.JOKER_GREY), label(value) })
-    end
     return { n = G.UIT.ROOT, config = { align = 'cm', padding = 0.05, r = 0.1, colour = C.DYN_UI.MAIN, emboss = 0.05 }, nodes = {
         { n = G.UIT.C, config = { align = 'cl', padding = 0.08, r = 0.1, colour = inset_colour(), emboss = 0.05 }, nodes = rows },
     } }
+end
+
+function Calculatro.popup_definition(name, about)
+    local rows = { popup_line({ popup_name(name) }) }
+    for text in (about or ''):gmatch('[^\n]+') do
+        local field, value = text:match('^(.-): (.*)$')
+        rows[#rows + 1] = popup_line({ label(field .. ': ', G.C.JOKER_GREY), label(value) })
+    end
+    return popup_box(rows)
+end
+
+-- The box over a face-down card: what it can be, a line for each group of suits.
+function Calculatro.hint_definition(lines)
+    local rows = {}
+    for i, text in ipairs(lines) do rows[i] = popup_line({ popup_name(text) }) end
+    return popup_box(rows)
 end
 
 -- A card query's name in a cell `w` wide, cut to fit (fit_label), that shows

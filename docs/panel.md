@@ -127,6 +127,29 @@ the mod's `name_label` draws those as the game's own suit icons, sprites from th
 with the colourblind option) at `{x, y = 1}`, as in the View Deck screen, each on a small white tile
 so the black suits show on the dark inset. Long hand names are shortened in `SHORT_NAMES` (Lua).
 
+## Face-down hint
+
+Hovering a face-down card in hand while selecting shows a small box above it with what that card can
+be, like "6-8 ♥♦" (`hint.lua`), in the popups' colours. It goes with the panel (the `C` hotkey), hides
+while the card is dragged, and needs no answer from the app.
+
+- **No hook.** `refresh_hint` reads `states.hover.is` every frame and builds its own box, set up like
+  the game's card popups (`Card:align_h_popup`). The game shows no popup of its own for a face-down
+  card (`Card:hover`), so the two never meet.
+- **What's known.** `observe.lua` keeps the latest observation of each sort mode. See
+  [the plan](plans/face-down-windows.md#observation-state-machine) for when the hand's order is trusted.
+  With no observation of the card there's no box, as after loading a save or using a consumable (until
+  the next sort), or when the card was drawn during a drag.
+- **What's possible.** `possible_cards` lists the printed rank and suit pairs in the unseen pool for
+  which the other face-down cards can still all be dealt consistently with both sorts (with The Mark's
+  face cards, as the engine models them). It's a bounded search on the game's thread (`SEARCH_STEPS`),
+  run only when the hovered card or what's known changes. What it can't rule out in time stays listed.
+  It can also list too much when two copies of a card would have to tie in opposite orders in the two
+  sorts. It never leaves out a card that's possible.
+- **The text.** Suits that can be the same ranks share a line, and others get their own, so the box
+  never implies a card that can't be there: "2, K-A ♠" and "4 ♥" rather than "2, 4, K-A ♠♥". "Stone"
+  gets its own line.
+
 ## Animation
 
 Rebuilds are animated (`Calculatro.animate`, run on the final box in `refresh_panel`). It's off with

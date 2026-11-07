@@ -55,7 +55,7 @@ local function card(value, id, suit, opts)
   return {
     base = {value = value, id = id, suit = suit},
     config = {center_key = opts.center or 'c_base'},
-    ability = {},
+    ability = {wheel_flipped = opts.wheel_flipped},
     edition = opts.edition and {type = opts.edition} or nil,
     seal = opts.seal,
     debuff = opts.debuff,
@@ -80,7 +80,7 @@ G = {
     card('Queen', 12, 'Clubs'), card('Ace', 14, 'Spades', {center = 'm_wild'}),
     card('5', 5, 'Hearts', {center = 'm_stone'}), card('10', 10, 'Diamonds', {debuff = true}),
   }},
-  discard = {cards = {card('3', 3, 'Clubs')}},
+  discard = {cards = {card('3', 3, 'Clubs', {facing = 'back'})}},  -- the game turns every discard over
   jokers = {cards = {
     {config = {center_key = 'j_four_fingers'}},
     {config = {center_key = 'j_smeared'}, debuff = true},
@@ -418,23 +418,33 @@ def test_face_down_cards_not_told_from_the_deck(lua):
 
 
 def test_face_down_discards_not_told_from_the_deck(lua):
-    # The game doesn't turn a face-down card up when it's discarded (View Deck
+    # The game doesn't reveal a face-down card when it's discarded (View Deck
     # still counts it as unplayed), so which unseen card it was isn't public:
     # swapping it with a deck card must give the same snapshot.
     rt, _ = lua
     rt.execute("""local c = table.remove(G.deck.cards, 1)
-                  c.facing = 'back'
+                  c.facing, c.ability.wheel_flipped = 'back', true
                   G.discard.cards[2] = c""")
     before = snapshot_json(lua)
     assert before["discard"][1] == {"hidden": True, "highlighted": False}
     rt.execute("""local deck, discard = G.deck.cards, G.discard.cards
                   discard[2], deck[1] = deck[1], discard[2]
-                  discard[2].facing, deck[1].facing = 'back', 'front'""")
+                  discard[2].facing, deck[1].facing = 'back', 'front'
+                  discard[2].ability.wheel_flipped, deck[1].ability.wheel_flipped = true, nil""")
     assert snapshot_json(lua) == before
     state = GameState.from_json(before)
     assert len(state.unseen) == 5 and "Q♣" in [c.short() for c in state.unseen]
     assert (state.deck_size, state.hidden, state.discarded_hidden) == (3, 1, 1)
     assert "(3 cards in deck, 1 face down in hand, 1 discarded face down)" in summarize(state)
+
+
+def test_cards_discarded_face_up_have_been_seen(lua):
+    # The game turns every card in the discard pile over, so facing doesn't tell
+    # these from cards discarded face down. They mustn't count as still to come.
+    state = GameState.from_json(snapshot_json(lua))
+    assert "3♣" not in [c.short() for c in state.unseen]
+    assert [c.short() for c in state.discard] == ["3♣"] and state.discarded_hidden == 0
+    assert (len(state.unseen), state.deck_size) == (5, 4)
 
 
 def test_not_in_run(lua):

@@ -50,12 +50,23 @@ local function dna_copies()
     return copies
 end
 
--- `in_hand`: also says whether Cerulean Bell forces the card into every
--- play and discard (the player sees it raised and can't unselect it).
-local function card_info(card, hide_face_down, in_hand)
+-- Whether the player hasn't seen this card of `area`. The game turns every card
+-- in the discard pile over (CardArea:align_cards), so `facing` says nothing there:
+-- it marks those drawn face down with wheel_flipped, and clears it if they're turned
+-- up, which is how View Deck tells them apart too. In hand, `facing` is what the
+-- player sees: a Tarot can leave a card face down without the mark.
+local function face_down(card, area)
+    if area == G.discard then return card.ability and card.ability.wheel_flipped end
+    return card.facing == 'back'
+end
+
+-- `hide`: export only that it's there. `in_hand`: also says whether Cerulean Bell
+-- forces the card into every play and discard (the player sees it raised and
+-- can't unselect it).
+local function card_info(card, hide, in_hand)
     local highlighted = card.highlighted and true or false
     local forced = in_hand and card.ability and card.ability.forced_selection and true or nil
-    if hide_face_down and card.facing == 'back' then
+    if hide then
         return { hidden = true, highlighted = highlighted, forced = forced }
     end
     local enhancement = card.config and card.config.center_key or nil  -- 'c_base', 'm_stone', 'm_wild', ...
@@ -77,7 +88,9 @@ end
 local function area_cards(area, hide_face_down, in_hand)
     local out = array()
     if area and area.cards then
-        for i, card in ipairs(area.cards) do out[i] = card_info(card, hide_face_down, in_hand) end
+        for i, card in ipairs(area.cards) do
+            out[i] = card_info(card, hide_face_down and face_down(card, area), in_hand)
+        end
     end
     return out
 end
@@ -93,7 +106,7 @@ local function sorted_cards(cards)
 end
 
 -- The cards the player hasn't seen: the undrawn deck and the face-down cards
--- in hand or discarded (the game doesn't turn those up), merged and sorted, so
+-- in hand or discarded (the game doesn't reveal those), merged and sorted, so
 -- neither which cards are face down or were discarded face down, nor which
 -- were just drawn face down leaks (the game's View Deck counts them together
 -- too). The face-down counts are public, from the hand's and the discard
@@ -102,7 +115,7 @@ local function unseen_pool()
     local cards = array()
     for _, area in ipairs({ G.deck, G.hand, G.discard }) do
         for _, card in ipairs(area and area.cards or {}) do
-            if area == G.deck or card.facing == 'back' then
+            if area == G.deck or face_down(card, area) then
                 local info = card_info(card, false)
                 info.highlighted = nil
                 cards[#cards + 1] = info
@@ -111,6 +124,7 @@ local function unseen_pool()
     end
     return sorted_cards(cards)
 end
+Calculatro.unseen_pool = unseen_pool
 
 local function state_name(state)
     if G.STATES then

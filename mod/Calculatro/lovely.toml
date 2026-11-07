@@ -109,6 +109,18 @@ source = "panel.lua"
 before = "main.lua"
 name = "calculatro.panel"
 
+[[patches]]
+[patches.module]
+source = "observe.lua"
+before = "main.lua"
+name = "calculatro.observe"
+
+[[patches]]
+[patches.module]
+source = "hint.lua"
+before = "main.lua"
+name = "calculatro.hint"
+
 # Export game state and update the odds panel once per frame (the module throttles itself).
 [[patches]]
 [patches.pattern]

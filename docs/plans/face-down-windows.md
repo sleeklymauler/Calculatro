@@ -1,8 +1,9 @@
 # Plan: face-down cards narrowed by the hand's sort order
 
-Status: proposed, not started. Revised 2026-10-15 after review: the first
-draft's per-card windows were replaced by observations that keep the order of
-face-down cards (see [the model](#what-the-player-learns)).
+Status: in progress. The in-game hint (stage 0) is written and awaits a check in
+game; the odds are unchanged. Revised 2026-10-15 after review: the first draft's
+per-card windows were replaced by observations that keep the order of face-down
+cards (see [the model](#what-the-player-learns)).
 
 ## Summary
 
@@ -37,8 +38,9 @@ Decisions already made:
 - **No prompt** asking the player to sort by both rank and suit. The panel
   deliberately doesn't hint at what to do; the mod uses whatever sorts the
   player makes.
-- A visible marker of what's known about a face-down card is out of scope
-  until the feature works.
+- **The hint comes first** (decided 2026-11-06, replacing "a visible marker is
+  out of scope until the feature works"): hovering a face-down card shows what
+  it can be, before the odds use any of this. See [stage 0](#stages).
 
 ## Game behaviour (verified in the game's source)
 
@@ -112,7 +114,9 @@ From the Lua packed in `Balatro.exe`:
   (`card.lua:4119`) or the round ends (`state_events.lua:308`). View Deck
   counts them as unplayed, with a "?" (`UI_definitions.lua:3264, 3295`). The
   mod already treats them that way: they're in `unseen` and go out as
-  `{hidden: true}` in `discard` (`GameState.discarded_hidden`).
+  `{hidden: true}` in `discard` (`GameState.discarded_hidden`). `CardArea:align_cards`
+  turns every card in the discard pile over (`cardarea.lua:427`), so only
+  `wheel_flipped` tells them from cards discarded face up, never `facing`.
 - **Update order:** the mod's `lovely.toml` calls `Calculatro.update` at the
   start of `Game:update`. So each frame the mod sees what the previous frame
   did, possibly several things at once.
@@ -538,10 +542,19 @@ Proposed release thresholds, to confirm before stage 3:
 
 ## Stages
 
-1. **Mod: state machine and observations**, plus Python parsing and validation
-   (schema bump on both sides), unused by the odds. Tests above, and a check in
-   game under The Wheel, The Fish and The House with drags and both Sort
-   buttons.
+0. **The hint** ([panel.md](../panel.md#face-down-hint)): the state machine in
+   `observe.lua` and a box over a hovered face-down card, all in the mod, with
+   no export and no schema bump.
+   - It keeps the latest observation of each mode, ahead of stage B, since it
+     only asks what's possible. The cross-mode tie and Stone questions below only
+     weigh possibilities, and the likelihood isn't needed. So its list can be too
+     wide in the rare case of copies tied in opposite orders, but never too narrow.
+   - A discarded latent card is dropped from the observations, as in stage A.
+   - Still to check in game, under The Wheel, The Fish and The House, with drags
+     and both Sort buttons.
+1. **Export and parsing:** observations in the snapshot, plus Python parsing and
+   validation (schema bump on both sides), unused by the odds. Export from what
+   `observe.lua` keeps, and use only the last observation until stage B.
 2. **Odds, search and the reference, together:**
    - stage A posterior, ungrouped reference, oracle tests;
    - grouped evaluation, the search changes, cancellation, benchmarks.
@@ -552,7 +565,7 @@ Proposed release thresholds, to confirm before stage 3:
    options and the title row says so.
 3. **Stage B:** both modes' latest observations, discarded latent cards kept,
    fixed tie-breakers across observations.
-4. **Optional:** the `_mark_split` shortcut; a visible marker of what's known.
+4. **Optional:** the `_mark_split` shortcut.
 
 Update `docs/architecture.md` (information hiding, the snapshot contract),
 `docs/probability-model.md`, `AGENTS.md` (its information-hiding rule) and

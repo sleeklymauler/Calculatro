@@ -1,0 +1,428 @@
+"""The box over a hovered face-down card: what the hand's order leaves it able to be."""
+
+from __future__ import annotations
+
+import itertools
+import random
+
+import pytest
+
+from test_overlay import TEXTS
+from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
+
+pytest.importorskip("lupa")
+
+SUITS = ("Spades", "Hearts", "Clubs", "Diamonds")
+
+SETUP = r"""
+function make_card(id, suit, facing, center)
+  return {base = {id = id, value = tostring(id), suit = suit}, config = {center_key = center or 'c_base'},
+          ability = {}, facing = facing or 'front', states = {hover = {}, drag = {}}}
+end
+function make_buttons()
+  RANK_BUTTON = {UIT = 'C', config = {button = 'sort_hand_value'}}
+  SUIT_BUTTON = {UIT = 'C', config = {button = 'sort_hand_suit'}}
+  return {UIRoot = {UIT = 'ROOT', config = {}, children = {RANK_BUTTON, SUIT_BUTTON}}}
+end
+G.buttons = make_buttons()
+G.hand.cards, G.deck.cards, G.discard.cards, G.jokers.cards = {}, {}, {}, {}
+G.hand.config.sort = 'desc'
+CLICKS = 0
+function set_cards(area, list)
+  area.cards = {}
+  for i, c in ipairs(list) do area.cards[i] = c end
+end
+function press(button)  -- as UIElement:click does, just before the sort runs
+  CLICKS = CLICKS + 1
+  button.last_clicked = CLICKS
+end
+"""
+
+
+class Game:
+    """The mocked game's hand and deck, moved frame by frame."""
+
+    def __init__(self, runtime):
+        self.rt, self.mod = runtime
+        self.rt.execute(SETUP)
+        self.make = self.rt.eval("make_card")
+        self.mod.track_hand()
+
+    def card(self, text, facing="front"):
+        """A card from text: '9H', 'TS', 'Stone'."""
+        if text == "Stone":
+            return self.make(5, "Clubs", facing, "m_stone")
+        rank = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}.get(text[0]) or int(text[0])
+        suit = {"S": "Spades", "H": "Hearts", "C": "Clubs", "D": "Diamonds"}[text[1]]
+        return self.make(rank, suit, facing)
+
+    def set_area(self, area, cards):
+        self.rt.eval("set_cards")(self.rt.eval(f"G.{area}"), self.rt.table_from(cards))
+
+    def frame(self, n=1):
+        for _ in range(n):
+            self.mod.track_hand()
+            self.mod.refresh_hint()
+
+    def sort(self, mode, cards):
+        """A Sort button pressed: the hand's in this order next frame, then settles."""
+        self.rt.eval("G.hand.config").sort = mode
+        self.set_area("hand", cards)
+        self.rt.eval("press")(self.rt.eval("RANK_BUTTON" if mode == "desc" else "SUIT_BUTTON"))
+        self.frame(2)
+
+    def deal(self, hand, deck, mode="desc"):
+        """The hand drawn from the deck, which sorts it, into this order."""
+        self.set_area("deck", list(hand) + list(deck))
+        self.frame()
+        self.rt.eval("G.hand.config").sort = mode
+        self.set_area("deck", deck)
+        self.set_area("hand", hand)
+        self.frame(2)
+
+    def hover(self, card, on=True):
+        card.states.hover["is"] = on or None
+        self.frame()
+
+    def hint(self):
+        box = self.mod.hint_box
+        if box is None:
+            return None
+        return "|".join(self.rt.execute(TEXTS)(box.definition).values())
+
+    def possible(self, card):
+        found = self.mod.possible_cards(card)
+        if found is None:
+            return None
+        return {"Stone" if v.stone else (v.rank_id, v.suit) for v in found.values()}
+
+
+@pytest.fixture
+def game(lua):  # noqa: F811
+    return Game(lua)
+
+
+def ranks(cards):
+    return sorted({c[0] for c in cards})
+
+
+def test_a_face_down_card_between_a_9_and_a_7(game):
+    down = game.card("8C", "back")
+    game.deal([game.card("9H"), down, game.card("7D")], [game.card("8S"), game.card("2H"), game.card("KD")])
+    # Neither a higher 7 nor a lower 9 is unseen, so it's one of the 8s.
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+    game.hover(down)
+    assert game.hint() == "8 @light|[ui_1 3,1]|[ui_1 2,1]"
+    box = game.mod.hint_box
+    assert game.rt.eval("rawequal")(box.config.major, down)
+    assert box.config.instance_type == "POPUP" and box.config.can_collide is False
+    game.hover(down, on=False)
+    assert game.hint() is None and box.REMOVED
+
+
+def test_the_example_rank_and_suit_sorts_narrow_it_together(game):
+    # 6-8 from the rank sort; from the suit sort no spade, and no club is left in 6-8.
+    down = game.card("7H", "back")
+    high, low, two = game.card("9S"), game.card("5D"), game.card("2S")
+    deck = [game.card(c) for c in ("6H", "8H", "6D", "7D", "8D", "KH")]
+    game.deal([high, down, low, two], deck)
+    assert ranks(game.possible(down)) == [6, 7, 8]
+    game.sort("suit desc", [high, two, down, low])
+    game.hover(down)
+    assert game.hint() == "6-8 @light|[ui_1 0,1]|[ui_1 1,1]"
+
+
+def test_a_hand_from_the_game(game):
+    # The Wheel, 15 cards discarded face up. View Deck showed 28 unseen cards, with
+    # 4H the only heart from 4 to 6: 5H and 6H had been discarded.
+    down = game.card("4H", "back")
+    seen = {c: game.card(c) for c in ("AC", "AD", "KD", "JS", "7H", "7C", "7D", "3S", "2S")}
+    deck = ["AS", "QS", "9S", "7S", "5S", "AH", "KH", "KH", "JH", "9H",
+            "KC", "QC", "JC", "TC", "9C", "8C", "6C", "5C", "4C", "2C", "QD", "JD", "9D", "8D", "6D", "5D", "2D"]
+    discards = ["3D", "4D", "TD", "2H", "3H", "5H", "6H", "8H", "TH", "QH", "4S", "6S", "8S", "TS", "KS"]
+    game.set_area("discard", [game.card(c, "back") for c in discards])
+    by_rank = [*(seen[c] for c in ("AC", "AD", "KD", "JS", "7H", "7C", "7D")), down, seen["3S"], seen["2S"]]
+    game.deal(by_rank, [game.card(c) for c in deck])
+    assert len(game.mod.unseen_pool()) == 28
+    # The 7S would sort left of the 7H, and any other 3 right of the 3S.
+    assert ranks(game.possible(down)) == [4, 5, 6]
+    game.sort("suit desc", [*(seen[c] for c in ("JS", "3S", "2S", "7H")), down,
+                            *(seen[c] for c in ("AC", "7C", "AD", "KD", "7D"))])
+    game.hover(down)
+    assert game.hint() == "4 @light|[ui_1 0,1]"
+
+
+def test_a_card_discarded_face_down_is_still_possible(game):
+    down, gone = game.card("8C", "back"), game.card("8S", "back")
+    gone.ability.wheel_flipped = True
+    game.set_area("discard", [gone, game.card("8H", "back")])  # 8H was discarded face up
+    game.deal([game.card("9H"), down, game.card("7D")], [game.card("2C")])
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+
+
+def test_it_needs_a_sort_of_the_hand(game):
+    down = game.card("8C", "back")
+    hand = [game.card("9H"), down, game.card("7D")]
+    game.set_area("hand", hand)  # no sort the mod saw, as after loading a save
+    game.frame(2)
+    assert game.possible(down) is None
+    game.hover(down)
+    assert game.hint() is None
+    game.sort("desc", hand)
+    assert game.hint() == "8 @light|[ui_1 2,1]"
+
+
+def test_the_left_of_two_face_down_cards_is_the_higher(game):
+    # The plan's worked example.
+    left, right = game.card("8C", "back"), game.card("7C", "back")
+    game.deal([game.card("TS"), left, right, game.card("6H")], [game.card("9C")])
+    assert ranks(game.possible(left)) == [8, 9]
+    assert ranks(game.possible(right)) == [7, 8]
+
+
+def test_lines_say_exactly_what_is_possible(game):
+    lines = game.rt.execute("""return function(mod, list)
+        return mod.hint_lines(list)
+    end""")
+
+    def show(*cards):
+        values = game.rt.table_from([
+            game.rt.table_from({"stone": True}) if c == "Stone" else game.rt.table_from({"rank_id": c[0], "suit": c[1]})
+            for c in cards])
+        return list(lines(game.mod, values).values())
+
+    assert show(*[(r, s) for r in (6, 7, 8) for s in ("Hearts", "Diamonds")]) == ["6-8 ♥♦"]
+    # Suits whose ranks differ get a line each: "2, K-A ♠♥" would claim a 2♥.
+    assert show((14, "Spades"), (13, "Spades"), (2, "Spades"), (4, "Hearts")) == ["2, K-A ♠", "4 ♥"]
+    assert show((10, "Hearts"), (11, "Hearts"), "Stone") == ["10-J ♥", "Stone"]
+
+
+def test_a_stone_sorts_lowest(game):
+    # After a face-up Stone it can only be a Stone; before one, it can still be one.
+    wide, last = game.card("9D", "back"), game.card("Stone", "back")
+    game.deal([game.card("TH"), wide, game.card("Stone"), last], [game.card("Stone"), game.card("2H")])
+    assert game.possible(last) == {"Stone"}
+    assert game.possible(wide) == {(2, "Hearts"), (9, "Diamonds"), "Stone"}
+
+
+def test_copies_are_counted(game):
+    # Two face-down cards can both be 9H only if there are two of them.
+    left, right = game.card("9H", "back"), game.card("8C", "back")
+    game.deal([game.card("TS"), left, right, game.card("7D")], [game.card("9H")])
+    assert game.possible(right) == {(9, "Hearts"), (8, "Clubs")}
+    assert game.possible(left) == {(9, "Hearts")}
+
+
+def test_the_mark_leaves_face_cards(game):
+    down = game.card("JC", "back")
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}")
+    game.deal([game.card("AS"), down, game.card("2H")], [game.card("9H"), game.card("KD")])
+    assert game.possible(down) == {(11, "Clubs"), (13, "Diamonds")}
+    # Pareidolia makes every card a face card, and the challenge can flip any card.
+    game.rt.execute("G.jokers.cards = {{config = {center_key = 'j_pareidolia'}}}")
+    assert (9, "Hearts") in game.possible(down)
+    game.rt.execute("G.jokers.cards = {}; G.GAME.modifiers = {flipped_cards = 4}")
+    assert (9, "Hearts") in game.possible(down)
+    game.rt.execute("G.GAME.modifiers = nil; G.GAME.blind = {name = 'The Mark', disabled = true}")
+    assert (9, "Hearts") in game.possible(down)
+
+
+# --- What keeps an observation, and what ends it --------------------------------
+
+@pytest.fixture
+def sorted_hand(game):
+    down = game.card("8C", "back")
+    high, low = game.card("9H"), game.card("7D")
+    game.deal([high, down, low], [game.card("8S")])
+    assert game.possible(down) is not None
+    return game, down, high, low
+
+
+def test_a_drag_keeps_what_was_seen(sorted_hand):
+    game, down, high, low = sorted_hand
+    # Moved somewhere else, it's still the card that was between them.
+    high.states.drag["is"] = True
+    game.set_area("hand", [down, high, low])
+    game.frame()
+    high.states.drag["is"] = None
+    game.frame(2)
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+
+
+def test_a_sort_during_a_drag_proves_nothing(sorted_hand):
+    game, down, high, low = sorted_hand
+    # A face-down card drawn between one frame and the next, with a card being dragged.
+    other, rest = game.card("2C", "back"), game.card("2S")
+    game.set_area("deck", [other, rest])
+    game.frame()
+    high.states.drag["is"] = True
+    game.set_area("deck", [rest])
+    game.set_area("hand", [high, down, low, other])
+    game.frame()
+    high.states.drag["is"] = None
+    game.frame(2)
+    assert game.possible(other) is None
+
+
+def test_a_drag_hides_the_box(sorted_hand):
+    game, down, _, _ = sorted_hand
+    game.hover(down)
+    assert game.hint() is not None
+    down.states.drag["is"] = True
+    game.frame()
+    assert game.hint() is None
+
+
+def test_the_box_goes_with_the_panel(sorted_hand):
+    game, down, _, _ = sorted_hand
+    game.hover(down)
+    game.mod.visible = False
+    game.frame()
+    assert game.hint() is None
+    game.mod.visible = True
+    game.rt.execute("G.STATE = G.STATES.HAND_PLAYED")
+    game.frame()
+    assert game.hint() is None
+
+
+def test_a_consumable_ends_it_even_if_it_changed_nothing(sorted_hand):
+    game, down, high, low = sorted_hand
+    game.rt.execute("G.TAROT_INTERRUPT = G.STATES.SELECTING_HAND; G.STATE = G.STATES.PLAY_TAROT")
+    game.frame()
+    game.rt.execute("G.TAROT_INTERRUPT = nil; G.STATE = G.STATES.SELECTING_HAND")
+    game.frame(2)
+    assert game.possible(down) is None  # leaving that state restores nothing
+    game.sort("desc", [high, down, low])  # it takes a fresh sort
+    assert game.possible(down) is not None
+
+
+def test_cards_that_leave_the_hand(sorted_hand):
+    game, down, high, low = sorted_hand
+    other = game.card("6C", "back")
+    game.deal([high, down, low, other], [game.card("8S")])
+    # Played, it's turned up: its printed values are public.
+    down.facing = "front"
+    game.set_area("hand", [high, low, other])
+    game.set_area("play", [down])
+    game.frame()
+    entries = game.mod.observations["desc"].cards
+    assert [e.rank_id for e in entries.values() if e.rank_id] == [9, 8, 7]
+    assert len(entries) == 4
+    # Discarded face down, it's left out.
+    game.set_area("hand", [high, low])
+    game.frame()
+    assert len(game.mod.observations["desc"].cards) == 3
+
+
+def test_it_resets_for_a_new_round_and_a_new_hand_area(sorted_hand):
+    game, down, high, low = sorted_hand
+    game.rt.eval("G.GAME").round = 2
+    game.frame()
+    assert game.possible(down) is None
+    game.sort("desc", [high, down, low])
+    assert game.possible(down) is not None
+    game.rt.execute("G.hand = {config = {sort = 'desc', card_limit = 8}, cards = {}}")
+    game.frame()
+    assert game.possible(down) is None
+
+
+def test_a_rebuilt_box_of_buttons_is_no_sort(game):
+    down = game.card("8C", "back")
+    game.set_area("hand", [game.card("9H"), down, game.card("7D")])
+    game.frame()
+    game.rt.execute("G.buttons = make_buttons(); RANK_BUTTON.last_clicked = 5")
+    game.frame(2)
+    assert game.possible(down) is None
+    game.rt.execute("G.buttons = nil")
+    game.frame(2)
+    assert game.possible(down) is None
+
+
+def test_a_round_starting_with_no_buttons_still_counts_draws(game):
+    # The game has no G.buttons while a blind's first hand is dealt.
+    game.rt.execute("G.buttons = nil; G.GAME.round = 7")
+    game.frame()
+    down = game.card("8C", "back")
+    game.deal([game.card("9H"), down, game.card("7D")], [game.card("8S")])
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+    # The buttons appearing is no press, and pressing them after is.
+    game.rt.execute("G.buttons = make_buttons()")
+    game.frame(2)
+    assert game.mod.observations["suit desc"] is None
+    game.rt.eval("press")(game.rt.eval("SUIT_BUTTON"))
+    game.rt.eval("G.hand.config").sort = "suit desc"
+    game.frame(2)
+    assert game.mod.observations["suit desc"] is not None
+
+
+def test_unsupported_modes_and_out_of_order_cards_record_nothing(game):
+    down = game.card("8C", "back")
+    high, low = game.card("9H"), game.card("7D")
+    game.deal([low, down, high], [], mode="asc")
+    assert game.possible(down) is None
+    game.sort("desc", [low, down, high])  # face-up cards out of order: not the game's sort
+    assert game.possible(down) is None
+
+
+# --- Against dealing every way ---------------------------------------------------
+
+def nominal(card, mode):
+    """Card:get_nominal, for a card that's no Stone and has no copies."""
+    rank, suit = card
+    number = {11: 10, 12: 10, 13: 10, 14: 11}.get(rank, rank)
+    face = {11: 0.1, 12: 0.2, 13: 0.3, 14: 0.4}.get(rank, 0)
+    suit_value = {"Diamonds": 0.01, "Clubs": 0.02, "Hearts": 0.03, "Spades": 0.04}[suit]
+    return number + suit_value * (1000 if mode == "suit desc" else 1) + face
+
+
+def game_order(cards, mode):
+    """Names of (name, value) cards, as the game sorts them."""
+    return [name for name, value in sorted(cards, key=lambda c: nominal(c[1], mode), reverse=True)]
+
+
+def deals_matching(face_up, pool, names, views):
+    """Every way of dealing the pool to the face-down cards that shows these views."""
+    known = [(c, c) for c in face_up]
+    for assignment in itertools.permutations(pool, len(names)):
+        cards = list(zip(names, assignment)) + known
+        if all(game_order(cards, mode) == view for mode, view in views.items()):
+            yield dict(zip(names, assignment))
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_against_dealing_every_way(game, seed):
+    rng = random.Random(seed)
+    # A narrow deck, so that hands say something and few deals fit them.
+    deck = [(r, s) for r in range(5, 12) for s in SUITS]
+    cards = rng.sample(deck, rng.randint(7, 11))
+    face_up, pool = cards[:3], cards[3:]
+    latent = rng.sample(pool, rng.randint(1, 3))
+    names = [f"L{i}" for i in range(len(latent))]
+    truth = list(zip(names, latent)) + [(c, c) for c in face_up]
+    modes = rng.choice([["desc"], ["suit desc"], ["desc", "suit desc"], ["suit desc", "desc"]])
+    views = {m: game_order(truth, m) for m in modes}
+
+    objects = {c: game.make(c[0], c[1]) for c in face_up}
+    objects.update({n: game.make(v[0], v[1], "back") for n, v in zip(names, latent)})
+    rest = [game.make(c[0], c[1]) for c in pool if c not in latent]
+    game.deal([objects[e] for e in views[modes[0]]], rest, mode=modes[0])
+    if len(modes) > 1:
+        game.sort(modes[1], [objects[e] for e in views[modes[1]]])
+
+    deals = list(deals_matching(face_up, pool, names, views))
+    for name in names:
+        assert game.possible(objects[name]) == {deal[name] for deal in deals}, (name, modes)
+
+
+def test_which_card_is_face_down_changes_nothing_shown(lua):  # noqa: F811
+    # The same public view, with the face-down card and a deck card swapped.
+    def shown(down_text, deck_text):
+        game = Game(lua)
+        down = game.card(down_text, "back")
+        game.deal([game.card("9H"), down, game.card("7D")], [game.card(deck_text), game.card("KC")])
+        game.hover(down)
+        text = game.hint()
+        game.hover(down, on=False)
+        return text
+
+    assert shown("8C", "8S") == shown("8S", "8C") == "8 @light|[ui_1 3,1]|[ui_1 2,1]"
