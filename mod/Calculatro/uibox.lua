@@ -104,7 +104,7 @@ local function steady_buttons(e)
 end
 Calculatro.steady_buttons = steady_buttons
 
--- Card query names show their popup (config.calculatro_popup, see
+-- Card query and setting names show their popup (config.calculatro_popup, see
 -- popup_definition) above them while hovered, through the game's own hover
 -- popups (Node:hover, h_popup). It's built anew each time: removing a popup
 -- removes its suit icons' sprites too.
@@ -141,7 +141,7 @@ local function hover_popups(e)
     local popup = e.config and e.config.calculatro_popup
     if popup then
         function e:hover()
-            self.config.h_popup = Calculatro.popup_definition(popup.name, popup.about)
+            self.config.h_popup = Calculatro.popup_definition(popup.name, popup.about, popup.text)
             self.config.h_popup_config = { align = 'tm', offset = { x = 0, y = -0.1 }, parent = self }
             UIElement.hover(self)
             local box = self.children and self.children.h_popup

@@ -45,6 +45,7 @@ class Game:
     def __init__(self, runtime):
         self.rt, self.mod = runtime
         self.rt.execute(SETUP)
+        self.mod.settings.face_down = True  # off by default
         self.make = self.rt.eval("make_card")
         self.mod.track_hand()
 
@@ -150,6 +151,33 @@ def test_a_hand_from_the_game(game):
                             *(seen[c] for c in ("AC", "7C", "AD", "KD", "7D"))])
     game.hover(down)
     assert game.hint() == "4 @light|[ui_1 0,1]"
+
+
+@pytest.mark.parametrize("fifth", ["2S", "3S"])
+def test_five_face_down_cards_from_the_game(game, fifth):
+    # The Wheel, 5 of 10 cards face down, sorted by suit, then by rank. View Deck
+    # showed these 27 unseen, the face-down ones included.
+    pool = ["KS", "QS", "9S", "7S", "5S", "3S", "2S", "AH", "KH", "QH", "JH", "8H", "7H", "6H", "3H",
+            "AC", "QC", "9C", "4C", "KD", "JD", "TD", "8D", "6D", "4D", "3D", "2D"]
+    truth = ["KH", "QS", "QH", "4C", fifth]
+    down = [game.card(c, "back") for c in truth]
+    seen = {c: game.card(c) for c in ("AS", "AD", "JC", "TS", "4S")}
+    by_rank = [seen["AS"], seen["AD"], *down[:3], seen["JC"], seen["TS"], seen["4S"], *down[3:]]
+    game.deal(by_rank, [game.card(c) for c in pool if c not in truth])
+    assert len(game.mod.unseen_pool()) == 27
+    game.sort("suit desc", [seen["AS"], down[1], seen["TS"], seen["4S"], down[4], down[0], down[2],
+                            seen["JC"], down[3], seen["AD"]])
+    game.sort("desc", by_rank)
+    # The same whichever spade the last one is: the hint can't tell them apart.
+    assert [game.possible(d) for d in down] == [
+        {(13, "Hearts")},
+        {(12, "Spades")},  # the K♠ would leave nothing between it and the A♦ for the first
+        {(12, "Hearts"), (11, "Hearts"), (12, "Clubs")},
+        {(4, "Clubs")},  # left of the A♦ by suit, so no diamond; under the 4♠ by rank, so not the 9♣
+        {(3, "Spades"), (2, "Spades")},  # a 3♥ first of the three by suit would put the K♥ under it
+    ]
+    game.hover(down[2])
+    assert game.hint() == "J-Q @light|[ui_1 0,1]|Q @light|[ui_1 2,1]"
 
 
 def test_a_card_discarded_face_down_is_still_possible(game):

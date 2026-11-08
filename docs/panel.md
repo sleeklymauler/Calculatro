@@ -130,8 +130,10 @@ so the black suits show on the dark inset. Long hand names are shortened in `SHO
 ## Face-down hint
 
 Hovering a face-down card in hand while selecting shows a small box above it with what that card can
-be, like "6-8 ♥♦" (`hint.lua`), in the popups' colours. It goes with the panel (the `C` hotkey), hides
-while the card is dragged, and needs no answer from the app.
+be, like "6-8 ♥♦" (`hint.lua`), in the popups' colours. It's off unless the player turns on
+"Face-down windows" in [the settings](#settings) (`Calculatro.settings.face_down`). It goes with the
+panel (the `C` hotkey), hides while the card is dragged, and needs no answer from the app.
+`observe.lua` watches the hand's order either way, so turning it on mid-hand shows the box at once.
 
 - **No hook.** `refresh_hint` reads `states.hover.is` every frame and builds its own box, set up like
   the game's card popups (`Card:align_h_popup`). The game shows no popup of its own for a face-down
@@ -166,6 +168,22 @@ the game's Reduced Motion setting. `tests/test_animation.py` runs it on hand-bui
 
 Give new panel rows a unique `calculatro_anim` key, or they'll move with their column/inset instead
 of gliding.
+
+## Settings
+
+The gear after the title's `+` (`settings_cell`) opens the settings page (`settings.lua`:
+`settings_model`/`settings_definition`), which replaces the odds like the editor until Done, and is
+rebuilt only by its own buttons. Each setting (`SETTINGS`) is a row of its name and an On/Off toggle,
+blue while on. Hovering the name shows a popup saying what it does (its `about`: lines of ASCII
+broken by hand, since the game's text doesn't wrap, passed to `popup_definition` as `text`).
+
+Settings are the player's, not the run's, so they're kept in `calculatro_settings.json` in the save
+directory rather than on `G.GAME` (see [architecture.md](architecture.md#snapshots) for when it's read
+and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
+type, keeps the default. There's one so far:
+
+- **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and later
+  the odds' use of the hand's order ([the plan](plans/face-down-windows.md)).
 
 ## Target editor
 

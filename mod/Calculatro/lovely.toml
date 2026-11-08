@@ -105,6 +105,12 @@ name = "calculatro.editor"
 
 [[patches]]
 [patches.module]
+source = "settings.lua"
+before = "main.lua"
+name = "calculatro.settings"
+
+[[patches]]
+[patches.module]
 source = "panel.lua"
 before = "main.lua"
 name = "calculatro.panel"

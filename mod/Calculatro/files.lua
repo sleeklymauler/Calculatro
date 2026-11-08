@@ -162,6 +162,8 @@ function Calculatro.check_worker()
             receive_odds(result.odds)
         elseif result.failed then
             report('the file thread', 'the file thread stopped: ' .. result.failed)
+        elseif result.settings_failed then
+            report('saving settings', 'could not save the settings: ' .. result.settings_failed)
         elseif result.ok then
             write_succeeded(result.id)
         elseif result.id == Calculatro.writing then

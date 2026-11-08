@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------
--- The panel: its place above the deck, and what's in it: the odds or the target
--- editor, rebuilt or updated in place as they change.
+-- The panel: its place above the deck, and what's in it: the odds, the target
+-- editor or the settings, rebuilt or updated in place as they change.
 ---------------------------------------------------------------------------
 local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
@@ -9,6 +9,7 @@ local without_sprites = require('calculatro.widgets').without_sprites
 local guard = require('calculatro.log').guard
 require('calculatro.odds')
 require('calculatro.editor')
+require('calculatro.settings')
 require('calculatro.anim')
 
 local array, encode = json.array, json.encode
@@ -59,7 +60,7 @@ end
 
 -- The panel collides (can_collide) for its buttons. They need a box that
 -- isn't replaced while they're used, so it's only rebuilt when what it shows
--- changes, and the editor only by its own buttons.
+-- changes, and the editor and settings only by their own buttons.
 local function build_panel(definition)
     local panel = UIBox{
         definition = definition,
@@ -156,11 +157,11 @@ local function build_odds(model, layout, max_h)
     return panel
 end
 
--- Too tall to fit under the consumables at the odds' place, the editor grows
--- downwards instead, into the room kept for raised cards: there's no need to
--- select cards while choosing what to track.
-local function build_editor(model)
-    local panel = build_panel(Calculatro.editor_definition(model))
+-- The editor or the settings. Too tall to fit under the consumables at the
+-- odds' place, the editor grows downwards instead, into the room kept for
+-- raised cards: there's no need to select cards while choosing what to track.
+local function build_page(definition)
+    local panel = build_panel(definition)
     local max_h = Calculatro.max_panel_height()
     if max_h and panel.T.h > max_h then
         panel.alignment.offset.y = panel.alignment.offset.y + panel.T.h - max_h
@@ -172,7 +173,7 @@ end
 
 -- Rebuilds the panel when its layout changes, and only updates its values
 -- when they're all that changed (most often, the odds); removes it outside
--- blinds, closing the editor. The odds fill each column with as many rows
+-- blinds, closing the editor or settings. The odds fill each column with as many rows
 -- as keep it clear of the consumables before starting the next; a box's
 -- size is only known once it's built, so it tries each section in one
 -- column, then one fewer row per column, and so on (remembered in
@@ -180,15 +181,21 @@ end
 function Calculatro.refresh_panel()
     if G.FUNCS then G.FUNCS.calculatro_button = Calculatro.button_pressed end
     local shown = Calculatro.visible and Calculatro.in_blind()
-    if not shown then Calculatro.editor = nil end
-    local model = shown and (Calculatro.editor and Calculatro.editor_model() or Calculatro.panel_model()) or nil
+    if not shown then Calculatro.editor, Calculatro.settings_open = nil, nil end
+    local model
+    if shown then
+        model = (Calculatro.editor and Calculatro.editor_model())
+             or (Calculatro.settings_open and Calculatro.settings_model())
+             or Calculatro.panel_model()
+    end
+    local page = model and (model.editor or model.settings)  -- rebuilt only by its own buttons
     local key = model and encode(model)
-    local layout = model and not model.editor and layout_key(model) or key
+    local layout = model and not page and layout_key(model) or key
     local panel = Calculatro.panel
     if panel and panel.REMOVED then panel = nil end  -- the game removes it with the run
     local same_place = panel and Calculatro.panel_major == G.deck
     if same_place and key == Calculatro.panel_key then return end
-    if same_place and layout == Calculatro.panel_layout and not model.editor then
+    if same_place and layout == Calculatro.panel_layout and not page then
         update_values(panel, without_sprites(Calculatro.definition, model, panel.calculatro_per))
         Calculatro.panel_key = key
         return
@@ -200,7 +207,9 @@ function Calculatro.refresh_panel()
     if not model then return end
 
     if model.editor then
-        panel = build_editor(model)
+        panel = build_page(Calculatro.editor_definition(model))
+    elseif model.settings then
+        panel = build_page(Calculatro.settings_definition(model))
     else
         panel = build_odds(model, layout, Calculatro.max_panel_height())
     end

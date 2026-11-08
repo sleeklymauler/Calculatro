@@ -31,6 +31,12 @@ local Calculatro = {
     round_seq = 0,
     odds_raw = nil,
     visible = true,
+    -- The player's settings (settings.lua), saved in calculatro_settings.json:
+    -- these are the defaults, until it's read as the app starts.
+    settings = {
+        face_down = false,  -- what the hand's order shows about face-down cards
+    },
+    settings_open = nil,  -- true while the settings page is open
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open
     editor_tab = 'hands',  -- the tab last shown, which the editor reopens on
     -- Best-discard searches (see "Best discard"): the latest asked for, sent

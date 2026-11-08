@@ -8,7 +8,8 @@ require('calculatro.search')
 local HANDS, SHORT_NAMES, set_of = tracked.HANDS, tracked.SHORT_NAMES, tracked.set_of
 local OPTIONS, RANKS, SUITS = builder.OPTIONS, builder.RANKS, builder.SUITS
 local SUIT_SYMBOLS, stone_only = builder.SUIT_SYMBOLS, builder.stone_only
-local CARD_NAME_W, REMOVE_W, EDIT_W, TITLE_W = widgets.CARD_NAME_W, widgets.REMOVE_W, widgets.EDIT_W, widgets.TITLE_W
+local CARD_NAME_W, REMOVE_W, EDIT_W = widgets.CARD_NAME_W, widgets.REMOVE_W, widgets.EDIT_W
+local TITLE_W, DONE_W = widgets.TITLE_W, widgets.DONE_W
 local SCALE, TEXT_H, TEXT_PAD = widgets.SCALE, widgets.TEXT_H, widgets.TEXT_PAD
 local ROW_PAD, INSET_PAD, TITLE_ROW, SUIT_ICONS = widgets.ROW_PAD, widgets.INSET_PAD, widgets.TITLE_ROW, widgets.SUIT_ICONS
 local label, plain, suit_icon, name_label = widgets.label, widgets.plain, widgets.suit_icon, widgets.name_label
@@ -23,7 +24,7 @@ local title, frame, inset = widgets.title, widgets.frame, widgets.inset
 -- CARDS_PER_PAGE to a page (Balatro's UI can't clip a scrolling list).
 ---------------------------------------------------------------------------
 local CARDS_PER_PAGE = 5
-local TAB_W, DONE_W = 1.3, 0.95
+local TAB_W = 1.3
 local TOGGLE_W, TOGGLE_GAP = 1.9, 0.25     -- the Hands tab's hand toggles
 local FIELD_W = 0.8                        -- the builder's row names ("Special")
 local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
@@ -291,7 +292,7 @@ end
 -- What the panel's buttons do: Calculatro.act{name, argument}.
 Calculatro.actions = {
     open = function() Calculatro.editor = { tab = Calculatro.editor_tab, page = 1 } end,
-    done = function() Calculatro.editor = nil end,
+    done = function() Calculatro.editor, Calculatro.settings_open = nil, nil end,  -- the editor's or the settings'
     tab = function(tab) Calculatro.editor.tab, Calculatro.editor_tab = tab, tab end,
     toggle_hand = function(name) Calculatro.toggle_hand(name) end,
     remove_hand = function(name) Calculatro.remove_hand(name) end,

@@ -1,7 +1,7 @@
 # Plan: face-down cards narrowed by the hand's sort order
 
-Status: in progress. The in-game hint (stage 0) is written and awaits a check in
-game; the odds are unchanged. Revised 2026-10-15 after review: the first draft's
+Status: in progress. The in-game hint (stage 0) is done and checked in game, behind
+a setting (off by default); the odds are unchanged. Revised 2026-10-15 after review: the first draft's
 per-card windows were replaced by observations that keep the order of face-down
 cards (see [the model](#what-the-player-learns)).
 
@@ -41,6 +41,11 @@ Decisions already made:
 - **The hint comes first** (decided 2026-11-06, replacing "a visible marker is
   out of scope until the feature works"): hovering a face-down card shows what
   it can be, before the odds use any of this. See [stage 0](#stages).
+- **It's a setting, off by default** (decided 2026-11-07): "Face-down windows"
+  on the panel's settings page ([panel.md](../panel.md#settings)) turns on the
+  hint and, from stage 1, the export of observations. With it off the snapshot
+  carries none, so the odds and the search are today's. `observe.lua` watches
+  the hand either way, so turning it on mid-hand takes effect at once.
 
 ## Game behaviour (verified in the game's source)
 
@@ -550,10 +555,11 @@ Proposed release thresholds, to confirm before stage 3:
      weigh possibilities, and the likelihood isn't needed. So its list can be too
      wide in the rare case of copies tied in opposite orders, but never too narrow.
    - A discarded latent card is dropped from the observations, as in stage A.
-   - Still to check in game, under The Wheel, The Fish and The House, with drags
-     and both Sort buttons.
-1. **Export and parsing:** observations in the snapshot, plus Python parsing and
-   validation (schema bump on both sides), unused by the odds. Export from what
+   - Checked in game (2026-11-07) under The Wheel, The Fish and The House, with
+     drags and both Sort buttons.
+   - Behind the "Face-down windows" setting, off by default.
+1. **Export and parsing:** observations in the snapshot (only with the setting
+   on), plus Python parsing and validation (schema bump on both sides), unused by the odds. Export from what
    `observe.lua` keeps, and use only the last observation until stage B.
 2. **Odds, search and the reference, together:**
    - stage A posterior, ungrouped reference, oracle tests;

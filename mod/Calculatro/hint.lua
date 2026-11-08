@@ -229,6 +229,7 @@ end
 -- The face-down card in hand being hovered, while the player can act on it. The
 -- game shows no popup of its own for one (Card:hover), so nothing's in the way.
 local function hovered_card()
+    if not Calculatro.settings.face_down then return nil end  -- off in the settings
     if not (Calculatro.visible and Calculatro.in_blind() and G.STATE == G.STATES.SELECTING_HAND) then return nil end
     for _, card in ipairs(G.hand.cards) do
         local states = card.states

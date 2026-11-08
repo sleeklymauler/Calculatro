@@ -522,11 +522,11 @@ def test_in_blind(lua):
 def test_panel_shows_current_odds(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
-    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Nothing tracked@muted"]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "[settings]", "Nothing tracked@muted"]
     answer(lua, tmp_path)
     mod.update(0.1)
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "+@light",
+        "CALCULATRO@light", "+@light", "[settings]",
         "Hands@muted", "Keep@muted", "Discard@muted",
         "Any target@light", "100%@light", "->@muted", "100%@light", "[search]",  # can't be removed
         "Trips@light", "20.0%@light", "->@muted", "100%@green", "[search]", "[x]",
@@ -560,7 +560,7 @@ def test_new_odds_update_the_panel_in_place(lua, tmp_path):
     rt.execute("G.hand.cards[1].highlighted = true")  # the Queen of Hearts too
     mod.update(0.2)  # new snapshot
     mod.update(0.4)  # no answer yet
-    assert panel_texts(rt)[2] == "Calculating...@muted"
+    assert panel_texts(rt)[3] == "Calculating...@muted"
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     after = panel_texts(rt)
@@ -699,14 +699,14 @@ def test_message_does_not_change_the_panel(lua, tmp_path, targets, queries, layo
     mod.update(1.0)
     answer(lua, tmp_path, targets=targets, queries=queries)
     mod.update(0.1)
-    assert panel_texts(rt)[2] == "Hands@muted"  # no message
+    assert panel_texts(rt)[3] == "Hands@muted"  # no message
     box = rt.eval("BOXES[#BOXES]")
     assert [len(c) for c in columns(rt, box.definition)] == layout
 
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # new snapshot
     mod.update(0.4)  # no answer yet: "Calculating..." beside the title
-    assert panel_texts(rt)[2] == "Calculating...@muted"
+    assert panel_texts(rt)[3] == "Calculating...@muted"
     calculating = rt.eval("BOXES[#BOXES]")
     assert [len(c) for c in columns(rt, calculating.definition)] == layout
     assert (calculating.T.w, calculating.T.h) == (box.T.w, box.T.h)
@@ -795,7 +795,7 @@ def test_panel_without_selection(lua, tmp_path):
     answer(lua, tmp_path, targets=("trips",))
     mod.update(0.1)
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "+@light", "Hands@muted", "Keep@muted", "Discard@muted",
+        "CALCULATRO@light", "+@light", "[settings]", "Hands@muted", "Keep@muted", "Discard@muted",
         "Trips@light", "20.0%@light", "-@light", "[search]", "[x]",
         "In hand@muted", "Discard@muted", "9: 0-1@light", "-@light", "[search]", "[edit]", "[x]",
     ]
@@ -809,7 +809,7 @@ def test_panel_with_only_card_queries(lua, tmp_path):
     mod.update(0.1)
     # Listed without a selection too, so the panel doesn't vanish between discards.
     assert panel_texts(rt) == [
-        "CALCULATRO@light", "+@light", "In hand@muted", "Discard@muted",
+        "CALCULATRO@light", "+@light", "[settings]", "In hand@muted", "Discard@muted",
         "Face card: none@light", "-@light", "[search]", "[edit]", "[x]",
     ]
     rt.execute("G.hand.cards[1].highlighted = true")
@@ -859,7 +859,8 @@ return function(node)  -- the arrow's width, height and left margin, and the wid
     for i, c in ipairs(n.nodes or {}) do
       local inner = c.nodes and c.nodes[1]
       local boxes = inner and inner.nodes and inner.nodes[2]
-      if not found and boxes and boxes.nodes and boxes.nodes[1] and boxes.nodes[1].n == G.UIT.B then
+      local icon = inner and inner.config and inner.config.glyph  -- drawn icons' rows are boxes too
+      if not found and not icon and boxes and boxes.nodes and boxes.nodes[1] and boxes.nodes[1].n == G.UIT.B then
         local w, h = size(boxes)
         found = {w, h, inner.nodes[1].config.minw, c.config.minw, n.nodes[i + 1].config.minw}
       end
@@ -903,7 +904,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     assert "20.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert "20.0%@stale" in texts and texts[2] == "Calculating...@muted"  # beside the title
+    assert "20.0%@stale" in texts and texts[3] == "Calculating...@muted"  # beside the title
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     texts = panel_texts(rt)
@@ -928,7 +929,7 @@ def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):
     (tmp_path / "calculatro_odds.json").write_text(late, encoding="utf-8")  # the last round's, arriving late
     mod.update(0.3)
     texts = panel_texts(rt)
-    assert not any("%" in t for t in texts) and texts[2] == "Calculating...@muted"
+    assert not any("%" in t for t in texts) and texts[3] == "Calculating...@muted"
     answer(lua, tmp_path, queries=())  # once the hand is dealt
     mod.update(0.1)
     texts = panel_texts(rt)
@@ -1041,16 +1042,16 @@ def test_panel_without_the_app(lua, tmp_path):
     mod.update(0.5)
     # What's tracked shows at once, without odds until the app answers.
     rows = ["Hands@muted", "Keep@muted", "Discard@muted", "Pair@light", "-@light", "-@light", "[search]", "[x]"]
-    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", *rows]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "[settings]", *rows]
     mod.update(0.5)
     stale = [r.replace("-@light", "-@stale") for r in rows]
-    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Calculating...@muted", *stale]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "[settings]", "Calculating...@muted", *stale]
     mod.update(2.0)
-    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Waiting for app@muted", *stale]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "[settings]", "Waiting for app@muted", *stale]
 
 
 def title_message(rt) -> str:
-    return panel_texts(rt)[2]
+    return panel_texts(rt)[3]
 
 
 def test_silent_app_is_started_again_then_given_up_on(lua, tmp_path):
@@ -1190,7 +1191,7 @@ def test_broken_step_is_logged_once(lua, tmp_path):
 def test_nothing_tracked_needs_no_app(lua):
     rt, mod = lua
     mod.update(5.0)
-    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "Nothing tracked@muted"]
+    assert panel_texts(rt) == ["CALCULATRO@light", "+@light", "[settings]", "Nothing tracked@muted"]
 
 
 def test_panel_hidden_outside_blinds_and_by_hotkey(lua, tmp_path):
@@ -1679,7 +1680,7 @@ def selected(rt) -> list[int]:
 
 def message(rt) -> str | None:
     texts = panel_texts(rt)
-    return texts[2].split("@")[0] if texts[2] != "Hands@muted" else None
+    return texts[3].split("@")[0] if texts[3] != "Hands@muted" else None
 
 
 def search_ready(lua, tmp_path, targets=("trips", "pair")):

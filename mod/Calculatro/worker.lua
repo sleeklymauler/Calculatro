@@ -1,18 +1,19 @@
--- The thread that writes the state file and reads the odds file. Creating a file now
--- and then takes Windows hundreds of milliseconds, which on the game's main thread is a
--- visible freeze. Reading has to be here too: love.filesystem takes a lock (PhysFS's)
--- that a write stalled in another thread holds, so a read would wait just as long.
+-- The thread that writes the state and settings files and reads the odds file. Creating
+-- a file now and then takes Windows hundreds of milliseconds, which on the game's main
+-- thread is a visible freeze. Reading has to be here too: love.filesystem takes a lock
+-- (PhysFS's) that a write stalled in another thread holds, so a read would wait just as long.
 
 local Calculatro = require('calculatro.core')
 
 local REQUESTS, RESULTS = 'calculatro_state_requests', 'calculatro_state_results'
+local SETTINGS_FILE = 'calculatro_settings.json'
 
 -- A thread has a Lua state of its own, so none of the mod's modules. An error
 -- escaping a thread would stop the game (love.threaderror), so nothing may: this
 -- reports it, and ends, and the mod goes back to writing the file itself.
 -- With a newline in it, love.thread.newThread takes this for code, not a file name.
 local CODE = [[
-local REQUESTS, RESULTS, INTERVAL = ...
+local REQUESTS, RESULTS, INTERVAL, SETTINGS_FILE = ...
 local results
 
 local function setup()
@@ -48,11 +49,19 @@ local function run()
     local last_odds
     while true do
         local job = requests:demand(INTERVAL)  -- nil once that's passed, with nothing to write
-        if job ~= nil then
-            -- A newer snapshot makes any older one pointless.
-            while requests:getCount() > 0 do job = requests:pop() end
-            local done, ok, err = pcall(write, job.json)
-            results:push({ id = job.id, ok = done and ok or false, err = tostring(done and err or ok) })
+        -- A newer snapshot makes any older one pointless, and newer settings older ones.
+        local snapshot, settings
+        while job ~= nil do
+            if job.settings then settings = job.settings else snapshot = job end
+            job = requests:pop()
+        end
+        if settings then
+            local done, ok, err = pcall(love.filesystem.write, SETTINGS_FILE, settings)
+            if not (done and ok) then results:push({ settings_failed = tostring(done and err or ok) }) end
+        end
+        if snapshot then
+            local done, ok, err = pcall(write, snapshot.json)
+            results:push({ id = snapshot.id, ok = done and ok or false, err = tostring(done and err or ok) })
         end
         local done, odds = pcall(love.filesystem.read, 'calculatro_odds.json')
         if done and odds and odds ~= last_odds then
@@ -74,7 +83,7 @@ local function start()
         local threads = love.thread
         if threads then
             local ok, thread = pcall(threads.newThread, CODE)
-            if ok and pcall(thread.start, thread, REQUESTS, RESULTS, Calculatro.odds_interval) then
+            if ok and pcall(thread.start, thread, REQUESTS, RESULTS, Calculatro.odds_interval, SETTINGS_FILE) then
                 Calculatro.worker = { thread = thread, requests = threads.getChannel(REQUESTS),
                                       results = threads.getChannel(RESULTS) }
             end
@@ -83,4 +92,4 @@ local function start()
     return Calculatro.worker or nil
 end
 
-return { start = start }
+return { start = start, SETTINGS_FILE = SETTINGS_FILE }

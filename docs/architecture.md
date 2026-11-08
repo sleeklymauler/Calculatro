@@ -32,14 +32,14 @@ have no cycles, and each loads on its own), and returns only what other modules 
 | `builder` | the card query builder |
 | `snapshot` | what's exported |
 | `search` | best discard's mod side |
-| `worker` | the thread that uses the state and odds files |
+| `worker` | the thread that uses the state, odds and settings files |
 | `files` | the state and odds files, the Windows FFI |
 | `log` | `guard`, `report` |
 | `app` | starting the app |
 | `widgets` | the definition nodes and sizes the views share |
 | `uibox` | what's done to a built box, `remove_box` |
 | `anim` | the panel's animation |
-| `odds`, `editor` | the panel's two views: model, definition |
+| `odds`, `editor`, `settings` | the panel's three views: model, definition (`settings` also keeps the settings file) |
 | `panel` | placing and refreshing it |
 | `observe` | what the hand's order has shown about its face-down cards |
 | `hint` | the box over a hovered face-down card |
@@ -62,6 +62,10 @@ the last one handed over) and gets any new odds file. The thread is its own Lua 
 own copy of the FFI calls. Nothing may escape it, since an error in a thread stops the game
 (`love.threaderror`). Without `love.thread`, or once the thread has stopped, the mod uses the files
 itself (`Calculatro.replace_file`, `read_odds`).
+
+The player's settings ([panel.md](panel.md#settings)) are kept in `calculatro_settings.json`, which only
+the mod uses. It's read once as the mod starts, before the thread does, and written on the thread
+(its newest settings, in the same pass as the newest snapshot), or by the mod itself without one.
 
 ### File access
 

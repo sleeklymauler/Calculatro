@@ -17,6 +17,7 @@ local SCALE, FONT_PX, TITLE_SCALE, TITLE_ROW = widgets.SCALE, widgets.FONT_PX, w
 local label, plain, cell, blank, row = widgets.label, widgets.plain, widgets.cell, widgets.blank, widgets.row
 local button, card_name_cell, remove_cell = widgets.button, widgets.card_name_cell, widgets.remove_cell
 local search_cell, edit_cell, title = widgets.search_cell, widgets.edit_cell, widgets.title
+local settings_cell, GEAR_W = widgets.settings_cell, widgets.GEAR_W
 local frame, inset = widgets.frame, widgets.inset
 
 -- Hand types the boss won't let score this round, as a set of HANDS names:
@@ -96,7 +97,7 @@ end
 local COLUMN_W = CARD_NAME_W + DISCARD_W + SEARCH_W + REMOVE_W
 local PLUS_W, COLUMN_GAP = 0.35, 0.2
 -- Fits "Calculating..." and "Waiting for app" beside the title and its +
--- button. A column leaves more than this, enough for "App didn't start".
+-- and gear. A column leaves more than this, enough for "App didn't start".
 local MESSAGE_W = 1.5
 
 -- The arrow between Keep and Discard, drawn in boxes the size of the font's
@@ -265,16 +266,16 @@ function Calculatro.definition(model, per)
     local column_nodes = columns(split(list, math.max(1, per or Calculatro.row_count(model))), colours)
     local count = math.max(1, (#column_nodes + 1) / 2)
     local width = COLUMN_W * count + COLUMN_GAP * (count - 1)
-    local plus = plus_cell(model, colours)
+    local plus, gear = plus_cell(model, colours), settings_cell()
     local message = label(model.message or '', colours.muted, SCALE * 0.85)
     local body = {}
     if #list > 0 then
-        local message_w = math.max(width - TITLE_W - PLUS_W, MESSAGE_W)
+        local message_w = math.max(width - TITLE_W - PLUS_W - GEAR_W, MESSAGE_W)
         message.config.calculatro_value = 'message'
-        body[1] = row({ title(), plus, cell(message_w, 'cr', message) }, TITLE_ROW)
+        body[1] = row({ title(), plus, gear, cell(message_w, 'cr', message) }, TITLE_ROW)
         body[2] = inset(column_nodes)
     else
-        body[1] = row({ title(), plus }, TITLE_ROW)
+        body[1] = row({ title(), plus, gear }, TITLE_ROW)
         body[2] = row({ message }, { align = 'cm', calculatro_anim = 'empty' })
     end
     return frame(body)

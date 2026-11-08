@@ -15,6 +15,7 @@ local SEARCH_W = 0.3  -- before it, the best-discard search button
 -- comes out of their names' width.
 local EDIT_W = 0.3
 local TITLE_W = 1.6
+local DONE_W = 0.95  -- the editor's and the settings page's Done
 local SCALE = 0.32
 
 local function label(text, colour, scale)
@@ -136,7 +137,8 @@ end
 
 -- The popup over a card query's name: its full label, and what each part
 -- of it means (`about`, lines of "Field: value", from the builder) if known,
--- in the panel's colours: light text on its dark inset, in its frame.
+-- in the panel's colours: light text on its dark inset, in its frame. A
+-- setting's has lines of prose (`text`, a list) instead.
 local POPUP_SCALE = 0.36
 
 local function popup_line(nodes)
@@ -154,12 +156,13 @@ local function popup_box(rows)
     } }
 end
 
-function Calculatro.popup_definition(name, about)
+function Calculatro.popup_definition(name, about, text)
     local rows = { popup_line({ popup_name(name) }) }
-    for text in (about or ''):gmatch('[^\n]+') do
-        local field, value = text:match('^(.-): (.*)$')
+    for line in (about or ''):gmatch('[^\n]+') do
+        local field, value = line:match('^(.-): (.*)$')
         rows[#rows + 1] = popup_line({ label(field .. ': ', G.C.JOKER_GREY), label(value) })
     end
+    for _, line in ipairs(text or {}) do rows[#rows + 1] = popup_line({ label(line) }) end
     return popup_box(rows)
 end
 
@@ -226,6 +229,8 @@ end
 local CROSS = { '#...#', '.#.#.', '..#..', '.#.#.', '#...#' }
 local MAGNIFIER = { '.##...', '#..#..', '#..#..', '.##...', '....#.', '.....#' }
 local PENCIL = { '....##', '...###', '..###.', '.###..', '.##...', '#.....' }
+local GEAR = { '....#....', '.#.###.#.', '..#####..', '.##...##.', '###...###', '.##...##.', '..#####..',
+               '.#.###.#.', '....#....' }
 
 -- Room above and below text in the editor's boxes: m6x11's descenders (g,
 -- p, y) hang below a text node's box, so they'd poke out of a box only as
@@ -289,6 +294,17 @@ local TITLE_SCALE = 0.36
 -- The title row's config: the odds and the editor both have one.
 local TITLE_ROW = { calculatro_anim = 'title' }
 
+-- The gear after the title's +, which opens the settings page. As tall as
+-- the + beside it, whose text is at TITLE_SCALE.
+local GEAR_W = 0.35
+local function settings_cell()
+    local C = G.C
+    return { n = G.UIT.C, config = { align = 'cl', minw = GEAR_W }, nodes = {
+        button({ glyph('settings', GEAR, C.UI.TEXT_LIGHT) }, { 'settings' },
+               { id = 'calculatro_settings', w = 0.3, h = TEXT_H * TITLE_SCALE / SCALE, colour = C.ORANGE }),
+    } }
+end
+
 local function title()
     return { n = G.UIT.C, config = { align = 'cl', minw = TITLE_W }, nodes = {
         label('CALCULATRO', G.C.UI.TEXT_LIGHT, TITLE_SCALE),
@@ -319,11 +335,12 @@ end
 
 return {
     NAME_W = NAME_W, VALUE_W = VALUE_W, GAP_W = GAP_W, DISCARD_W = DISCARD_W, CARD_NAME_W = CARD_NAME_W,
-    REMOVE_W = REMOVE_W, SEARCH_W = SEARCH_W, EDIT_W = EDIT_W, TITLE_W = TITLE_W, SCALE = SCALE, FONT_PX = FONT_PX,
+    REMOVE_W = REMOVE_W, SEARCH_W = SEARCH_W, EDIT_W = EDIT_W, TITLE_W = TITLE_W, DONE_W = DONE_W, GEAR_W = GEAR_W,
+    SCALE = SCALE, FONT_PX = FONT_PX,
     TEXT_H = TEXT_H, TEXT_PAD = TEXT_PAD, ROW_PAD = ROW_PAD, INSET_PAD = INSET_PAD,
     TITLE_SCALE = TITLE_SCALE, TITLE_ROW = TITLE_ROW, SUIT_ICONS = SUIT_ICONS,
     label = label, plain = plain, suit_icon = suit_icon, name_label = name_label,
     card_name_cell = card_name_cell, cell = cell, blank = blank, row = row, padded = padded, button = button,
-    remove_cell = remove_cell, search_cell = search_cell, edit_cell = edit_cell,
+    remove_cell = remove_cell, search_cell = search_cell, edit_cell = edit_cell, settings_cell = settings_cell,
     title = title, frame = frame, inset = inset, without_sprites = without_sprites,
 }

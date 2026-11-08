@@ -5,7 +5,7 @@
 -- This module is what the game's hooks call (see lovely.toml). The rest are its
 -- parts, each requiring the ones it needs: core (shared table), json, tracked,
 -- builder, snapshot, search, worker, files, log, app, widgets, uibox, anim, odds, editor,
--- panel, observe, hint. Every one must be registered in lovely.toml, under calculatro.<name>:
+-- settings, panel, observe, hint. Every one must be registered in lovely.toml, under calculatro.<name>:
 -- other mods share package.preload, and some of them have a json too.
 
 local Calculatro = require('calculatro.core')
@@ -13,6 +13,7 @@ local guard = require('calculatro.log').guard
 require('calculatro.files')
 require('calculatro.search')
 require('calculatro.app')
+require('calculatro.settings')
 require('calculatro.panel')
 require('calculatro.observe')
 require('calculatro.hint')
@@ -21,6 +22,7 @@ function Calculatro.update(dt)
     dt = dt or 0
     if not Calculatro.launched then
         Calculatro.launched = true
+        guard('settings', Calculatro.load_settings)  -- before the file thread starts
         Calculatro.start_app()
     end
     Calculatro.clock = Calculatro.clock + dt
