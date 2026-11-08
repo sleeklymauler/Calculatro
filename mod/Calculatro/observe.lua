@@ -265,9 +265,19 @@ end
 -- and the same for a card in both. A face-down card is given by its place in the
 -- hand now (0-based), where the snapshot sends it as {hidden = true}. Empty
 -- unless the setting's on. See docs/plans/face-down-windows.md#snapshot.
+-- The odds take face-down cards under The Mark to be face cards (as
+-- `engine.flipped_by_mark` says), which the challenges' random flips
+-- (flipped_cards) make untrue: then the sorts go unused, and the odds are those
+-- without them. The hint, which allows every card then, still uses them.
+local function mark_with_random_flips()
+    local blind = G.GAME and G.GAME.blind
+    return blind and blind.name == 'The Mark' and not blind.disabled
+        and G.GAME.modifiers and G.GAME.modifiers.flipped_cards and true or false
+end
+
 function Calculatro.export_observations()
     local out = array()
-    if not (Calculatro.settings.face_down and G and G.hand) then return out end
+    if not (Calculatro.settings.face_down and G and G.hand) or mark_with_random_flips() then return out end
     local index = {}
     for i, card in ipairs(G.hand.cards or {}) do index[card] = i - 1 end
     local ids, count = {}, 0

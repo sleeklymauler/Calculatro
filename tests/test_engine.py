@@ -1124,15 +1124,21 @@ def test_dna_copy_of_a_face_down_card_under_the_mark():
     assert evaluate_cards(state, query, [4]).probability == 1
 
 
-def test_dna_several_copies_of_a_face_down_card():
-    # Known limitation: two copies are really the same unknown card, so a Pair for
-    # certain, but they count as two separate unseen ones for now. This pins that,
-    # until docs/plans/face-down-windows.md can branch on what the card is.
+@pytest.mark.parametrize("blind", [None, "The Mark"])
+def test_dna_several_copies_of_a_face_down_card(blind):
+    # Two copies are the same unknown card: a Pair for certain, and two of
+    # whatever it is. The engine branches on what it is, with no evidence.
     hand = dna_state().hand[:4] + [Card(hidden=True)]
-    state = dna_state(hand=hand, unseen=[*dna_state().unseen, dna_state().hand[4]], dna_copies=2)
+    king = card(13, "Clubs")
+    unseen = [*dna_state().unseen, dna_state().hand[4], king]
+    state = dna_state(hand=hand, unseen=unseen, dna_copies=2, blind=blind)
     outcome = evaluate_discard(state, get_target("Pair"), [4])
-    assert outcome.draws == 0
-    assert outcome.probability == probability(get_target("Pair"), hand[:4], state.unseen, 2)
+    assert (outcome.draws, outcome.probability) == (0, 1)
+    # Two kings if it's one: any unseen card, or under The Mark a face card (J♦ K♦ K♣).
+    kings = parse_query("at least 2 king")
+    expected = Fraction(2, 3) if blind else Fraction(sum(c.rank_id == 13 for c in unseen), len(unseen))
+    assert evaluate_cards(state, kings, [4]).probability == expected
+    assert evaluate_cards(state, parse_query("exactly 1 king"), [4]).probability == 0
 
 
 @pytest.mark.parametrize(("sets", "groups"), [

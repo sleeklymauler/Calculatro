@@ -5,7 +5,9 @@ replacement from the unseen pool: the undrawn deck plus any face-down cards
 in hand or discarded, which are equally unknown to the player. Kept face-down cards are
 modelled as part of that draw, since by symmetry it's the same distribution.
 The Mark's face-down cards are known to be face cards, so there the draw is
-weighted by how many face cards it has; see _mark_split.
+weighted by how many face cards it has; see _mark_split. Face-down cards whose
+place in the hand's sorts says what they can be aren't like that: the odds
+average over what they are, by the posterior (`posterior`, _over_branches).
 
 Cards are grouped into classes that every pattern treats identically, so for
 example Pair only distinguishes 13 ranks. Draws are then enumerated class by
@@ -45,8 +47,9 @@ _union_by_suit.
 from __future__ import annotations
 
 import gc
+import sys
 from bisect import bisect_left
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -71,6 +74,7 @@ from .hands import (
     forced_patterns,
     suit_keys,
 )
+from .posterior import Branch, Posterior, branches
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -1027,12 +1031,11 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
         # DNA's copies go straight into the hand, taking up room the draw would fill.
         draws = state.hand_size - len(kept) + hooked - copies
     draws = max(0, min(draws, state.deck_size))
-    added_hidden = copies if played is not None and played.hidden else 0
     # One copy of a face-down card is exactly that card kept face down. Several
-    # are the same unknown card, but count as separate unseen ones (and under
-    # The Mark as more face-down cards) until docs/plans/face-down-windows.md
-    # can branch on what it is.
-    marked = state.hidden + state.discarded_hidden + max(0, added_hidden - 1) if state.mark else 0
+    # are the same unknown card, so evaluate_discard branches on what it is
+    # (_posterior_for) and they arrive here as known cards.
+    added_hidden = copies if played is not None and played.hidden else 0
+    marked = state.hidden + state.discarded_hidden if state.mark else 0
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
                     len(kept) - len(kept_known), draws, state.unseen, marked, hooked,
                     () if added_hidden or played is None else (played,) * copies, added_hidden)
@@ -1071,6 +1074,182 @@ def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) 
     return list(merged.values())
 
 
+# --- What the hand's sorts say about face-down cards (docs/plans/face-down-windows.md) ---
+
+_POSTERIORS_KEPT = 16  # posteriors kept for the latest states: build_report and the search ask many times
+_posteriors: OrderedDict[tuple, Posterior | None] = OrderedDict()
+_posteriors_lock = Lock()
+_ignored: set[tuple] = set()  # observations no deal fits, already logged
+
+
+def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = ()) -> Posterior | None:
+    """What the face-down cards in `state.observations` are, as a posterior
+    (posterior.branches), with the face-down cards at hand indices `extra` too
+    (no evidence: see _posterior_for). None if there's nothing to branch on.
+
+    Under The Mark the face-down cards are face cards (`flipped_by_mark`), as
+    in _mark_split. Observations that no deal fits (a card changed while face
+    down, say) are set aside, logged once on stderr: the odds are then today's,
+    with no part of that evidence used.
+    Raises Cancelled soon after `cancel` is set.
+    """
+    in_evidence = {o.hand for o in state.observed if o.latent}
+    rules = state.rules
+    key = (state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and rules.pareidolia, extra)
+    with _posteriors_lock:
+        if key in _posteriors:
+            _posteriors.move_to_end(key)
+            return _posteriors[key]
+
+    def allowed(card: Card) -> bool:
+        return not state.mark or flipped_by_mark(card, rules)
+
+    def check() -> None:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled
+
+    found: Posterior | None = None
+    if in_evidence:
+        found = branches(state.observations, state.observed, state.unseen, allowed,
+                         tuple(i for i in extra if i not in in_evidence), check)
+        if not found.total:
+            found = None
+            failure = state.observations, state.observed
+            with _posteriors_lock:
+                first = failure not in _ignored
+                _ignored.add(failure)
+            if first:
+                print("The hand's sorts fit no deal of the unseen cards, so the odds don't use them: "
+                      f"{state.observations} of {state.observed}", file=sys.stderr, flush=True)
+    if found is None and extra:
+        found = branches((), (), state.unseen, allowed, extra, check)
+        if not found.total:  # no card it can be: only a rank changed under The Mark does that
+            found = None
+    with _posteriors_lock:
+        _posteriors[key] = found
+        while len(_posteriors) > _POSTERIORS_KEPT:
+            _posteriors.popitem(last=False)
+    return found
+
+
+def with_usable_evidence(state: GameState, cancel: Event | None = None) -> GameState:
+    """`state`, or, if its observations are set aside (see `posterior`), `state`
+    without them, so that its face-down cards are interchangeable again."""
+    if not state.observed or posterior(state, cancel) is not None:
+        return state
+    return replace(state, observations=(), observed=(), hand=[replace(c, latent=None) for c in state.hand])
+
+
+def _posterior_for(state: GameState, discard: list[int], cancel: Event | None) -> Posterior | None:
+    """The posterior the odds of discarding `discard` average over.
+
+    Besides the evidence, a face-down card played alone as the round's first
+    hand is enumerated when DNA makes 2 or more copies of it: they're the same
+    card, which isn't like as many separate unseen ones. (One copy is exactly
+    the card kept face down, so it needs no branching.)
+    """
+    dna = discard[0] if _dna_copies(state, discard) >= 2 and state.hand[discard[0]].hidden else None
+    if _says_nothing_here(state, discard):
+        state = replace(state, observations=(), observed=())
+    return posterior(state, cancel, () if dna is None else (dna,))
+
+
+def _says_nothing_here(state: GameState, discard: list[int]) -> bool:
+    """Whether the evidence can't change the odds of discarding `discard`, so
+    that today's odds are exact.
+
+    One sort with no face-up card in it (The House's first hand) says only
+    which of its face-down cards is higher than which, not what cards they
+    are: every set of cards can be sorted. So it only matters to a discard
+    that splits them, which throws away the higher or the lower ones, or if
+    Cerulean Bell forces one of them.
+    """
+    if len(state.observations) != 1 or not all(o.latent for o in state.observed):
+        return False
+    in_sort = {o.hand for o in state.observed}
+    thrown = in_sort & set(discard)
+    return (not thrown or thrown == in_sort) and not any(state.hand[i].forced for i in in_sort)
+
+
+def _resolved(state: GameState, branch: Branch) -> GameState:
+    """`state` with the branch's face-down cards turned up: each takes its
+    placeholder's place in hand (selection and Cerulean Bell's force kept), and
+    one of it leaves the unseen cards, whether it's kept or discarded. Deck size,
+    hand size and indices stay as they were."""
+    hand = list(state.hand)
+    unseen = list(state.unseen)
+    for i, card in branch.cards:
+        unseen.remove(card)
+        hand[i] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
+    return replace(state, hand=hand, unseen=unseen, observations=(), observed=())
+
+
+def _rule_classes(state: GameState, discard: list[int],
+                  test: Callable[[Card, Rules], object]) -> Callable[[Card], object]:
+    """What the odds see of a resolved card: `test` (its class, or whether it
+    matches a query) under each set of rules the final hand may be judged under,
+    and under The Mark whether it's a face card."""
+    rule_sets = list(dict.fromkeys([state.rules, *(rules for rules, _ in rules_after(state, discard))]))
+    mark = state.rules if state.mark else None
+    seen: dict[Card, object] = {}
+
+    def classes(card: Card) -> object:
+        found = seen.get(card)
+        if found is None:
+            found = seen[card] = (tuple(test(card, rules) for rules in rule_sets),
+                                  mark is not None and flipped_by_mark(card, mark))
+        return found
+    return classes
+
+
+def _counts_towards(target: Target, state: GameState) -> Callable[[Card, Rules], object]:
+    """A card's class as far as `target` can tell: which requirements of its
+    patterns it counts towards. Two cards alike in that are interchangeable
+    anywhere, kept or among the cards left to draw, since swapping them meets
+    and misses the same patterns (as in `search._groups`). Under Cerulean Bell
+    the forced card's own class can matter (`_bell_after_draw`), so there it's
+    the card's class itself."""
+    if state.bell and bell_matters(target, state.rules):
+        return card_key
+    tables: dict[Rules, tuple[Pattern, ...]] = {}
+
+    def test(card: Card, rules: Rules) -> object:
+        key = card_key(card, rules)
+        if key is None:
+            return frozenset()
+        if rules not in tables:
+            tables[rules] = target.patterns(rules)
+        return frozenset((p, q) for p, pattern in enumerate(tables[rules])
+                         for q, req in enumerate(pattern) if key in req.keys)
+    return test
+
+
+def _over_branches(state: GameState, discard: list[int], post: Posterior, classes: Callable[[Card], object] | None,
+                   odds: Callable[[GameState], Fraction], cancel: Event | None) -> Fraction:
+    """The odds averaged over the posterior's branches, by weight: `odds` of
+    each branch's resolved state.
+
+    Branches that resolve the same number of cards of each class (`classes`),
+    kept or discarded and forced or not, leave the odds the same numbers to
+    work with (the engine sees cards only through those, and the unseen cards
+    left are the same classes too), so they share one evaluation. That's exact;
+    `classes=None` evaluates every branch, as the tests' reference.
+    """
+    thrown = set(discard)
+    done: dict[object, Fraction] = {}
+    total = Fraction(0)
+    for b, branch in enumerate(post.branches):
+        if cancel is not None and cancel.is_set():
+            raise Cancelled
+        seen: object = b if classes is None else frozenset(
+            Counter((i in thrown, state.hand[i].forced, classes(card)) for i, card in branch.cards).items())
+        p = done.get(seen)
+        if p is None:
+            p = done[seen] = odds(_resolved(state, branch))
+        total += branch.weight * p
+    return total / post.total
+
+
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
                      cancel: Event | None = None, reuse: Reuse | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`.
@@ -1081,7 +1260,26 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
     are then the average over the rules the final hand may be judged under.
     A lone card played as the round's first hand comes back with DNA
     (`_dna_copies`). Calls for the same state can share a `reuse` (see Reuse).
+
+    What the hand's sorts show of its face-down cards (`GameState.observations`)
+    is used: the odds are the average over what those cards are, weighed by
+    the posterior (`_posterior_for`, `_over_branches`).
     """
+    post = _posterior_for(state, discard, cancel)
+    if post is None:
+        return _evaluate_discard(state, target, discard, cancel, reuse)
+    classes = _rule_classes(state, discard, _counts_towards(target, state))
+
+    def odds(resolved: GameState) -> Fraction:
+        return _evaluate_discard(resolved, target, discard, cancel, reuse).probability
+
+    d = _discard(state, discard)
+    return DiscardOutcome(d.discarded, d.draws, _over_branches(state, discard, post, classes, odds, cancel))
+
+
+def _evaluate_discard(state: GameState, target: Target, discard: list[int],
+                      cancel: Event | None, reuse: Reuse | None) -> DiscardOutcome:
+    """evaluate_discard with every face-down card unknown, or resolved by a branch."""
     d = _discard(state, discard)
     outcomes = rules_after(state, discard)
     total = sum(n for _, n in outcomes)
@@ -1113,7 +1311,8 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
     return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse)
 
 
-def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200) -> bool:
+def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200,
+             cancel: Event | None = None) -> bool:
     """Whether a draw that makes none of `target`'s hands was found, so that the
     odds after discarding `discard` are certainly below 1. False proves nothing.
 
@@ -1123,7 +1322,25 @@ def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, 
     Cerulean Bell's forced card and The Hook. Otherwise it mirrors _discard_odds.
     With several rules the final hand may be judged under (`rules_after`), a
     miss under one is enough, since each has some chance.
+
+    Where the hand's sorts tell about face-down cards, a uniform draw could be
+    one they rule out, so each try first picks what those cards are: any branch
+    of the posterior has some chance, and so has any draw from what's left.
     """
+    post = _posterior_for(state, discard, cancel)
+    if post is None:
+        return _can_miss(state, target, discard, rng, tries)
+    resolved: dict[int, GameState] = {}
+    for _ in range(tries):
+        b = rng.randrange(len(post.branches))
+        if b not in resolved:
+            resolved[b] = _resolved(state, post.branches[b])
+        if _can_miss(resolved[b], target, discard, rng, 1):
+            return True
+    return False
+
+
+def _can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int) -> bool:
     d = _discard(state, discard)
     if d.marked or d.hooked or state.bell:
         return False
@@ -1258,8 +1475,26 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
     return Fraction(hits, comb(len(pool), draws))
 
 
-def evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> DiscardOutcome:
+def evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
+                   cancel: Event | None = None) -> DiscardOutcome:
     """Probability that the final hand after discarding satisfies `query`.
+
+    Like evaluate_discard, it averages over what the face-down cards the hand's
+    sorts tell about are (`_over_branches`). Raises Cancelled soon after
+    `cancel` is set.
+    """
+    post = _posterior_for(state, discard, cancel)
+    if post is None:
+        return _evaluate_cards(state, query, discard)
+    classes = _rule_classes(state, discard, query.filter.test)
+    d = _discard(state, discard)
+    p = _over_branches(state, discard, post, classes,
+                       lambda resolved: _evaluate_cards(resolved, query, discard).probability, cancel)
+    return DiscardOutcome(d.discarded, d.draws, p)
+
+
+def _evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> DiscardOutcome:
+    """evaluate_cards with every face-down card unknown, or resolved by a branch.
 
     The final hand is the kept cards and the draw. From the player's view the
     face-down kept cards and the draw are a uniform sample of the unseen pool,

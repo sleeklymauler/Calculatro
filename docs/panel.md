@@ -147,7 +147,9 @@ panel (the `C` hotkey), hides while the card is dragged, and needs no answer fro
   face cards, as the engine models them). It's a bounded search on the game's thread (`SEARCH_STEPS`),
   run only when the hovered card or what's known changes. What it can't rule out in time stays listed.
   It can also list too much when two copies of a card would have to tie in opposite orders in the two
-  sorts. It never leaves out a card that's possible.
+  sorts. It never leaves out a card that's possible. The odds read the same sorts and agree with it
+  otherwise; under The Mark with the challenges' `flipped_cards` modifier the hint allows every card,
+  while the odds don't use the sorts at all.
 - **The text.** Suits that can be the same ranks share a line, and others get their own, so the box
   never implies a card that can't be there: "2, K-A ♠" and "4 ♥" rather than "2, 4, K-A ♠♥". "Stone"
   gets its own line.
@@ -183,8 +185,10 @@ and written). Their defaults are in `core.lua`; a file that can't be read, or a 
 type, keeps the default. There's one so far:
 
 - **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and the
-  snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds will use later
-  ([the plan](plans/face-down-windows.md)).
+  snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds and the
+  best-discard search use ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
+  With many face-down cards in wide windows (The House after its first discard), the odds can show
+  "Calculating..." for a long time.
 
 ## Target editor
 

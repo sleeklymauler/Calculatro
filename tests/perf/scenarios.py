@@ -43,6 +43,31 @@ def _unseen(deck, hidden: list[Card]) -> dict[str, list[Card]]:
         return {"unseen": deck + hidden}
     return {"deck": deck, "hidden_pool": hidden}
 
+
+def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...]) -> dict:
+    """GameState's fields for the hand's sorts in `sorts` (modes), as the mod
+    exports them: `cards` are the hand's cards as they really are, and `hand`
+    as the player sees them. Ids are numbered by first appearance, the rank
+    sort first. Nothing in versions from before the sorts were used."""
+    if not sorts or "observations" not in GameState.__dataclass_fields__:
+        return {"hand": hand}
+    from calculatro.state import Observation, ObservedCard
+    suit = {"Diamonds": 0, "Clubs": 1, "Hearts": 2, "Spades": 3}
+
+    def key(mode: str):
+        if mode == "desc":
+            return lambda i: (cards[i].rank_id, suit[cards[i].suit])
+        return lambda i: (suit[cards[i].suit], cards[i].rank_id)
+
+    orders = {mode: sorted(range(len(cards)), key=key(mode), reverse=True) for mode in sorted(sorts)}
+    ids = list(dict.fromkeys(i for order in orders.values() for i in order))
+    observed = tuple(ObservedCard(hand=i) if hand[i].hidden else ObservedCard(rank_id=cards[i].rank_id,
+                                                                             suit=cards[i].suit) for i in ids)
+    return {"hand": [replace(c, latent=ids.index(i)) if c.hidden else c for i, c in enumerate(hand)],
+            "observations": tuple(Observation(m, tuple(ids.index(i) for i in o)) for m, o in orders.items()),
+            "observed": observed}
+
+
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
 _RANKS = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}
 _SUITS = {s[0]: s for s in SUITS}
@@ -90,6 +115,7 @@ class Situation:
     blind: str | None = None
     discards: int = 3  # with none, the selection is played
     jokers: tuple[Joker, ...] = ()  # besides the scenario's
+    sorts: tuple[str, ...] = ()  # the modes the hand was seen sorted in, with its cards in place (_sorted)
 
     @property
     def unknown(self) -> int:
@@ -104,6 +130,20 @@ COLD_KEEP_3 = Situation("Keep 3, draw 5, nothing cached", kept=3, hidden=0, cold
 # The Mark draws face cards face down, so they're HAND's 3 face cards, known to be face cards.
 MARK_KEEP_2 = Situation("6 unknown: The Mark, 3 face-down, draw 3", kept=2, hidden=3, blind="The Mark")
 MARK_ALL = Situation("8 unknown: The Mark, 3 face-down, draw 5", kept=0, hidden=3, blind="The Mark")
+# The hand seen sorted, so the odds average over what its face-down cards can be, between their
+# neighbours in each sort. In HAND sorted by rank, J♥ is between Q♣ and 9♠, and 5♦ between 7♥ and 3♠.
+SORTED_1 = Situation("6 unknown: 1 face-down, draw 5, sorted by rank", kept=2, hidden=1, sorts=("desc",))
+SORTED_2 = Situation("7 unknown: 2 face-down, draw 5, sorted by rank", kept=1, hidden=2, sorts=("desc",))
+SORTED_2_SUIT = Situation("7 unknown: 2 face-down, draw 5, sorted by suit", kept=1, hidden=2, sorts=("suit desc",))
+SORTED_2_BOTH = Situation("7 unknown: 2 face-down, draw 5, sorted both ways", kept=1, hidden=2,
+                          sorts=("desc", "suit desc"))
+# The House's first hand, kept: a sort of face-down cards only says nothing about what they are.
+THE_HOUSE_SORTED = Situation("8 unknown: The House (all face-down), sorted by rank", kept=0, hidden=8,
+                             sorts=("desc",))
+# After The House's first discard, the face-down cards kept have face-up neighbours: a long run.
+HOUSE_AFTER = Situation("5 unknown: 5 face-down kept, sorted by rank", kept=3, hidden=5, sorts=("desc",))
+MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by rank", kept=2, hidden=3,
+                        blind="The Mark", sorts=("desc",))
 # Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
 # kind of unseen card.
 BELL_KEEP_3 = Situation("Keep 3, draw 5, Cerulean Bell", kept=3, hidden=0, blind="Cerulean Bell")
@@ -150,7 +190,7 @@ class Scenario:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
             in_run=True, hand_size=len(HAND), hands_left=4, discards_left=self.situation.discards,
-            hand=hand, **_unseen(cards.values(), hand_cards[known:]),
+            **_sorted(hand_cards, hand, self.situation.sorts), **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
         return state, list(range(self.situation.kept, known))
@@ -182,6 +222,7 @@ class Hand:
     discards: int = 3
     jokers: tuple[Joker, ...] = ()  # besides the scenario's
     dna_copies: int = 0
+    sorts: tuple[str, ...] = ()  # as Situation.sorts
 
 
 @dataclass(frozen=True)
@@ -211,7 +252,7 @@ class BestDiscard:
             hand[0] = replace(hand[0], forced=True)
         return GameState(
             in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
-            hand=hand, **_unseen(cards.values(), hand_cards[known:]),
+            **_sorted(hand_cards, hand, self.hand.sorts), **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.hand.jokers), blind=self.hand.blind,
             **({"dna_copies": self.hand.dna_copies} if self.hand.dna_copies else {}),
         )
@@ -259,6 +300,16 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(s, t, jokers) for s in (MARK_KEEP_2, MARK_ALL)
                 for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),
                           ("Full House", "Straight Flush"))]
+    # The hand's sorts: one evaluation per kind of card the face-down ones can be.
+    for jokers in ("No jokers", "Four Fingers + Shortcut"):
+        out += [Scenario(s, t, jokers) for s in (SORTED_1, SORTED_2, SORTED_2_SUIT, SORTED_2_BOTH)
+                for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),
+                          ("Full House", "Straight Flush"))]
+        # Straight Flush tells almost every card apart, so here it goes through about 260,000 deals
+        # one by one, which takes minutes: left out until that's faster.
+        out += [Scenario(HOUSE_AFTER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
+        out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)
+                for t in (("Flush",), ("Straight Flush",), ("Full House", "Straight Flush"))]
     # Crimson Heart: Straight and Straight Flush see both rule sets, Flush only whether Four Fingers is on (one
     # search), and Pair and Full House neither.
     out += [Scenario(CRIMSON_KEEP_3, t, "Shortcut")
@@ -280,6 +331,11 @@ SEARCH_BOSSES = [
     Hand("Best discard: 8 cards, The Hook, played", tuple(HAND), blind="The Hook", discards=0),
     # DNA with a Blueprint copying it: a lone card played comes back twice.
     Hand("Best discard: 8 cards, DNA + Blueprint, played", tuple(HAND), discards=0, dna_copies=2),
+]
+# The hand seen sorted (Situation.sorts): every discard averages over what the face-down cards can be.
+SEARCH_SORTED = [
+    Hand("Best discard: 8 cards, 2 face-down, sorted by rank", tuple(HAND), hidden=2, sorts=("desc",)),
+    Hand("Best discard: 8 cards, 2 face-down, sorted both ways", tuple(HAND), hidden=2, sorts=("desc", "suit desc")),
 ]
 # Crimson Heart, with the selection played: see CRIMSON_KEEP_3. With the scenario's jokers, the debuffed
 # joker below comes back and one of the others is debuffed.
@@ -309,6 +365,10 @@ def _search_scenarios() -> list[BestDiscard]:
     out = [BestDiscard(h, t, j) for j in SEARCH_JOKERS for h in SEARCH_HANDS for t in SEARCH_TARGETS]
     out += [BestDiscard(h, t, "No jokers") for h in SEARCH_BOSSES
             for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
+    out += [BestDiscard(h, t, "No jokers") for h in SEARCH_SORTED
+            for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
+    # With Four Fingers + Shortcut, Straight Flush and "any" take a minute or more sorted by rank.
+    out += [BestDiscard(h, t, "Four Fingers + Shortcut") for h in SEARCH_SORTED for t in (("Flush",), ("Full House",))]
     out += [BestDiscard(h, ("Flush", "Straight", "Full House"), "No jokers") for h in SEARCH_LARGE]
     out += [BestDiscard(h, t, j) for h, j in SEARCH_CRIMSON
             for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),

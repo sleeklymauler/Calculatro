@@ -17,6 +17,10 @@ Search.options.
 Card queries (best_card_discards) only look at whether each kept card
 matches, so their groups are matching, non-matching and face-down cards,
 and every choice of counts is simply evaluated.
+
+A face-down card the hand's sorts tell about (`Card.latent`) has a place of
+its own in them, so it's a group of its own, and discards aren't relabelled:
+which face-down card is thrown away matters (docs/plans/face-down-windows.md).
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ from random import Random
 from threading import Event
 
 from .cards import CardQuery
-from .engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard, rules_after
+from .engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard, rules_after, with_usable_evidence
 from .hands import RANKS, WILD, ClassKey, Pattern, Target, bell_matters, card_key, flush_suits, get_target
 from .rules import Rules
 from .state import SUITS, Card, GameState
@@ -53,6 +57,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
     (`can_redraw`); otherwise only keeping is an option.
     Raises engine.Cancelled soon after `cancel` is set.
     """
+    state = with_usable_evidence(state, cancel)
     hand = state.hand
     forced = state.forced if state.bell else None
     limit = min(state.select_limit, len(hand)) if can_redraw(state) else 0
@@ -102,7 +107,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
             break
         if lows[j] == highs[j]:
             p = lows[j]
-        elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng):
+        elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng, cancel=cancel):
             continue  # below 1, so it can't tie, and how far below doesn't matter
         else:
             p = odds(target, discards[j])
@@ -124,6 +129,7 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     down, so those are the groups whose counts are enumerated.
     Raises engine.Cancelled soon after `cancel` is set.
     """
+    state = with_usable_evidence(state, cancel)
     hand = state.hand
     rule_sets = _rule_sets(state)
     forced = state.forced if state.bell else None
@@ -132,7 +138,7 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     groups: dict[object, list[int]] = {}
     for i, c in enumerate(hand):
         if i != forced:
-            group = "hidden" if c.hidden else tuple(query.filter.test(c, rules) for rules in rule_sets)
+            group = _hidden_group(c) if c.hidden else tuple(query.filter.test(c, rules) for rules in rule_sets)
             groups.setdefault(group, []).append(i)
     group_list = list(groups.values())
 
@@ -144,7 +150,7 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     for counts in choices:
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        p = evaluate_cards(state, query, _representative(group_list, counts, forced)).probability
+        p = evaluate_cards(state, query, _representative(group_list, counts, forced), cancel).probability
         if best is None or p > best:
             best, winners = p, [counts]
         elif p == best:
@@ -174,7 +180,8 @@ def _rule_sets(state: GameState) -> list[Rules]:
 def _groups(state: GameState, target: Target, forced: int | None) -> list[list[int]]:
     """Hand indices (bar the forced card) in groups whose cards the odds can't tell apart.
 
-    Face-down cards are one group. A known card is grouped by which of the
+    Face-down cards are one group, bar those the hand's sorts tell about, which
+    are one each (_hidden_group). A known card is grouped by which of the
     target's requirements it counts towards, under each set of rules the
     final hand may be judged under (`_rule_sets`): the search only looks at
     kept cards through those. With Cerulean Bell the card that ends up forced
@@ -188,7 +195,7 @@ def _groups(state: GameState, target: Target, forced: int | None) -> list[list[i
         if i == forced:
             continue
         if c.hidden:
-            group: object = "hidden"
+            group: object = _hidden_group(c)
         elif exact:
             group = ("key", card_key(c, rules))
         else:
@@ -197,6 +204,13 @@ def _groups(state: GameState, target: Target, forced: int | None) -> list[list[i
                           for r, patterns in tables for key in (card_key(c, r),))
         groups.setdefault(group, []).append(i)
     return list(groups.values())
+
+
+def _hidden_group(card: Card) -> object:
+    """The group of a face-down card: all together, but one the hand's sorts tell
+    about is on its own, since its place in them says what it can be. Two such
+    could be merged only if the posterior were the same with them swapped."""
+    return "hidden" if card.latent is None else ("latent", card.latent)
 
 
 def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[list[int]], object]:
@@ -215,14 +229,17 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
 
     The Mark draws face cards apart, so there a face card's rank is only
     swapped for another face card's. With Cerulean Bell the forced card's
-    class matters too (see _groups), so discards aren't relabelled.
+    class matters too (see _groups), and with face-down cards the hand's sorts
+    tell about which of them is discarded does, so discards aren't relabelled.
+    (Relabelling would only be right if it mapped the observations onto
+    themselves.)
     """
     hand = state.hand
 
     def counts(discard: list[int]) -> tuple[int, int]:
         return len(discard), sum(hand[i].hidden for i in discard)
 
-    if state.bell:
+    if state.bell or any(c.latent is not None for c in hand):
         return lambda discard: (counts(discard), tuple(sorted(discard)))
     patterns = target.patterns(rules)
     reqs = {req for pattern in patterns for req in pattern}

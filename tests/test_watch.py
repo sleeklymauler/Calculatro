@@ -17,7 +17,7 @@ from calculatro.engine import Cancelled, probability
 from calculatro.hands import get_target
 from calculatro.log import open_log
 from calculatro.rules import Rules
-from calculatro.state import SUITS, Card, GameState, Joker
+from calculatro.state import SCHEMA, SUITS, Card, GameState, Joker
 from calculatro.worker import Job
 
 
@@ -617,6 +617,35 @@ def test_odds_basis():
                     replace(base, unseen=hand[:1]), replace(base, blind="The Hook"),
                     replace(base, hand=hand[:1]), replace(base, hand=[replace(hand[0], debuff=True), hand[1]])):
         assert cli.odds_basis(changed) != basis
+
+
+def with_sorts(hand: list[dict], observations: list[dict]) -> GameState:
+    return GameState.from_json({"schema": SCHEMA, "in_run": True, "hand_size": len(hand), "hands_left": 1,
+                                "discards_left": 1, "hand": hand, "unseen": [CLUB_9], "discard": [],
+                                "observations": observations})
+
+
+CLUB_9 = {"rank": "9", "rank_id": 9, "suit": "Clubs", "enhancement": "c_base"}
+SPADE_10 = {"rank": "10", "rank_id": 10, "suit": "Spades", "enhancement": "c_base"}
+SPADE_8 = {"rank": "8", "rank_id": 8, "suit": "Spades", "enhancement": "c_base"}
+
+
+def test_odds_basis_with_sorts():
+    # The face-down card between a 10 and an 8: dragging it moves its hand index,
+    # not what the sort says, so the finished rows stay; a new sort changes them,
+    # and the search's basis too.
+    sort = [{"id": 0, "rank_id": 10, "suit": "Spades"}, {"id": 1, "hand": 1}, {"id": 2, "rank_id": 8, "suit": "Spades"}]
+    base = with_sorts([SPADE_10, {"hidden": True}, SPADE_8], [{"mode": "desc", "cards": sort}])
+    dragged = with_sorts([{"hidden": True}, SPADE_10, SPADE_8],
+                         [{"mode": "desc", "cards": [sort[0], {"id": 1, "hand": 0}, sort[2]]}])
+    assert cli.odds_basis(dragged) == cli.odds_basis(base)
+    by_suit = [sort[0], sort[2], sort[1]]
+    more = with_sorts([SPADE_10, {"hidden": True}, SPADE_8],
+                      [{"mode": "desc", "cards": sort}, {"mode": "suit desc", "cards": by_suit}])
+    none = with_sorts([SPADE_10, {"hidden": True}, SPADE_8], [])
+    for changed in (more, none):
+        assert cli.odds_basis(changed) != cli.odds_basis(base)
+        assert cli.search_basis(changed) != cli.search_basis(base)
 
 
 def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):

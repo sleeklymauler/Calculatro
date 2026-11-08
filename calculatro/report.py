@@ -64,11 +64,12 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
 
     def odds(row: Target | CardQuery, discard: list[int]) -> DiscardOutcome:
         # By the cards, not their positions: sorting the hand doesn't change the odds.
+        # Face-down cards the hand's sorts tell about differ by `Card.latent`.
         picked = frozenset(Counter(replace(state.hand[i], highlighted=False) for i in discard).items())
         key = row_key(row), picked
         found = known.get(key)
         if found is None:
-            found = known[key] = (evaluate_cards(state, row, discard) if isinstance(row, CardQuery)
+            found = known[key] = (evaluate_cards(state, row, discard, cancel) if isinstance(row, CardQuery)
                                   else evaluate_discard(state, row, discard, cancel))
         return found
 

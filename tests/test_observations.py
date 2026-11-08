@@ -70,6 +70,15 @@ def test_nothing_without_the_setting(two_sorts):
     assert len(exported(g)) == 2
 
 
+@pytest.mark.parametrize("flips, disabled, sent", [(False, False, True), (True, False, False), (True, True, True)])
+def test_the_mark_with_random_flips_sends_nothing(two_sorts, flips, disabled, sent):
+    # The odds' Mark model is face cards only, which random flips make untrue.
+    g, *_ = two_sorts
+    g.rt.execute(f"G.GAME.blind = {{name = 'The Mark', disabled = {str(disabled).lower()}}}"
+                 f"; G.GAME.modifiers = {{flipped_cards = {'4' if flips else 'nil'}}}")
+    assert len(exported(g)) == (2 if sent else 0)
+
+
 def test_nothing_before_a_sort(game):  # noqa: F811
     game.set_area("hand", [game.card("9H"), game.card("8C", "back")])  # as after loading a save
     game.frame(2)

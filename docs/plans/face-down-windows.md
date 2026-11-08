@@ -2,7 +2,9 @@
 
 Status: in progress. The in-game hint (stage 0) is done, behind a setting (off by default), and checked
 in game under The Wheel, The Fish and The House (not yet The Mark). Stage 1 (the export and its
-parsing, schema 12) is done and checked in game (2026-11-08); the odds are unchanged. Revised
+parsing, schema 12) is done and checked in game (2026-11-08). Stage 2 (the odds and the search use
+the observations) is done, tested against dealing every way, and checked in game under The Fish
+(2026-11-08). Stage 3 is next. Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -603,6 +605,22 @@ Cancellation must stay prompt (aim for 50 ms) even when the calculation itself
 is slow. Speed targets, and any shortcut that gives up accuracy, are for
 [stage 4](#stages), with these numbers.
 
+Measured in stage 2 (the "sorted" scenarios, 2026-11-08):
+
+- One or two face-down cards in narrow windows: 2-300 ms; sorted both ways,
+  at most about 1 s. Four Fingers + Shortcut with Straight Flush: 6-12 s.
+- The House's first hand, kept: at most 0.4 s (`_says_nothing_here`).
+- Five face-down cards kept around three face-up ones (The House after its
+  first discard): about 260,000 branches, built in about 1 s; Pair, Flush and
+  Full House in 1-2 s.
+- Best discard with two face-down cards: 0.04-6 s, Four Fingers + Shortcut
+  Flush and Full House included.
+- Don't finish in minutes, so not in the scenarios: Straight Flush with those
+  five face-down cards (its patterns tell almost every card apart, so few
+  branches merge), a discard that splits The House's first hand, and the
+  Four Fingers + Shortcut searches for Straight Flush or "any".
+- Cancellation: 9-21 ms in all of those.
+
 ## Tests
 
 - **Mod** (lupa). The state machine's cases are in `tests/test_hint.py` from
@@ -694,6 +712,24 @@ is slow. Speed targets, and any shortcut that gives up accuracy, are for
    shows. If the search isn't ready, ship the odds only with the search
    **disabled** for states with observations: the button answers with no
    options and the title row says so.
+
+   Done (2026-11-08), search included, so it isn't disabled. Checked in game
+   under The Fish with 5-7 face-down cards: a rank sort alone was slow, and a
+   suit sort after it fast, since both sorts leave far fewer deals. Sorting by
+   rank again then changes nothing (the mod keeps the latest sort of each
+   mode, and the order is the same), so the panel rightly keeps those odds.
+   See [probability-model.md](../probability-model.md#face-down-cards-in-the-hands-sorts).
+   - `posterior.py` (`branches`, `reference`), averaged in `engine` by
+     `_over_branches`; `tests/test_posterior.py` is the oracle, and
+     `tests/test_hint.py` checks the odds against the hint.
+   - Branches share an evaluation when the target can't tell their cards
+     apart (`engine._counts_towards`, which requirements a card counts
+     towards, as `search._groups`; the class itself under Cerulean Bell).
+   - One exact shortcut: a single sort of face-down cards only (The House's
+     first hand) leaves Keep, and discards taking all or none of them, at
+     today's odds (`engine._says_nothing_here`).
+   - The Mark with `flipped_cards`: the mod sends no observations.
+   - Still slow: see [Performance](#performance).
 3. **Discarded face-down cards:** keep latent cards discarded face down in the
    observations (`"discarded": true`), in the hint and the odds.
 4. **Performance, later and by decision:** with the first pass's
@@ -709,11 +745,9 @@ The Fish, The Mark, The House) as each stage lands.
 ## Open questions
 
 - What the panel should show for a calculation that won't finish in a useful
-  time (The House's first hand, before any exact optimization makes it
-  tractable): "Calculating..." indefinitely, as the first pass would, or
-  something more telling.
-- The search-disabled message in stage 2, if the search isn't ready with the
-  odds (it must be short: the title row's message space is fixed).
+  time (a discard splitting The House's first hand, or Straight Flush after
+  its first discard, until an exact optimization makes them tractable):
+  "Calculating..." indefinitely, as now, or something more telling.
 - Whether stage 3 should come forward: how much dropping discarded face-down
   cards costs in practice (The Fish, The Wheel).
 - How The Mark should handle `flipped_cards` properly (an existing engine

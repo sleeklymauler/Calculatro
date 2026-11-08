@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .rules import Rules
@@ -37,6 +37,10 @@ class Card:
     hidden: bool = False  # face down in hand or discarded face down: identity unknown to the player
     highlighted: bool = False  # selected in hand
     forced: bool = False  # Cerulean Bell: part of every play and discard
+    # A face-down hand card in the observations: its id there (`GameState.observed`),
+    # which tells it apart from other face-down cards, and stays the same when
+    # the hand is dragged. None for every other card.
+    latent: int | None = None
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Card:
@@ -257,7 +261,8 @@ class GameState:
     search: tuple[str, int] | None = None
     # What the hand's order has shown of its face-down cards, with the mod's
     # "Face-down windows" setting on: the latest sort of each mode ("desc" first),
-    # and what each card in them is, by id (the index here). Not used by the odds yet.
+    # and what each card in them is, by id (the index here). The odds average over
+    # what the face-down cards in them are (engine.posterior).
     observations: tuple[Observation, ...] = ()
     observed: tuple[ObservedCard, ...] = ()
 
@@ -288,6 +293,9 @@ class GameState:
         tracked = d.get("tracked") or {}
         hand = _cards(d.get("hand"))
         observations, observed = _observations(d.get("observations"), hand)
+        for card_id, card in enumerate(observed):
+            if card.latent:
+                hand[card.hand] = replace(hand[card.hand], latent=card_id)
         return cls(
             in_run=True,
             id=_text(d, "id"),

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import itertools
+import json
 import random
+from collections import Counter
+from fractions import Fraction
 
 import pytest
 
+from calculatro.engine import posterior
+from calculatro.state import GameState
+from game_order import game_order
 from test_overlay import TEXTS
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 
@@ -394,20 +400,6 @@ def test_unsupported_modes_and_out_of_order_cards_record_nothing(game):
 
 # --- Against dealing every way ---------------------------------------------------
 
-def nominal(card, mode):
-    """Card:get_nominal, for a card that's no Stone and has no copies."""
-    rank, suit = card
-    number = {11: 10, 12: 10, 13: 10, 14: 11}.get(rank, rank)
-    face = {11: 0.1, 12: 0.2, 13: 0.3, 14: 0.4}.get(rank, 0)
-    suit_value = {"Diamonds": 0.01, "Clubs": 0.02, "Hearts": 0.03, "Spades": 0.04}[suit]
-    return number + suit_value * (1000 if mode == "suit desc" else 1) + face
-
-
-def game_order(cards, mode):
-    """Names of (name, value) cards, as the game sorts them."""
-    return [name for name, value in sorted(cards, key=lambda c: nominal(c[1], mode), reverse=True)]
-
-
 def deals_matching(face_up, pool, names, views):
     """Every way of dealing the pool to the face-down cards that shows these views."""
     known = [(c, c) for c in face_up]
@@ -440,6 +432,20 @@ def test_against_dealing_every_way(game, seed):
     deals = list(deals_matching(face_up, pool, names, views))
     for name in names:
         assert game.possible(objects[name]) == {deal[name] for deal in deals}, (name, modes)
+
+    # The odds read the same sorts from the snapshot: with no two cards alike, every
+    # deal showing them is as likely, so each face-down card is each card as often
+    # as the deals say, and can be what the hint lists and nothing else.
+    state = GameState.from_json(json.loads(game.rt.eval("require('calculatro.json')").encode(game.mod.snapshot())))
+    post = posterior(state)
+    hand = views[modes[-1]]
+    for name in names:
+        chance: Counter = Counter()
+        for b in post.branches:
+            c = dict(b.cards)[hand.index(name)]
+            chance[(c.rank_id, c.suit)] += b.weight / post.total
+        assert chance == {v: Fraction(sum(d[name] == v for d in deals), len(deals)) for v in chance}
+        assert set(chance) == game.possible(objects[name])
 
 
 def test_which_card_is_face_down_changes_nothing_shown(lua):  # noqa: F811

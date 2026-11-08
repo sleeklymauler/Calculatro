@@ -47,6 +47,39 @@ SLOW = {
     "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Straight Flush "
     "| Four Fingers + Shortcut",
     "standard | Best discard: 8 cards, Crimson Heart, played, Four Fingers debuffed | Straight Flush | Shortcut",
+    # The hand's sorts (Situation.sorts).
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by rank | Full House + Straight Flush (any) | No jokers",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by suit | Full House + Straight Flush (any) | No jokers",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Pair | No jokers",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Flush | No jokers",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Full House | No jokers",
+    "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) "
+    "| No jokers",
+    "standard | 6 unknown: 1 face-down, draw 5, sorted by rank | Straight Flush | Four Fingers + Shortcut",
+    "standard | 6 unknown: 1 face-down, draw 5, sorted by rank | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by rank | Straight Flush | Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by rank | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by suit | Straight Flush | Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by suit | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted both ways | Straight Flush | Four Fingers + Shortcut",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted both ways | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Pair | Four Fingers + Shortcut",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Flush | Four Fingers + Shortcut",
+    "standard | 5 unknown: 5 face-down kept, sorted by rank | Full House | Four Fingers + Shortcut",
+    "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Straight Flush | Four Fingers + Shortcut",
+    "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Full House | No jokers",
+    "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Straight Flush | No jokers",
+    "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Flush + Straight + Full House (any) | No jokers",
+    "standard | Best discard: 8 cards, 2 face-down, sorted both ways | Full House | No jokers",
+    "standard | Best discard: 8 cards, 2 face-down, sorted both ways | Flush + Straight + Full House (any) | No jokers",
+    "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Full House | Four Fingers + Shortcut",
+    "standard | Best discard: 8 cards, 2 face-down, sorted both ways | Full House | Four Fingers + Shortcut",
     "standard | Best discard: 11 cards, holding a Full House | Flush + Straight + Full House (any) | No jokers",
     "standard | Best discard: 11 cards, holding no target | Flush + Straight + Full House (any) | No jokers",
 }

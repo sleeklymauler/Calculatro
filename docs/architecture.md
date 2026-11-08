@@ -179,8 +179,12 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
   a face-up card's printed `rank_id` and `suit`, `"stone": true`, or `"hand": i` for a card face down
   at that hand index. A card in both sorts has the same id. `GameState.from_json` checks them more
   than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree) and
-  renumbers the ids by first appearance into `GameState.observations` and `observed`. The odds don't
-  use them yet ([the plan](plans/face-down-windows.md#snapshot)).
+  renumbers the ids by first appearance into `GameState.observations` and `observed`, and gives each
+  face-down hand card in them its id (`Card.latent`). The odds use them
+  ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)), so they're part of
+  `search_basis`; `odds_basis` takes them by id, so a drag keeps the finished rows. None are sent
+  under The Mark (not disabled) with the challenges' `flipped_cards` modifier, which the odds' Mark
+  model doesn't allow for.
 
 ### Information hiding
 

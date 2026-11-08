@@ -132,17 +132,19 @@ def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None
 def search_basis(state: GameState) -> GameState:
     """What a best-discard search depends on: the state, but not what's selected
     (the search selects cards itself), what's tracked or the game's state name.
-    Nor the observations yet, which the odds don't use (stage 2 of
-    docs/plans/face-down-windows.md), so a sort doesn't restart anything."""
+    The observations are part of it: a new sort can change the odds."""
     return replace(state, id=None, state=None, hand=[replace(c, highlighted=False) for c in state.hand],
-                   tracked_hands=[], tracked_cards=[], search=None, observations=(), observed=())
+                   tracked_hands=[], tracked_cards=[], search=None)
 
 
-def odds_basis(state: GameState) -> tuple[GameState, Counter]:
+def odds_basis(state: GameState) -> tuple[GameState, Counter, tuple]:
     """What a row's odds depend on besides its target and selection: `search_basis`,
-    but not the hand's order, which the odds don't look at."""
+    but not the hand's order, which the odds don't look at. The observations go
+    by id, not hand index (`Card.latent` says which hand card is which id), so a
+    drag doesn't throw the finished rows away."""
     basis = search_basis(state)
-    return replace(basis, hand=[]), Counter(basis.hand)
+    by_id = tuple("face down in hand" if o.latent else o for o in basis.observed)
+    return replace(basis, hand=[], observed=()), Counter(basis.hand), by_id
 
 
 def format_search(state: GameState, key: str, found: Search) -> str:
@@ -211,7 +213,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     job: Job[tuple[str, dict]] | None = None
     job_state: GameState | None = None  # the state the job is for
     known: dict = {}  # finished rows for `known_for`. A job keeps the one it started with, so an
-    known_for: tuple[GameState, Counter] | None = None  # older job can't add to a newer state's.
+    known_for: tuple | None = None  # older job can't add to a newer state's.
     searching: Job[Search] | None = None
     search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
     # basis, state, key, nonce, target
