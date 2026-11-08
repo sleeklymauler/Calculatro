@@ -194,18 +194,22 @@ def directory_items(rt, save_dir):
 
 # The game runs LuaJIT (Lua 5.1) and lupa's default runtime is a newer Lua, so the
 # mod's tests run in both: a 5.2+ feature fails in the LuaJIT run.
-@pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])
-def lua(request, tmp_path):
-    rt = importlib.import_module(request.param).LuaRuntime()
+def new_lua(runtime: str, save_dir: Path):
+    """A Lua runtime of the module `runtime` with a mocked game and the mod loaded."""
+    rt = importlib.import_module(runtime).LuaRuntime()
     rt.execute(MOCK_G)
-    save_dir = str(tmp_path).replace("\\", "/")
-    rt.execute(MOCK_FILESYSTEM, save_dir)
-    rt.eval("love.filesystem").getDirectoryItems = directory_items(rt, tmp_path)
+    rt.execute(MOCK_FILESYSTEM, str(save_dir).replace("\\", "/"))
+    rt.eval("love.filesystem").getDirectoryItems = directory_items(rt, save_dir)
     mod = load_mod(rt)
     if rt.eval("jit") is None:
         mod.replace_file = rt.execute(REPLACE_WITHOUT_FFI)
     mod.launch = rt.eval("function() return false end")  # no test should start the app by accident
     return rt, mod
+
+
+@pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])
+def lua(request, tmp_path):
+    return new_lua(request.param, tmp_path)
 
 
 def snapshot_json(lua) -> dict:

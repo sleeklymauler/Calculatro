@@ -2,6 +2,7 @@ local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
 local report = require('calculatro.log').report
 require('calculatro.tracked')
+require('calculatro.observe')
 
 local array, encode = json.array, json.encode
 
@@ -224,5 +225,7 @@ function Calculatro.snapshot()
         tracked = tracked,
         select_limit = G.hand.config.highlighted_limit or 5,
         search = Calculatro.request,
+        -- What the hand's order showed of its face-down cards, with the setting on.
+        observations = Calculatro.export_observations(),
     }
 end

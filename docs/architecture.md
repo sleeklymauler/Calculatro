@@ -174,6 +174,13 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
   metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key
   (`m_stone`, `m_wild`, `c_base`, ...).
+- `observations` (with the "Face-down windows" setting on, `[]` otherwise) is the latest sort of the
+  hand in each mode, `"desc"` first, from `Calculatro.export_observations`: each card an `id` and one of
+  a face-up card's printed `rank_id` and `suit`, `"stone": true`, or `"hand": i` for a card face down
+  at that hand index. A card in both sorts has the same id. `GameState.from_json` checks them more
+  than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree) and
+  renumbers the ids by first appearance into `GameState.observations` and `observed`. The odds don't
+  use them yet ([the plan](plans/face-down-windows.md#snapshot)).
 
 ### Information hiding
 
@@ -189,6 +196,11 @@ couldn't see.
   works from `unseen_pool` and the observations (`observe.lua`), never a face-down card's own values, and
   trusts the hand's order because of public events (draws, Sort presses, drags, consumables), never by
   checking it against the true order.
+- The observations are exported as the player saw them: face-up cards' printed values, Stones, and where
+  the face-down cards were, which are referred to by hand index only. Their ids are numbered by first
+  appearance, so they say only which card in one sort is which in the other, as the player saw them
+  move. `test_which_cards_are_face_down_changes_nothing_sent` (`tests/test_observations.py`) swaps which
+  unseen cards are face down and compares every snapshot, frame by frame.
 - Face-down cards in hand and in the discard pile are exported as `{hidden: true}`. The game turns every
   card in the discard pile over, so `facing` says nothing there: a card discarded face down is one with
   `ability.wheel_flipped`, as in View Deck, and the rest have been seen and are exported as they are.

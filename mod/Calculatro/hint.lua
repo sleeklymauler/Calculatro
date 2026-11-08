@@ -65,7 +65,7 @@ local function read_observations()
         local position, high, low = {}, {}, {}
         local bound = math.huge
         for i, entry in ipairs(observation.cards) do
-            if entry.card then
+            if entry.latent then
                 position[entry.card], high[entry.card] = i, bound
             else
                 bound = sort_key(mode, entry)
@@ -74,7 +74,7 @@ local function read_observations()
         bound = -math.huge
         for i = #observation.cards, 1, -1 do
             local entry = observation.cards[i]
-            if entry.card then low[entry.card] = bound else bound = sort_key(mode, entry) end
+            if entry.latent then low[entry.card] = bound else bound = sort_key(mode, entry) end
         end
         list[#list + 1] = { mode = mode, position = position, high = high, low = low, entries = observation.cards }
     end
@@ -99,7 +99,7 @@ function Calculatro.possible_cards(card)
     add(card)
     for _, o in ipairs(observations) do
         for _, entry in ipairs(o.entries) do
-            if entry.card then add(entry.card) end
+            if entry.latent then add(entry.card) end
         end
     end
     local observed = false

@@ -182,8 +182,9 @@ directory rather than on `G.GAME` (see [architecture.md](architecture.md#snapsho
 and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
 type, keeps the default. There's one so far:
 
-- **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and later
-  the odds' use of the hand's order ([the plan](plans/face-down-windows.md)).
+- **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and the
+  snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds will use later
+  ([the plan](plans/face-down-windows.md)).
 
 ## Target editor
 

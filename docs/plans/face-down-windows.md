@@ -1,7 +1,8 @@
 # Plan: face-down cards narrowed by the hand's sort order
 
 Status: in progress. The in-game hint (stage 0) is done, behind a setting (off by default), and checked
-in game under The Wheel, The Fish and The House (not yet The Mark); the odds are unchanged. Revised
+in game under The Wheel, The Fish and The House (not yet The Mark). Stage 1 (the export and its
+parsing, schema 12) is done and checked in game (2026-11-08); the odds are unchanged. Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -329,8 +330,9 @@ unseen pool stays a sorted multiset.
 
 ### Observation state machine
 
-Done in stage 0 (`observe.lua`); unchanged by this revision except that
-entries keep their card for ids (see [stage 1](#stages)).
+Done in stage 0 (`observe.lua`). Since stage 1, entries keep their card for
+ids, face up too (`{card, latent = true}` or `{card, rank_id, suit}` /
+`{card, stone = true}`).
 
 Two things are kept apart: **evidence** (the latest observation of each mode,
 true until an event makes it false) and **readiness** (whether the current
@@ -367,7 +369,9 @@ Every frame, in `Calculatro.update`, before the snapshot throttle:
    - the face-up cards are in sorted order by printed values (a safety net
      that leaks nothing).
 
-   Then *pending* clears. A mode change on its own is not a sort.
+   Then *pending* clears. A mode change on its own is not a sort. A card in both modes' observations
+   must be seen alike in both, as it has one id: if one isn't (nothing the mod knows of does that
+   without a consumable), the other mode's observation is dropped as out of date.
 6. **Departures:** when a latent card in the evidence leaves the hand:
    - if it's now face up (played), its entry becomes its printed values;
    - otherwise (discarded face down), its entry is dropped (until stage 3).
@@ -605,7 +609,8 @@ is slow. Speed targets, and any shortcut that gives up accuracy, are for
   stage 0: draws and Sort presses, rebuilt or missing `G.buttons`, drags,
   sorts and drags in one frame, consumables (no-op ones too), departures,
   resets, unsupported modes, the face-up-order safety net and Stones. Stage 1
-  adds, in `tests/test_state.py`:
+  adds, in `tests/test_observations.py` (it shares `test_hint.py`'s `Game`,
+  which `test_state.py` can't import):
   - the exported shape, with ids shared across both modes and numbered by
     first appearance;
   - `[]` with the setting off, and the export following the setting mid-hand;
@@ -669,13 +674,16 @@ is slow. Speed targets, and any shortcut that gives up accuracy, are for
    - Checked in game (2026-11-07) under The Wheel, The Fish and The House, with
      drags and both Sort buttons. Still to check under The Mark.
    - Behind the "Face-down windows" setting, off by default.
-1. **Export and parsing**, unused by the odds:
+1. **Export and parsing**, unused by the odds (done, checked in game 2026-11-08):
    - `observe.lua` keeps each entry's card for face-up cards too (with the
      printed values seen), so the export can give ids; `hint.lua` reads
      entries the new way.
    - Observations in the snapshot, only with the setting on.
    - Python parsing and validation into `GameState.observations` (schema 12 on
-     both sides).
+     both sides). Ids are renumbered by first appearance, and each id's content
+     is in `GameState.observed`.
+   - `search_basis` (and so `odds_basis`) leaves the observations out until
+     stage 2, so a sort doesn't restart the odds or a search for nothing.
 2. **Odds, search and the reference, together:**
    - the posterior with both modes and exact ties, the ungrouped reference,
      the oracle tests;

@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 11
+SCHEMA = 12
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -103,6 +103,116 @@ def _search(raw: Any) -> tuple[str, int] | None:
     return (raw["key"], nonce) if isinstance(nonce, int) and not isinstance(nonce, bool) else None
 
 
+SORT_MODES = ("desc", "suit desc")  # the game's rank and suit sorts, in the snapshot's order
+
+
+@dataclass(frozen=True)
+class ObservedCard:
+    """A card in an observation, as the player saw it: exactly one of its printed
+    rank and suit, a Stone (which shows neither), or face down in hand at `hand`."""
+
+    rank_id: int | None = None
+    suit: str | None = None
+    stone: bool = False
+    hand: int | None = None  # 0-based index into `GameState.hand`, of a hidden card
+
+    @property
+    def latent(self) -> bool:
+        """Whether the player hasn't seen what it is."""
+        return self.hand is not None
+
+
+@dataclass(frozen=True)
+class Observation:
+    """The hand's order when it was known to be the game's sort in `mode`, left
+    to right, as ids into `GameState.observed`. See docs/plans/face-down-windows.md."""
+
+    mode: str  # one of SORT_MODES
+    cards: tuple[int, ...]
+
+
+def _int(value: Any, what: str) -> int:
+    # bool is a kind of int, but `true` isn't a number.
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"{what} is a {type(value).__name__}, not an integer")
+    return value
+
+
+def _observed_card(raw: Any, hand: list[Card]) -> tuple[int, ObservedCard]:
+    """An observation's entry: its id and what it says the card is."""
+    if not isinstance(raw, dict):
+        raise TypeError(f"an observed card is a {type(raw).__name__}, not an object")
+    card_id = _int(raw.get("id"), "an observed card's id")
+    kinds = [kind for kind, keys in (("printed", ("rank_id", "suit")), ("stone", ("stone",)), ("hand", ("hand",)))
+             if any(key in raw for key in keys)]
+    if len(kinds) != 1:
+        raise ValueError(f"observed card {card_id} is {' and '.join(kinds) or 'nothing'}, not one kind")
+    if kinds == ["stone"]:
+        if raw["stone"] is not True:
+            raise ValueError(f"observed card {card_id} has stone {raw['stone']!r}")
+        return card_id, ObservedCard(stone=True)
+    if kinds == ["hand"]:
+        index = _int(raw["hand"], "an observed card's hand index")
+        if not 0 <= index < len(hand) or not hand[index].hidden:
+            raise ValueError(f"observed card {card_id} is at hand index {index}, which isn't a face-down card")
+        return card_id, ObservedCard(hand=index)
+    rank_id = _int(raw.get("rank_id"), "an observed card's rank_id")
+    suit = raw.get("suit")
+    if not 2 <= rank_id <= 14 or suit not in SUITS:
+        raise ValueError(f"observed card {card_id} is rank {rank_id!r} of suit {suit!r}")
+    return card_id, ObservedCard(rank_id=rank_id, suit=suit)
+
+
+def _observations(raw: Any, hand: list[Card]) -> tuple[tuple[Observation, ...], tuple[ObservedCard, ...]]:
+    """The snapshot's observations, and what each of their cards is by id.
+
+    Ids are renumbered 0, 1, ... by first appearance, with the "desc" sort first,
+    so equal evidence parses equal. Only the shape is checked here: evidence no deal
+    fits (face-up cards out of order, say) is well-shaped, and is for the odds to
+    set aside, not a malformed snapshot.
+    """
+    # An empty Lua table may arrive as {} instead of [].
+    if not raw:
+        return (), ()
+    if not isinstance(raw, list):
+        raise TypeError(f"observations is a {type(raw).__name__}, not a list")
+    by_mode: dict[str, list[tuple[int, ObservedCard]]] = {}
+    for observation in raw:
+        if not isinstance(observation, dict):
+            raise TypeError(f"an observation is a {type(observation).__name__}, not an object")
+        mode = observation.get("mode")
+        if mode not in SORT_MODES or mode in by_mode:
+            raise ValueError(f"observation of mode {mode!r}: unknown or repeated")
+        entries = observation.get("cards") or []
+        if not isinstance(entries, list):
+            raise TypeError(f"an observation's cards are a {type(entries).__name__}, not a list")
+        cards = [_observed_card(entry, hand) for entry in entries]
+        ids = [card_id for card_id, _ in cards]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"observation {mode!r} has an id more than once")
+        by_mode[mode] = cards
+
+    renumbered: dict[int, int] = {}
+    observed: list[ObservedCard] = []
+    observations = []
+    for mode in SORT_MODES:
+        if mode not in by_mode:
+            continue
+        order = []
+        for card_id, card in by_mode[mode]:
+            if card_id not in renumbered:
+                renumbered[card_id] = len(observed)
+                observed.append(card)
+            elif observed[renumbered[card_id]] != card:
+                raise ValueError(f"observed card {card_id} differs between the sorts")
+            order.append(renumbered[card_id])
+        observations.append(Observation(mode, tuple(order)))
+    hands = [card.hand for card in observed if card.latent]
+    if len(set(hands)) != len(hands):
+        raise ValueError("two observed cards are at the same hand index")
+    return tuple(observations), tuple(observed)
+
+
 class SchemaMismatch(ValueError):
     """A snapshot written by a different version of the mod."""
 
@@ -145,6 +255,11 @@ class GameState:
     # The latest best-discard search asked for in the panel: the row's key (a
     # hand's name or "Any target") and its number, which goes up with each one.
     search: tuple[str, int] | None = None
+    # What the hand's order has shown of its face-down cards, with the mod's
+    # "Face-down windows" setting on: the latest sort of each mode ("desc" first),
+    # and what each card in them is, by id (the index here). Not used by the odds yet.
+    observations: tuple[Observation, ...] = ()
+    observed: tuple[ObservedCard, ...] = ()
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -153,7 +268,8 @@ class GameState:
         Raises SchemaMismatch for one of another schema, and MalformedState for
         one whose fields aren't what the schema says (a hand-edited file or a
         bug in the mod). Only shapes are checked, not ranges, and of the scalars
-        only those that must be text (`_text`).
+        only those that must be text (`_text`). The exception is the observations
+        (`_observations`), whose ids, cards and hand indices must agree.
         """
         if not isinstance(d, dict):
             raise MalformedState(f"snapshot is a {type(d).__name__}, not an object")
@@ -170,6 +286,8 @@ class GameState:
         if not d.get("in_run"):
             return cls(in_run=False, id=_text(d, "id"))
         tracked = d.get("tracked") or {}
+        hand = _cards(d.get("hand"))
+        observations, observed = _observations(d.get("observations"), hand)
         return cls(
             in_run=True,
             id=_text(d, "id"),
@@ -181,7 +299,7 @@ class GameState:
             blind_disabled=bool(d.get("blind_disabled")),
             hands_played=d.get("hands_played") or 0,
             discards_used=d.get("discards_used") or 0,
-            hand=_cards(d.get("hand")),
+            hand=hand,
             played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
             discard=_cards(d.get("discard")),
@@ -192,6 +310,8 @@ class GameState:
             tracked_cards=_strings(tracked.get("cards")),
             select_limit=d.get("select_limit", 5),  # 0 stays 0
             search=_search(d.get("search")),
+            observations=observations,
+            observed=observed,
         )
 
     @property

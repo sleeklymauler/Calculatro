@@ -131,9 +131,11 @@ def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None
 
 def search_basis(state: GameState) -> GameState:
     """What a best-discard search depends on: the state, but not what's selected
-    (the search selects cards itself), what's tracked or the game's state name."""
+    (the search selects cards itself), what's tracked or the game's state name.
+    Nor the observations yet, which the odds don't use (stage 2 of
+    docs/plans/face-down-windows.md), so a sort doesn't restart anything."""
     return replace(state, id=None, state=None, hand=[replace(c, highlighted=False) for c in state.hand],
-                   tracked_hands=[], tracked_cards=[], search=None)
+                   tracked_hands=[], tracked_cards=[], search=None, observations=(), observed=())
 
 
 def odds_basis(state: GameState) -> tuple[GameState, Counter]:
