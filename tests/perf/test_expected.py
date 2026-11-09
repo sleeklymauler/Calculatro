@@ -55,6 +55,12 @@ SLOW = {
     "standard | 5 unknown: 5 face-down kept, sorted by rank | Full House | No jokers",
     "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) "
     "| No jokers",
+    "standard | 6 unknown: 2 face-down, 1 since discarded, draw 5, sorted by rank | Full House + Straight Flush (any) "
+    "| No jokers",
+    "standard | 6 unknown: 2 face-down, 1 since discarded, draw 5, sorted by rank | Full House + Straight Flush (any) "
+    "| Four Fingers + Shortcut",
+    "standard | 6 unknown: 2 face-down, 1 since discarded, draw 5, sorted both ways "
+    "| Full House + Straight Flush (any) | Four Fingers + Shortcut",
     "standard | 6 unknown: 1 face-down, draw 5, sorted by rank | Straight Flush | Four Fingers + Shortcut",
     "standard | 6 unknown: 1 face-down, draw 5, sorted by rank | Full House + Straight Flush (any) "
     "| Four Fingers + Shortcut",

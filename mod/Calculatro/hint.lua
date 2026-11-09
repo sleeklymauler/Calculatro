@@ -87,11 +87,13 @@ end
 -- it can be the printed values of, with the other face-down cards all getting a
 -- different pool card consistent with what was seen. nil if nothing shows it.
 --
--- Face-down cards not in an observation always fit: they get whatever's left, which
--- there's enough of, since the pool holds every face-down card. Two cards of the
--- same rank and suit tie here in both modes, though the game breaks that tie the same
--- way each time, so in the rare case they'd have to be in opposite orders in the two
--- sorts, this lets them be: too much again, never wrong.
+-- Those discarded face down since are dealt like the ones in hand: where they were
+-- still says what they are. Face-down cards not in an observation always fit: they
+-- get whatever's left, which there's enough of, since the pool holds every
+-- face-down card. Two cards of the same rank and suit tie here in both modes, though
+-- the game breaks that tie the same way each time, so in the rare case they'd have to
+-- be in opposite orders in the two sorts, this lets them be: too much again, never
+-- wrong.
 function Calculatro.possible_cards(card)
     local observations = read_observations()
     local cards, seen = {}, {}

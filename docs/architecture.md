@@ -176,9 +176,11 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
   (`m_stone`, `m_wild`, `c_base`, ...).
 - `observations` (with the "Face-down windows" setting on, `[]` otherwise) is the latest sort of the
   hand in each mode, `"desc"` first, from `Calculatro.export_observations`: each card an `id` and one of
-  a face-up card's printed `rank_id` and `suit`, `"stone": true`, or `"hand": i` for a card face down
-  at that hand index. A card in both sorts has the same id. `GameState.from_json` checks them more
-  than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree) and
+  a face-up card's printed `rank_id` and `suit`, `"stone": true`, `"hand": i` for a card face down
+  at that hand index, or `"discarded": true` for one since discarded face down (still in the discard
+  pile with `wheel_flipped`). A card in both sorts has the same id. `GameState.from_json` checks them
+  more than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree,
+  and there can't be more discarded ones than the discard pile's `{hidden: true}` cards) and
   renumbers the ids by first appearance into `GameState.observations` and `observed`, and gives each
   face-down hand card in them its id (`Card.latent`). The odds use them
   ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)), so they're part of
@@ -201,7 +203,8 @@ couldn't see.
   trusts the hand's order because of public events (draws, Sort presses, drags, consumables), never by
   checking it against the true order.
 - The observations are exported as the player saw them: face-up cards' printed values, Stones, and where
-  the face-down cards were, which are referred to by hand index only. Their ids are numbered by first
+  the face-down cards were, which are referred to by hand index only, or once discarded face down as
+  `discarded`, without saying which of the discard pile's face-down cards it is. Their ids are numbered by first
   appearance, so they say only which card in one sort is which in the other, as the player saw them
   move. `test_which_cards_are_face_down_changes_nothing_sent` (`tests/test_observations.py`) swaps which
   unseen cards are face down and compares every snapshot, frame by frame.

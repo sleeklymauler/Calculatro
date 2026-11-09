@@ -21,7 +21,8 @@ local ui_children = require('calculatro.uibox').ui_children
 -- and what the player saw of it: {latent = true} for a card face down, or the
 -- printed {rank_id =, suit =} or {stone = true} of one face up. The card is kept
 -- for face-up ones too, as the snapshot says which card in one sort is which in
--- the other (the player sees them move into place).
+-- the other (the player sees them move into place). A face-down card since
+-- discarded face down is still latent, and `discarded` too.
 Calculatro.observations = {}
 -- Goes up whenever the observations change.
 Calculatro.observed = 0
@@ -129,23 +130,53 @@ local function same_list(a, b)
     return true
 end
 
+-- Whether `card` is in the discard pile face down: the game turns every card
+-- there over, so `facing` says nothing, and it marks those drawn face down with
+-- wheel_flipped until they're turned up (snapshot.lua's face_down).
+local function discarded_face_down(card, in_discard)
+    return in_discard[card] and card.ability and card.ability.wheel_flipped and true or false
+end
+
+local function discard_set()
+    return G.discard and set_of(G.discard.cards or {}) or {}
+end
+
 -- A face-down card that has since been turned up is its printed values, now
--- public. One gone from the hand still face down (discarded) is left out: what's
--- left of a sorted order is still the sorted order of what's left, so it's true,
--- though it doesn't use all the player saw.
+-- public. One discarded face down (The Hook's too) stays where it was seen, as
+-- `discarded`: the game doesn't turn it up, and it's still the card that sat
+-- there. One gone anywhere else face down is left out: what's left of a sorted
+-- order is still the sorted order of what's left, so it's true, though it doesn't
+-- use all the player saw.
 local function update_entries(in_hand)
-    local changed = false
+    local changed, in_discard = false, nil
     for _, observation in pairs(Calculatro.observations) do
         local cards = observation.cards
         for i = #cards, 1, -1 do
-            local card = cards[i].card
-            if cards[i].latent then
-                if card.facing ~= 'back' then
-                    cards[i] = printed_values(card)
-                    changed = true
-                elseif not in_hand[card] then
-                    table.remove(cards, i)
-                    changed = true
+            local entry = cards[i]
+            local card = entry.card
+            if entry.latent then
+                if in_hand[card] then
+                    if card.facing ~= 'back' then
+                        cards[i] = printed_values(card)
+                        changed = true
+                    elseif entry.discarded then
+                        entry.discarded = nil
+                        changed = true
+                    end
+                else
+                    in_discard = in_discard or discard_set()
+                    if discarded_face_down(card, in_discard) then
+                        if not entry.discarded then
+                            entry.discarded = true
+                            changed = true
+                        end
+                    elseif card.facing ~= 'back' and not in_discard[card] then
+                        cards[i] = printed_values(card)  -- played
+                        changed = true
+                    else
+                        table.remove(cards, i)
+                        changed = true
+                    end
                 end
             end
         end
@@ -263,8 +294,10 @@ end
 -- The observations as the snapshot sends them, "desc" first: each card with an
 -- id, numbered by first appearance so that it says nothing the order doesn't,
 -- and the same for a card in both. A face-down card is given by its place in the
--- hand now (0-based), where the snapshot sends it as {hidden = true}. Empty
--- unless the setting's on. See docs/plans/face-down-windows.md#snapshot.
+-- hand now (0-based), where the snapshot sends it as {hidden = true}, and one
+-- discarded face down only as `discarded` (it's one of the discard pile's
+-- {hidden = true}, but which isn't said). Empty unless the setting's on. See
+-- docs/plans/face-down-windows.md#snapshot.
 -- The odds take face-down cards under The Mark to be face cards (as
 -- `engine.flipped_by_mark` says), which the challenges' random flips
 -- (flipped_cards) make untrue: then the sorts go unused, and the odds are those
@@ -280,6 +313,7 @@ function Calculatro.export_observations()
     if not (Calculatro.settings.face_down and G and G.hand) or mark_with_random_flips() then return out end
     local index = {}
     for i, card in ipairs(G.hand.cards or {}) do index[card] = i - 1 end
+    local in_discard = discard_set()
     local ids, count = {}, 0
     for _, mode in ipairs(MODE_ORDER) do
         local observation = Calculatro.observations[mode]
@@ -288,12 +322,18 @@ function Calculatro.export_observations()
             for _, entry in ipairs(observation.cards) do
                 local card = entry.card
                 -- update_entries has turned up or dropped any face-down card no
-                -- longer face down in hand; one that isn't would be left out.
-                if not entry.latent or (index[card] and card.facing == 'back') then
+                -- longer face down in hand or the discard pile; one that isn't
+                -- would be left out.
+                local in_hand = entry.latent and index[card] and card.facing == 'back'
+                local discarded = entry.latent and not in_hand and entry.discarded
+                    and discarded_face_down(card, in_discard)
+                if not entry.latent or in_hand or discarded then
                     if not ids[card] then ids[card], count = count, count + 1 end
                     local e = { id = ids[card] }
-                    if entry.latent then
+                    if in_hand then
                         e.hand = index[card]
+                    elseif discarded then
+                        e.discarded = true
                     elseif entry.stone then
                         e.stone = true
                     else

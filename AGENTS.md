@@ -59,7 +59,7 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 - **Information hiding.** Never export anything a player couldn't see. The undrawn deck and all
   face-down cards go out merged as one sorted multiset (`unseen`), so neither draw order nor which
   cards are face down leaks; jokers are sorted too. The hand's sorts (`observations`) refer to face-down
-  cards by hand index only. See
+  cards by hand index only, or as discarded face down without saying which. See
   [the contract](docs/architecture.md#information-hiding).
 - **Schemas.** `SCHEMA` in `state.py` must match `schema` in `core.lua`, and `overlay.SCHEMA` must match
   `odds_schema`. Bump both sides when changing either JSON shape. The odds file never contains `null`

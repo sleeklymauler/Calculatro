@@ -4,7 +4,9 @@ Status: in progress. The in-game hint (stage 0) is done, behind a setting (off b
 in game under The Wheel, The Fish and The House (not yet The Mark). Stage 1 (the export and its
 parsing, schema 12) is done and checked in game (2026-11-08). Stage 2 (the odds and the search use
 the observations) is done, tested against dealing every way, and checked in game under The Fish
-(2026-11-08). Stage 3 is next. Revised
+(2026-11-08). Stage 3 (cards discarded face down stay in the observations, schema 13) is done and
+tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept) is
+planned (2026-11-08), not started. Stage 5 is by decision. Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -68,7 +70,7 @@ Decisions already made:
     is tested against the ungrouped reference;
   - calculations stay cancellable, so a slow one never blocks the app;
   - shortcuts that trade a little accuracy for speed are a later decision,
-    taken with the measurements from the first pass (see [stage 4](#stages)).
+    taken with the measurements from the first pass (see [stage 5](#stages)).
 
 ## Game behaviour (verified in the game's source)
 
@@ -261,23 +263,29 @@ the observations the hint uses and weigh whole deals; a
 
 ### Which observations
 
-- **Stages 1-2** use the latest observation of each mode, exactly what the hint
-  uses. Their latent entries are restricted to cards still face down in hand.
+- The odds use the latest observation of each mode, exactly what the hint
+  uses. Their latent entries are cards still face down in hand, or discarded
+  face down since (from stage 3; stages 1-2 left those out).
   - A latent card that has since been revealed (played, or flipped up) has its
     entry replaced by its printed values, which are now public.
-  - One discarded face down is left out of every observation. It's then just
-    another latent card with no evidence. The hint does the same.
-  - Leaving cards out of an observation is conditioning on part of what was
-    seen (a subsequence of a sorted order is the sorted order of those cards).
-    So the posterior is correct for that information.
-- **Stage 3** (later) keeps latent cards discarded face down in the
-  observations, in the hint as well as the odds. That's more evidence, not more
-  accuracy for the same evidence, which is why it can come after the first
-  pass.
+  - One discarded face down stays where it was seen, as `discarded`: it's out
+    of play, but it's still the card that sat there, so it bounds the cards
+    around it, and what it is says what's left to draw. The hint deals it like
+    the cards in hand.
+  - One that leaves the hand face down any other way, or is turned up in the
+    discard pile (nothing the mod knows of does either without a consumable), is
+    left out. Leaving cards out of an observation is conditioning on part of
+    what was seen (a subsequence of a sorted order is the sorted order of those
+    cards), so the posterior is still correct for that information.
+- A draw re-sorts the hand in the current mode and replaces that mode's
+  observation, which then holds only the cards in hand. So a card discarded
+  face down usually stays only in the other mode's observation, when the player
+  had sorted both ways before discarding it. [Stage 4](#stages) keeps the
+  earlier sorts instead.
 
 Every deliberate coarsening is listed here and in the code: the tie policy,
-dropping latent cards discarded face down (until stage 3), dropping all
-observations on a consumable (see the [state machine](#observation-state-machine)),
+dropping a latent card that leaves the hand face down other than by a discard,
+dropping all observations on a consumable (see the [state machine](#observation-state-machine)),
 and The Mark with `flipped_cards` (below). Each is a defined subset of what
 the player saw, or a stated modelling assumption. None is a shortcut for
 speed.
@@ -324,7 +332,9 @@ or drop an observation:
 
 Observations go out with the hand, whose face-down cards already go out in
 their positions as `{hidden: true}`. Latent cards are referenced by hand index
-only; no deck ids, no sort keys. Card ids are numbered by first appearance in
+only, or once discarded face down as `discarded`, which doesn't say which of
+the discard pile's face-down cards it is (the player saw which, but the pile's
+order isn't exported); no deck ids, no sort keys. Card ids are numbered by first appearance in
 the exported observations, which are public, so they carry nothing else. The
 unseen pool stays a sorted multiset.
 
@@ -376,9 +386,15 @@ Every frame, in `Calculatro.update`, before the snapshot throttle:
    without a consumable), the other mode's observation is dropped as out of date.
 6. **Departures:** when a latent card in the evidence leaves the hand:
    - if it's now face up (played), its entry becomes its printed values;
-   - otherwise (discarded face down), its entry is dropped (until stage 3).
+   - if it's in the discard pile with `ability.wheel_flipped` (discarded face
+     down, The Hook's too), its entry stays latent, marked `discarded` (stage 3);
+     the game turns every card there over, so `facing` says nothing;
+   - otherwise its entry is dropped, and so is a `discarded` one whose card
+     leaves the discard pile's face-down cards.
 
-   A latent card turning face up in hand is treated the same way.
+   A latent card turning face up in hand is treated the same way, and a
+   `discarded` one back in hand face down is latent in hand again (no game card
+   does that).
 
 Removing cards (discards, plays, The Hook, Hanged Man) keeps the order of the
 rest, so it's no reorder.
@@ -422,13 +438,15 @@ The snapshot gains `observations`, a list of at most two, `"desc"` first:
   reading the observations in order, so they say nothing the order doesn't.
   An id appears at most once per observation, and two ids never share a hand
   index.
+- `"discarded": true` (stage 3, schema 13) is a latent card discarded face down
+  since, still in the discard pile with `wheel_flipped`. It says only that it's
+  one of the discard pile's `{hidden: true}` cards, not which, so there can't
+  be more of them than those.
 - Exported only with the "Face-down windows" setting on. No observation means
   the field is an empty array (the encoder's `ARRAY` tag; Python also accepts
   `{}` as usual).
 - Stone information can't get lost: a Stone is an entry like any other, and
   its position carries what's known.
-- Stage 3 adds `"discarded": true` (in place of `hand`) for a latent card
-  discarded face down.
 
 Bump `schema` in `core.lua` and `SCHEMA` in `state.py` (11 to 12) in stage 1,
 and make Python parse and validate observations then, even before it uses
@@ -603,7 +621,7 @@ pass. Worst cases as well as typical ones:
 Record branch counts, peak cache size, latency and cancellation latency.
 Cancellation must stay prompt (aim for 50 ms) even when the calculation itself
 is slow. Speed targets, and any shortcut that gives up accuracy, are for
-[stage 4](#stages), with these numbers.
+[stage 5](#stages), with these numbers.
 
 Measured in stage 2 (the "sorted" scenarios, 2026-11-08):
 
@@ -620,6 +638,19 @@ Measured in stage 2 (the "sorted" scenarios, 2026-11-08):
   branches merge), a discard that splits The House's first hand, and the
   Four Fingers + Shortcut searches for Straight Flush or "any".
 - Cancellation: 9-21 ms in all of those.
+
+Measured in stage 3 (2026-11-08), with cards discarded face down kept:
+
+- Two face-down cards in narrow windows, one since discarded (the "since
+  discarded" scenarios): 1 ms-2 s, and 9 s for Four Fingers + Shortcut with
+  Full House or Straight Flush sorted by rank.
+- The House sorted both ways, then 3 of its cards discarded face down and 3
+  drawn (re-sorted by suit): the rank sort still holds all 8, so it's about
+  1.5 million branches, built in 11 s; Keep's Pair takes 14 s and Full House
+  54 s. Leaving the 3 out, as stage 2 did, is about 7,000 branches and 0.1-3 s,
+  but the odds differ a lot (Pair 83.4% against 87.3%, Full House 1.5% against
+  2.7%). Not in the scenarios (their hands can't be drawn into); measured by
+  hand. Cancellation: under 10 ms.
 
 ## Tests
 
@@ -730,9 +761,92 @@ Measured in stage 2 (the "sorted" scenarios, 2026-11-08):
      today's odds (`engine._says_nothing_here`).
    - The Mark with `flipped_cards`: the mod sends no observations.
    - Still slow: see [Performance](#performance).
-3. **Discarded face-down cards:** keep latent cards discarded face down in the
-   observations (`"discarded": true`), in the hint and the odds.
-4. **Performance, later and by decision:** with the first pass's
+3. **Discarded face-down cards**, done (2026-11-08), not yet checked in game:
+   latent cards discarded face down stay in the observations (`"discarded":
+   true`, schema 13), in the hint and the odds.
+   - `observe.lua` keeps the entry while the card is in the discard pile with
+     `wheel_flipped`; `hint.lua` deals it like the cards in hand.
+   - `Branch.discarded` holds what they are; `_resolved` puts each in place of
+     one of the discard pile's hidden cards, so `discarded_hidden` (and under
+     The Mark, `marked`) goes down by one as the card leaves `unseen`.
+     `_over_branches` keeps them apart from the cards discarded now.
+   - `_says_nothing_here` goes by fates: a single sort of face-down cards only
+     says nothing while all of them are kept, all gone (thrown away now or
+     discarded before), or the one card DNA copies.
+   - The search doesn't relabel discards when any latent card is in the
+     observations, in hand or not (`search._relabelled`).
+   - Tests: the oracle in `tests/test_posterior.py` (cards discarded after the
+     sorts, alone, The House, DNA, The Mark, the search), the hint against the
+     odds in `tests/test_hint.py`, and the export and parsing in
+     `tests/test_observations.py`.
+   - Still to check in game: under The Wheel or The Fish, sort both ways,
+     discard a face-down card, and hover its neighbour; and The House's speed
+     after its first discard (see [Performance](#performance)).
+4. **Earlier sorts** (decided 2026-11-08), not started: keep every sort seen this
+   round, not just the latest of each mode.
+   - Why: a draw re-sorts the hand and replaces that mode's observation, so
+     what an earlier sort said about a face-down card still in hand is lost. A
+     card seen between a 9♣ and a 7♣ in a rank sort, kept while both are
+     discarded, may sit between a K and a 4 after the draw. The hint then
+     widens to what the K and the 4 allow, and the odds lose the same. That's
+     still correct (it conditions on part of what was seen), but not all of it.
+   - An earlier sort is still true of the cards in it. Their printed values
+     change only by a consumable, which ends all the evidence, and sorts in one
+     mode share the hidden tie-breakers, so every sort of a mode in a round is
+     part of one order. The [posterior](#posterior) is unchanged: every sort in
+     order, and each tie group's orders consistent with all of them.
+   - **A list**, in the order recorded, where a mode may repeat. Sorts of one
+     mode aren't merged into one sequence: cards seen in only one of two sorts
+     can't always be placed against each other (a card discarded face down
+     against one drawn since, face-down cards drawn under The Fish, copies), so
+     together they're a partial order, and the list of sorts is that, as the
+     player saw it. `posterior.py` already takes any number of observations.
+   - **Pruning**, both exact:
+     - Keep no observation that another of the same mode implies: its entries,
+       as they are now, are a subsequence of the other's. A Sort press or a
+       draw that adds nothing then changes nothing, so the odds and a search
+       aren't restarted.
+     - Drop an observation with no latent entries left, unless two of its cards
+       are alike in print (copies, or Stones). It then constrains no deal and
+       orders no tie group.
+
+     So the list grows by at most one per sort, and resets with the blind as
+     now.
+   - **Consistency:** `record` checks a new observation against every kept one,
+     not just the other mode's, and drops any where a card is seen differently,
+     as out of date (as now).
+   - **The mod:** `Calculatro.observations` becomes a list of `{mode, cards}`.
+     `update_entries` and the export go over all of them, the export in the
+     order recorded with ids by first appearance as now. `hint.lua`'s
+     `read_observations` keeps that order instead of sorting by mode;
+     `possible_cards` already asks what fits every observation.
+   - **Snapshot** (schema 14): `observations` holds any number, in the order
+     recorded, and a mode may repeat. `state.py` stops rejecting a repeated
+     mode; an id still has the same content everywhere. Information hiding is
+     unchanged: each observation is a sort the player saw, and when they saw
+     it is public.
+   - **Cost:** The House's first sort, all face down, now stays after its first
+     discard and draw. So the roughly 1.5 million branches measured in stage 3
+     (14 s for Pair, 54 s for Full House) become the usual case there, not only
+     after sorting both ways. Accuracy first still holds; measure it for stage
+     5. With one or two face-down cards in narrow windows, more sorts usually
+     leave fewer deals.
+   - **Tests:**
+     - The oracle plays out a round: deal every way, sort, discard, draw every
+       way, sort again (in each mode), then compare. Start with the example
+       above.
+     - Each pruning rule gives the same `Fraction`s as keeping every sort.
+     - The mod's state machine: a draw adds an observation, a Sort press that
+       adds nothing doesn't, pruning, the consistency drop, resets. The export's
+       shape, and the information-hiding test frame by frame over several
+       draws.
+     - The odds and the hint agree with several sorts.
+     - Benchmarks: The House sorted by rank only, after its first discard; The
+       Fish over several hands.
+   - **Docs** that say "the latest of each mode": `docs/architecture.md` (the
+     snapshot), `docs/probability-model.md`, `docs/panel.md` (the hint), and
+     this plan's model sections.
+5. **Performance, later and by decision:** with the first pass's
    measurements, choose any shortcuts that give up accuracy for speed, and
    exact ones not done yet (such as generalizing `_mark_split` from a face
    predicate to any subset of the pool, for a run whose candidates are one set).
@@ -748,8 +862,9 @@ The Fish, The Mark, The House) as each stage lands.
   time (a discard splitting The House's first hand, or Straight Flush after
   its first discard, until an exact optimization makes them tractable):
   "Calculating..." indefinitely, as now, or something more telling.
-- Whether stage 3 should come forward: how much dropping discarded face-down
-  cards costs in practice (The Fish, The Wheel).
+- Whether The House sorted both ways, then partly discarded, is too slow to
+  be worth its extra accuracy (see [Performance](#performance)): for stage 5.
+  Stage 4 makes this the usual case after The House's first discard.
 - How The Mark should handle `flipped_cards` properly (an existing engine
   limitation; this plan only avoids leaning on it).
 - Whether the hint should adopt the exact tie model, so it's never wider than

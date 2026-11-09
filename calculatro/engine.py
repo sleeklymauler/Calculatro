@@ -1093,7 +1093,7 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
     with no part of that evidence used.
     Raises Cancelled soon after `cancel` is set.
     """
-    in_evidence = {o.hand for o in state.observed if o.latent}
+    in_hand = {o.hand for o in state.observed if o.hand is not None}
     rules = state.rules
     key = (state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and rules.pareidolia, extra)
     with _posteriors_lock:
@@ -1109,9 +1109,9 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
             raise Cancelled
 
     found: Posterior | None = None
-    if in_evidence:
+    if any(o.latent for o in state.observed):
         found = branches(state.observations, state.observed, state.unseen, allowed,
-                         tuple(i for i in extra if i not in in_evidence), check)
+                         tuple(i for i in extra if i not in in_hand), check)
         if not found.total:
             found = None
             failure = state.observations, state.observed
@@ -1160,28 +1160,41 @@ def _says_nothing_here(state: GameState, discard: list[int]) -> bool:
 
     One sort with no face-up card in it (The House's first hand) says only
     which of its face-down cards is higher than which, not what cards they
-    are: every set of cards can be sorted. So it only matters to a discard
-    that splits them, which throws away the higher or the lower ones, or if
+    are: every set of cards can be sorted. So it only matters once they meet
+    different fates (kept, copied by DNA, or gone: thrown away now or discarded
+    face down before), as those are then the higher or the lower ones, or if
     Cerulean Bell forces one of them.
     """
     if len(state.observations) != 1 or not all(o.latent for o in state.observed):
         return False
-    in_sort = {o.hand for o in state.observed}
-    thrown = in_sort & set(discard)
-    return (not thrown or thrown == in_sort) and not any(state.hand[i].forced for i in in_sort)
+    thrown = set(discard)
+    copied = thrown if _dna_copies(state, discard) else set()
+    fates = set()
+    for o in state.observed:
+        if o.hand is not None and state.hand[o.hand].forced:
+            return False
+        fates.add("gone" if o.discarded or (o.hand in thrown and o.hand not in copied)
+                  else "copied" if o.hand in copied else "kept")
+    return len(fates) == 1
 
 
 def _resolved(state: GameState, branch: Branch) -> GameState:
     """`state` with the branch's face-down cards turned up: each takes its
     placeholder's place in hand (selection and Cerulean Bell's force kept), and
-    one of it leaves the unseen cards, whether it's kept or discarded. Deck size,
-    hand size and indices stay as they were."""
+    one of it leaves the unseen cards, whether it's kept or discarded. Those
+    discarded face down before take the place of one of the discard pile's
+    hidden cards each. Deck size, hand size and indices stay as they were."""
     hand = list(state.hand)
     unseen = list(state.unseen)
     for i, card in branch.cards:
         unseen.remove(card)
         hand[i] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
-    return replace(state, hand=hand, unseen=unseen, observations=(), observed=())
+    discard = list(state.discard)
+    hidden = (i for i, c in enumerate(discard) if c.hidden)
+    for card in branch.discarded:
+        unseen.remove(card)
+        discard[next(hidden)] = card
+    return replace(state, hand=hand, unseen=unseen, discard=discard, observations=(), observed=())
 
 
 def _rule_classes(state: GameState, discard: list[int],
@@ -1230,8 +1243,8 @@ def _over_branches(state: GameState, discard: list[int], post: Posterior, classe
     each branch's resolved state.
 
     Branches that resolve the same number of cards of each class (`classes`),
-    kept or discarded and forced or not, leave the odds the same numbers to
-    work with (the engine sees cards only through those, and the unseen cards
+    kept, discarded now or discarded before, and forced or not, leave the odds
+    the same numbers to work with (the engine sees cards only through those, and the unseen cards
     left are the same classes too), so they share one evaluation. That's exact;
     `classes=None` evaluates every branch, as the tests' reference.
     """
@@ -1241,8 +1254,9 @@ def _over_branches(state: GameState, discard: list[int], post: Posterior, classe
     for b, branch in enumerate(post.branches):
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        seen: object = b if classes is None else frozenset(
-            Counter((i in thrown, state.hand[i].forced, classes(card)) for i, card in branch.cards).items())
+        seen: object = b if classes is None else frozenset(Counter(
+            [(i in thrown, state.hand[i].forced, classes(card)) for i, card in branch.cards]
+            + [("before", False, classes(card)) for card in branch.discarded]).items())
         p = done.get(seen)
         if p is None:
             p = done[seen] = odds(_resolved(state, branch))

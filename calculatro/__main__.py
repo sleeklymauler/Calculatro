@@ -143,7 +143,7 @@ def odds_basis(state: GameState) -> tuple[GameState, Counter, tuple]:
     by id, not hand index (`Card.latent` says which hand card is which id), so a
     drag doesn't throw the finished rows away."""
     basis = search_basis(state)
-    by_id = tuple("face down in hand" if o.latent else o for o in basis.observed)
+    by_id = tuple("face down in hand" if o.hand is not None else o for o in basis.observed)
     return replace(basis, hand=[], observed=()), Counter(basis.hand), by_id
 
 

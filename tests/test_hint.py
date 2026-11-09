@@ -194,6 +194,23 @@ def test_a_card_discarded_face_down_is_still_possible(game):
     assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
 
 
+def test_one_discarded_face_down_after_the_sort_still_narrows(game):
+    # Two face-down cards between the 10 and the 6: the left one is the higher.
+    # Discarding the right one face down doesn't change that it was lower.
+    high, left, right, low = game.card("TH"), game.card("9C", "back"), game.card("7C", "back"), game.card("6D")
+    game.deal([high, left, right, low], [game.card("8C"), game.card("2H")])
+    assert game.possible(left) == {(9, "Clubs"), (8, "Clubs")}
+    right.ability.wheel_flipped = True
+    game.set_area("hand", [high, left, low])
+    game.set_area("discard", [right])
+    game.frame()
+    assert game.possible(left) == {(9, "Clubs"), (8, "Clubs")}
+    assert game.mod.observations["desc"].cards[3].discarded
+    # Leaving it out, as the hint used to, the left one could be the 7 as well.
+    game.rt.eval("table.remove")(game.mod.observations["desc"].cards, 3)
+    assert game.possible(left) == {(9, "Clubs"), (8, "Clubs"), (7, "Clubs")}
+
+
 def test_it_needs_a_sort_of_the_hand(game):
     down = game.card("8C", "back")
     hand = [game.card("9H"), down, game.card("7D")]
@@ -428,24 +445,34 @@ def test_against_dealing_every_way(game, seed):
     game.deal([objects[e] for e in views[modes[0]]], rest, mode=modes[0])
     if len(modes) > 1:
         game.sort(modes[1], [objects[e] for e in views[modes[1]]])
+    hand = views[modes[-1]]
+    # Every other seed, one is then discarded face down: what the sorts said stays true.
+    gone = names[-1] if seed % 2 and len(names) > 1 else None
+    if gone:
+        objects[gone].ability.wheel_flipped = True
+        hand = [n for n in hand if n != gone]
+        game.set_area("hand", [objects[n] for n in hand])
+        game.set_area("discard", [objects[gone]])
+        game.frame()
 
     deals = list(deals_matching(face_up, pool, names, views))
     for name in names:
-        assert game.possible(objects[name]) == {deal[name] for deal in deals}, (name, modes)
+        if name != gone:
+            assert game.possible(objects[name]) == {deal[name] for deal in deals}, (name, modes)
 
     # The odds read the same sorts from the snapshot: with no two cards alike, every
     # deal showing them is as likely, so each face-down card is each card as often
     # as the deals say, and can be what the hint lists and nothing else.
     state = GameState.from_json(json.loads(game.rt.eval("require('calculatro.json')").encode(game.mod.snapshot())))
     post = posterior(state)
-    hand = views[modes[-1]]
     for name in names:
         chance: Counter = Counter()
         for b in post.branches:
-            c = dict(b.cards)[hand.index(name)]
+            c = b.discarded[0] if name == gone else dict(b.cards)[hand.index(name)]
             chance[(c.rank_id, c.suit)] += b.weight / post.total
         assert chance == {v: Fraction(sum(d[name] == v for d in deals), len(deals)) for v in chance}
-        assert set(chance) == game.possible(objects[name])
+        if name != gone:
+            assert set(chance) == game.possible(objects[name])
 
 
 def test_which_card_is_face_down_changes_nothing_shown(lua):  # noqa: F811

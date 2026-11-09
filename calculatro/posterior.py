@@ -2,10 +2,11 @@
 
 See docs/plans/face-down-windows.md. The game sorts the hand by each card's true
 rank and suit, face-down cards included, and the mod exports the latest sort of
-each mode it saw (`GameState.observations`). A face-down card in one of them is
-a *latent* card with evidence. Its identity is one of the unseen cards, and the
-order says which: between a 9 and a 7 in a rank sort it's a 7, 8 or 9, and of
-two side by side the left one is the higher.
+each mode it saw (`GameState.observations`). A face-down card in one of them,
+still in hand or since discarded face down, is a *latent* card with evidence. Its
+identity is one of the unseen cards, and the order says which: between a 9 and a
+7 in a rank sort it's a 7, 8 or 9, and of two side by side the left one is the
+higher.
 
 The prior is a uniformly random injective assignment of the unseen cards to the
 latent cards (with The Mark, of the unseen face cards: `allowed`). The
@@ -72,10 +73,12 @@ def sort_value(key: Printed, mode: str) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class Branch:
-    """One assignment of the latent cards: each by its hand index, with the
-    unseen card it is, and its weight (prior times likelihood, unnormalized)."""
+    """One assignment of the latent cards: each in hand by its hand index, with
+    the unseen card it is; the unseen cards those discarded face down are, by id;
+    and its weight (prior times likelihood, unnormalized)."""
     cards: tuple[tuple[int, Card], ...]
     weight: Fraction
+    discarded: tuple[Card, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -140,8 +143,15 @@ def _earlier_slot(entries: Sequence[int], face_up: dict[int, Printed], slot_of: 
 
 
 def latent_ids(observed: Sequence[ObservedCard]) -> list[int]:
-    """The ids of the latent cards (face down in hand), in order of first appearance."""
+    """The ids of the latent cards (face down in hand, or discarded face down), in
+    order of first appearance."""
     return [card_id for card_id, card in enumerate(observed) if card.latent]
+
+
+def _branch(hand_of: Sequence[int | None], picked: Sequence[Card], weight: Fraction) -> Branch:
+    """A Branch of the latent cards' `picked` identities, at `hand_of` (None if discarded)."""
+    return Branch(tuple((i, c) for i, c in zip(hand_of, picked) if i is not None), weight,
+                  tuple(c for i, c in zip(hand_of, picked) if i is None))
 
 
 def branches(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
@@ -152,11 +162,13 @@ def branches(observations: Sequence[Observation], observed: Sequence[ObservedCar
     number as a factor of the weight.
 
     `extra` are hand indices of more face-down cards to enumerate, with no
-    evidence: DNA's copies of a face-down card (engine._posterior_for).
+    evidence: DNA's copies of a face-down card (engine._posterior_for). Latent
+    cards discarded face down are enumerated like those in hand: they're out of
+    play, but the order says what they are, and so what's left to draw.
     `check` is called now and then, and raises to cancel.
     """
     ids = latent_ids(observed)
-    hand_of = [observed[card_id].hand for card_id in ids] + list(extra)
+    hand_of: list[int | None] = [observed[card_id].hand for card_id in ids] + list(extra)
     slot_of = {card_id: k for k, card_id in enumerate(ids)}
 
     values: dict[Card, int] = {}
@@ -220,7 +232,7 @@ def branches(observations: Sequence[Observation], observed: Sequence[ObservedCar
             if len(members) > 1:
                 weight *= tie_factor(members, observations) / face_up_factor.get(key, 1)
         if weight:
-            found.append(Branch(tuple((hand_of[k], cards[assigned[k]]) for k in range(len(hand_of))), weight))
+            found.append(_branch(hand_of, [cards[v] for v in assigned], weight))
 
     def place(k: int, prior: int) -> None:
         nonlocal steps
@@ -251,7 +263,7 @@ def reference(observations: Sequence[Observation], observed: Sequence[ObservedCa
     injective assignment of the unseen cards, one by one, weighed straight from
     the definition. Only for a few cards."""
     ids = latent_ids(observed)
-    hand_of = [observed[card_id].hand for card_id in ids] + list(extra)
+    hand_of: list[int | None] = [observed[card_id].hand for card_id in ids] + list(extra)
     places = [j for j, card in enumerate(unseen) if allowed(card) and sortable(card)]
     found = []
     for picked in permutations(places, len(hand_of)):
@@ -267,5 +279,5 @@ def reference(observations: Sequence[Observation], observed: Sequence[ObservedCa
         for members in groups.values():
             weight *= tie_factor(members, observations)
         if weight:
-            found.append(Branch(tuple(zip(hand_of, (unseen[j] for j in picked))), weight))
+            found.append(_branch(hand_of, [unseen[j] for j in picked], weight))
     return Posterior(tuple(found), sum((b.weight for b in found), Fraction(0)))

@@ -44,13 +44,19 @@ def _unseen(deck, hidden: list[Card]) -> dict[str, list[Card]]:
     return {"deck": deck, "hidden_pool": hidden}
 
 
-def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...]) -> dict:
+def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: int = 0) -> dict:
     """GameState's fields for the hand's sorts in `sorts` (modes), as the mod
     exports them: `cards` are the hand's cards as they really are, and `hand`
     as the player sees them. Ids are numbered by first appearance, the rank
-    sort first. Nothing in versions from before the sorts were used."""
+    sort first. Nothing in versions from before the sorts were used.
+
+    The last `gone` cards, face down, were discarded face down after the sorts:
+    they're in the discard pile, and in the sorts only in versions that keep them
+    there (stage 3 of docs/plans/face-down-windows.md)."""
+    left = len(hand) - gone
+    discard = {"discard": [Card(hidden=True)] * gone} if gone else {}
     if not sorts or "observations" not in GameState.__dataclass_fields__:
-        return {"hand": hand}
+        return {"hand": hand[:left], **discard}
     from calculatro.state import Observation, ObservedCard
     suit = {"Diamonds": 0, "Clubs": 1, "Hearts": 2, "Spades": 3}
 
@@ -59,13 +65,18 @@ def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...]) -> dict
             return lambda i: (cards[i].rank_id, suit[cards[i].suit])
         return lambda i: (suit[cards[i].suit], cards[i].rank_id)
 
-    orders = {mode: sorted(range(len(cards)), key=key(mode), reverse=True) for mode in sorted(sorts)}
+    keeps_gone = "discarded" in ObservedCard.__dataclass_fields__
+    shown = [i for i in range(len(cards)) if i < left or keeps_gone]
+    orders = {mode: sorted(shown, key=key(mode), reverse=True) for mode in sorted(sorts)}
     ids = list(dict.fromkeys(i for order in orders.values() for i in order))
-    observed = tuple(ObservedCard(hand=i) if hand[i].hidden else ObservedCard(rank_id=cards[i].rank_id,
-                                                                             suit=cards[i].suit) for i in ids)
-    return {"hand": [replace(c, latent=ids.index(i)) if c.hidden else c for i, c in enumerate(hand)],
+
+    def observed_card(i: int) -> ObservedCard:
+        if i >= left:
+            return ObservedCard(discarded=True)
+        return ObservedCard(hand=i) if hand[i].hidden else ObservedCard(rank_id=cards[i].rank_id, suit=cards[i].suit)
+    return {"hand": [replace(c, latent=ids.index(i)) if c.hidden else c for i, c in enumerate(hand[:left])],
             "observations": tuple(Observation(m, tuple(ids.index(i) for i in o)) for m, o in orders.items()),
-            "observed": observed}
+            "observed": tuple(observed_card(i) for i in ids), **discard}
 
 
 RANK_NAMES = {11: "Jack", 12: "Queen", 13: "King", 14: "Ace"}
@@ -116,10 +127,11 @@ class Situation:
     discards: int = 3  # with none, the selection is played
     jokers: tuple[Joker, ...] = ()  # besides the scenario's
     sorts: tuple[str, ...] = ()  # the modes the hand was seen sorted in, with its cards in place (_sorted)
+    gone: int = 0  # of the face-down cards, those discarded face down after the sorts (_sorted)
 
     @property
     def unknown(self) -> int:
-        return self.hidden + (len(HAND) - self.hidden - self.kept)
+        return self.hidden - self.gone + (len(HAND) - self.hidden - self.kept)
 
 
 KEEP_3 = Situation("Keep 3, draw 5", kept=3, hidden=0)
@@ -142,6 +154,11 @@ THE_HOUSE_SORTED = Situation("8 unknown: The House (all face-down), sorted by ra
                              sorts=("desc",))
 # After The House's first discard, the face-down cards kept have face-up neighbours: a long run.
 HOUSE_AFTER = Situation("5 unknown: 5 face-down kept, sorted by rank", kept=3, hidden=5, sorts=("desc",))
+# Then one of the face-down cards discarded face down: still in the sorts, where it bounds the other.
+SORTED_2_GONE = Situation("6 unknown: 2 face-down, 1 since discarded, draw 5, sorted by rank", kept=1, hidden=2,
+                          sorts=("desc",), gone=1)
+SORTED_2_BOTH_GONE = Situation("6 unknown: 2 face-down, 1 since discarded, draw 5, sorted both ways", kept=1,
+                               hidden=2, sorts=("desc", "suit desc"), gone=1)
 MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by rank", kept=2, hidden=3,
                         blind="The Mark", sorts=("desc",))
 # Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
@@ -189,8 +206,9 @@ class Scenario:
         if self.situation.blind == "Cerulean Bell" and "forced" in Card.__dataclass_fields__:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
-            in_run=True, hand_size=len(HAND), hands_left=4, discards_left=self.situation.discards,
-            **_sorted(hand_cards, hand, self.situation.sorts), **_unseen(cards.values(), hand_cards[known:]),
+            in_run=True, hand_size=len(HAND) - self.situation.gone, hands_left=4, discards_left=self.situation.discards,
+            **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone),
+            **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
         return state, list(range(self.situation.kept, known))
@@ -308,6 +326,8 @@ def _scenarios() -> list[Scenario]:
         # Straight Flush tells almost every card apart, so here it goes through about 260,000 deals
         # one by one, which takes minutes: left out until that's faster.
         out += [Scenario(HOUSE_AFTER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
+        out += [Scenario(s, t, jokers) for s in (SORTED_2_GONE, SORTED_2_BOTH_GONE)
+                for t in (("Pair",), ("Flush",), ("Straight",), ("Full House",), ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)
                 for t in (("Flush",), ("Straight Flush",), ("Full House", "Straight Flush"))]
     # Crimson Heart: Straight and Straight Flush see both rule sets, Flush only whether Four Fingers is on (one

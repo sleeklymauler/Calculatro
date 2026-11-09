@@ -231,15 +231,17 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
     swapped for another face card's. With Cerulean Bell the forced card's
     class matters too (see _groups), and with face-down cards the hand's sorts
     tell about which of them is discarded does, so discards aren't relabelled.
-    (Relabelling would only be right if it mapped the observations onto
-    themselves.)
+    Nor are they when the sorts tell about cards discarded face down before:
+    what's left to draw then isn't the same for a rank and the one it'd be
+    swapped with. (Relabelling would only be right if it mapped the
+    observations onto themselves.)
     """
     hand = state.hand
 
     def counts(discard: list[int]) -> tuple[int, int]:
         return len(discard), sum(hand[i].hidden for i in discard)
 
-    if state.bell or any(c.latent is not None for c in hand):
+    if state.bell or any(o.latent for o in state.observed):
         return lambda discard: (counts(discard), tuple(sorted(discard)))
     patterns = target.patterns(rules)
     reqs = {req for pattern in patterns for req in pattern}

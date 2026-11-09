@@ -144,7 +144,9 @@ panel (the `C` hotkey), hides while the card is dragged, and needs no answer fro
   the next sort), or when the card was drawn during a drag.
 - **What's possible.** `possible_cards` lists the printed rank and suit pairs in the unseen pool for
   which the other face-down cards can still all be dealt consistently with both sorts (with The Mark's
-  face cards, as the engine models them). It's a bounded search on the game's thread (`SEARCH_STEPS`),
+  face cards, as the engine models them). Those discarded face down since a sort are still in it, and
+  dealt like the rest: of two face-down cards side by side, the left one is still the higher once the
+  right one has been discarded. It's a bounded search on the game's thread (`SEARCH_STEPS`),
   run only when the hovered card or what's known changes. What it can't rule out in time stays listed.
   It can also list too much when two copies of a card would have to tie in opposite orders in the two
   sorts. It never leaves out a card that's possible. The odds read the same sorts and agree with it

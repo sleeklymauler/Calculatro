@@ -103,7 +103,7 @@ def test_a_drag_keeps_the_ids_and_moves_the_indices(two_sorts):
     assert parsed(g).observed[1] == ObservedCard(hand=0)
 
 
-def test_a_played_card_is_shown_and_a_discarded_one_is_gone(two_sorts):
+def test_a_played_card_is_shown_and_a_discarded_one_stays(two_sorts):
     g, high, left, right, low = two_sorts
     # Played, the left one is turned up: what it is is public now.
     left.facing = "front"
@@ -114,20 +114,68 @@ def test_a_played_card_is_shown_and_a_discarded_one_is_gone(two_sorts):
     assert desc["cards"] == [{"id": 0, "rank_id": 9, "suit": "Hearts"}, {"id": 1, "rank_id": 8, "suit": "Clubs"},
                              {"id": 2, "hand": 2}, {"id": 3, "rank_id": 6, "suit": "Spades"}]
     assert suit["cards"][2] == {"id": 1, "rank_id": 8, "suit": "Clubs"}
-    # Discarded face down, the right one is left out, and the ids close up.
+    # Discarded face down, the right one stays where it was seen, without saying
+    # which of the discard pile's face-down cards it is.
     right.ability.wheel_flipped = True
     g.set_area("play", [])
     g.set_area("hand", [low, high])
     g.set_area("discard", [left, right])
+    left.facing = "back"  # the discard pile turns every card over
     g.frame()
     assert exported(g) == [
         {"mode": "desc", "cards": [{"id": 0, "rank_id": 9, "suit": "Hearts"}, {"id": 1, "rank_id": 8, "suit": "Clubs"},
-                                   {"id": 2, "rank_id": 6, "suit": "Spades"}]},
-        {"mode": "suit desc", "cards": [{"id": 2, "rank_id": 6, "suit": "Spades"},
+                                   {"id": 2, "discarded": True}, {"id": 3, "rank_id": 6, "suit": "Spades"}]},
+        {"mode": "suit desc", "cards": [{"id": 3, "rank_id": 6, "suit": "Spades"},
                                         {"id": 0, "rank_id": 9, "suit": "Hearts"},
-                                        {"id": 1, "rank_id": 8, "suit": "Clubs"}]},
+                                        {"id": 1, "rank_id": 8, "suit": "Clubs"}, {"id": 2, "discarded": True}]},
     ]
-    parsed(g)  # still valid
+    state = parsed(g)
+    assert state.observed[2] == ObservedCard(discarded=True) and state.observed[2].latent
+    assert all(c.latent is None for c in state.hand)
+    # A sort of the rest replaces its own mode's, which then doesn't have it.
+    g.sort("suit desc", [low, high])
+    desc, suit = exported(g)
+    assert desc["cards"][2] == {"id": 2, "discarded": True}
+    assert [c["id"] for c in suit["cards"]] == [3, 0]
+
+
+LEFT_IN_HAND = [{"id": 0, "rank_id": 9, "suit": "Hearts"}, {"id": 1, "hand": 2},
+                {"id": 2, "rank_id": 6, "suit": "Spades"}]
+
+
+def test_a_face_down_card_gone_anywhere_else_is_left_out(two_sorts):
+    # Not in hand, not turned up, and not marked face down in the discard pile (so
+    # turned up there): nothing the mod knows of does that, so it's dropped.
+    g, high, left, right, low = two_sorts
+    g.set_area("hand", [low, high, left])
+    g.set_area("discard", [right])
+    g.frame()
+    desc, suit = exported(g)
+    assert desc["cards"] == LEFT_IN_HAND  # and the ids close up
+    assert len(suit["cards"]) == 3
+    parsed(g)
+
+
+def test_a_discarded_card_back_in_hand_or_turned_up(two_sorts):
+    g, high, left, right, low = two_sorts
+    right.ability.wheel_flipped = True
+    g.set_area("hand", [low, high, left])
+    g.set_area("discard", [right])
+    g.frame()
+    assert exported(g)[0]["cards"][2] == {"id": 2, "discarded": True}
+    # Back in hand still face down (no game card does it), it's in hand again.
+    g.set_area("discard", [])
+    g.set_area("hand", [low, high, left, right])
+    g.frame()
+    assert exported(g)[0]["cards"][2] == {"id": 2, "hand": 3}
+    # No longer marked face down in the discard pile, it's left out.
+    g.set_area("hand", [low, high, left])
+    g.set_area("discard", [right])
+    g.frame()
+    assert exported(g)[0]["cards"][2] == {"id": 2, "discarded": True}
+    right.ability.wheel_flipped = None
+    g.frame()
+    assert exported(g)[0]["cards"] == LEFT_IN_HAND
 
 
 def test_a_consumable_clears_them(two_sorts):
@@ -184,12 +232,14 @@ def test_which_cards_are_face_down_changes_nothing_sent(runtime, tmp_path):
         g.mod.settings.face_down = False
         g.frame()
         g.mod.settings.face_down = True
+        g.sort("suit desc", [king, a, nine, seven, b, two])
         b.ability.wheel_flipped = True  # discarded face down
         g.set_area("hand", [king, a, nine, seven, two])
         g.set_area("discard", [b])
         g.frame()
-        g.set_area("deck", [g.card(deck[0]), g.card(deck[1])])  # the 3♦ drawn
-        g.set_area("hand", [king, a, nine, seven, three, two])
+        # The 3♦ drawn: the draw sorts by suit, and only the rank sort still has b.
+        g.set_area("deck", [g.card(deck[0]), g.card(deck[1])])
+        g.set_area("hand", [king, a, nine, seven, two, three])
         g.frame(2)
         g.rt.eval("G.GAME").round = 2
         g.frame()
@@ -198,6 +248,7 @@ def test_which_cards_are_face_down_changes_nothing_sent(runtime, tmp_path):
     first, second = play(("QS", "6H"), ("JS", "5H")), play(("JS", "5H"), ("QS", "6H"))
     assert first == second
     assert {len(s["observations"]) for s in first} == {0, 1, 2}  # it had something to send
+    assert sum(any(c.get("discarded") for o in s["observations"] for c in o["cards"]) for s in first) >= 3
 
 
 # --- What the app parses ------------------------------------------------------------
@@ -222,6 +273,17 @@ def test_ids_are_numbered_by_first_appearance_rank_sort_first():
     assert state.observations == (Observation("desc", (0, 1, 2)), Observation("suit desc", (2, 0)))
     assert state.observed == (ObservedCard(rank_id=9, suit="Hearts"), ObservedCard(hand=1), ObservedCard(hand=2))
     assert [c.latent for c in state.observed] == [False, True, True]
+
+
+def test_a_card_discarded_face_down():
+    state = GameState.from_json({**snapshot(
+        {"mode": "desc", "cards": [nine(4), {"id": 6, "discarded": True}, {"id": 3, "hand": 1}]},
+        {"mode": "suit desc", "cards": [{"id": 6, "discarded": True}, nine(4)]}),
+        "discard": [{"hidden": True}, {"rank_id": 2, "suit": "Clubs"}]})
+    assert state.observations == (Observation("desc", (0, 1, 2)), Observation("suit desc", (1, 0)))
+    assert state.observed[1] == ObservedCard(discarded=True)
+    assert [c.latent for c in state.observed] == [False, True, True]
+    assert [c.latent for c in state.hand] == [None, 2, None]
 
 
 @pytest.mark.parametrize("raw", [None, [], {}])
@@ -275,7 +337,24 @@ def test_impossible_evidence_is_not_malformed():
     [{"mode": "desc", "cards": [{"id": 0, "hand": 1.0}]}],
     [{"mode": "desc", "cards": [{"id": 0, "hand": 1}, {"id": 1, "hand": 1}]}],
     [{"mode": "desc", "cards": [{"id": 0, "hand": 1}]}, {"mode": "suit desc", "cards": [{"id": 1, "hand": 1}]}],
+    # Discarded face down: at most as many as the discard pile has face down (one here).
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": False}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": 1}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": True, "hand": 1}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": True, "stone": True}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": True}, {"id": 1, "discarded": True}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": True}]},
+     {"mode": "suit desc", "cards": [{"id": 1, "discarded": True}]}],
+    [{"mode": "desc", "cards": [{"id": 0, "discarded": True}]}, {"mode": "suit desc", "cards": [{"id": 0, "hand": 1}]}],
 ])
 def test_malformed_observations_raise(observations):
+    discard = [{"hidden": True}, {"rank_id": 2, "suit": "Clubs"}]
     with pytest.raises(MalformedState):
-        GameState.from_json({**snapshot(), "observations": observations})
+        GameState.from_json({**snapshot(), "discard": discard, "observations": observations})
+
+
+def test_discarded_needs_a_face_down_card_in_the_discard_pile():
+    observations = [{"mode": "desc", "cards": [{"id": 0, "discarded": True}]}]
+    with pytest.raises(MalformedState):
+        GameState.from_json({**snapshot(), "discard": [{"rank_id": 2, "suit": "Clubs"}], "observations": observations})
+    assert GameState.from_json({**snapshot(), "discard": [{"hidden": True}], "observations": observations}).observed

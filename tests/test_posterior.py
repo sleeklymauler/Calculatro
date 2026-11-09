@@ -26,7 +26,7 @@ from calculatro.cards import CardQuery, parse_query
 from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard, flipped_by_mark, posterior
 from calculatro.hands import Target, combine, get_target
 from calculatro.posterior import reference
-from calculatro.search import best_card_discards
+from calculatro.search import best_card_discards, best_discards
 from calculatro.state import SCHEMA, SUITS, Card, GameState
 from game_order import nominal
 from test_engine import card, contains, contains_forced
@@ -45,10 +45,11 @@ class Case:
     """A hand whose sorts the player saw, and what its face-down cards really are.
 
     `hand` names its cards in order, `cards` says what every named card is, and
-    `down` are the face-down ones. `views` are the sorts seen, by name: they may
-    hold face-up cards no longer in hand, and miss face-down ones (no evidence).
-    `deck` is the rest of the unseen cards, `discarded` the cards discarded face
-    down, and `kw` the snapshot's other fields.
+    `down` are the face-down ones: those not in `hand` were discarded face down
+    after the sorts. `views` are the sorts seen, by name: they may hold face-up
+    cards no longer in hand, and miss face-down ones (no evidence). `deck` is the
+    rest of the unseen cards, `discarded` the cards discarded face down that no
+    sort has, and `kw` the snapshot's other fields.
     """
     hand: list[str]
     cards: dict[str, Card]
@@ -60,8 +61,17 @@ class Case:
     kw: dict = field(default_factory=dict)
 
     @property
+    def gone(self) -> list[str]:
+        """The face-down cards discarded after the sorts, in the order the snapshot gives them ids."""
+        return [n for n in self.first_seen() if n in self.down and n not in self.hand]
+
+    def first_seen(self) -> list[str]:
+        return list(dict.fromkeys(n for mode in ("desc", "suit desc") for n in self.views.get(mode, ())))
+
+    @property
     def unseen(self) -> list[Card]:
-        return [*self.deck, *(self.cards[n] for n in self.hand if n in self.down), *self.discarded]
+        return [*self.deck, *(self.cards[n] for n in self.hand if n in self.down),
+                *(self.cards[n] for n in self.gone), *self.discarded]
 
     def state(self) -> GameState:
         """As the mod would export it, parsed."""
@@ -72,6 +82,8 @@ class Case:
 
         def entry(name: str) -> dict:
             if name in self.down:
+                if name not in self.hand:
+                    return {"id": ids[name], "discarded": True}
                 return {"id": ids[name], "hand": self.hand.index(name)}
             c = self.cards[name]
             return {"id": ids[name], "stone": True} if c.is_stone else {"id": ids[name], "rank_id": c.rank_id,
@@ -84,7 +96,7 @@ class Case:
         return GameState.from_json({
             "schema": SCHEMA, "in_run": True, "hand_size": len(self.hand), "hands_left": 3, "discards_left": 1,
             "hand": [in_hand(n) for n in self.hand], "unseen": [as_json(c) for c in self.unseen],
-            "discard": [{"hidden": True}] * len(self.discarded),
+            "discard": [{"hidden": True}] * (len(self.discarded) + len(self.gone)),
             "observations": [{"mode": m, "cards": [entry(n) for n in v]} for m, v in self.views.items()],
             **self.kw})
 
@@ -115,7 +127,9 @@ def worlds(case: Case) -> list[tuple[dict[str, Card], list[Card], Fraction]]:
     allows: what each named card is, the deck left, and the deal's weight."""
     state = case.state()
     unseen = case.unseen
-    slots = [n for n in case.hand if n in case.down] + [f"discarded {i}" for i in range(len(case.discarded))]
+    assert not case.down - set(case.hand) - set(case.gone), "a card discarded face down in no sort"
+    slots = ([n for n in case.hand if n in case.down] + case.gone
+             + [f"discarded {i}" for i in range(len(case.discarded))])
     allowed = [j for j, c in enumerate(unseen) if not state.mark or flipped_by_mark(c, state.rules)]
     shown = list(dict.fromkeys(n for view in case.views.values() for n in view))
     out = []
@@ -180,11 +194,13 @@ def query_holds(query: CardQuery, state: GameState) -> Holds:
 
 
 def posterior_by_cards(case: Case, state: GameState) -> dict[tuple, Fraction]:
-    """The oracle's posterior over what the face-down cards in the views are, by hand index."""
-    latent = sorted(case.hand.index(n) for n in case.down if any(n in v for v in case.views.values()))
+    """The oracle's posterior over what the face-down cards in the views are: by
+    hand index, then those discarded after the sorts, as `Branch.discarded`."""
+    latent = sorted(case.hand.index(n) for n in case.down if n in case.hand
+                    and any(n in v for v in case.views.values()))
     found: Counter = Counter()
     for what, _, weight in worlds(case):
-        found[tuple(what[case.hand[i]] for i in latent)] += weight
+        found[tuple(what[case.hand[i]] for i in latent) + tuple(what[n] for n in case.gone)] += weight
     total = sum(found.values())
     return {k: v / total for k, v in found.items()}
 
@@ -192,7 +208,7 @@ def posterior_by_cards(case: Case, state: GameState) -> dict[tuple, Fraction]:
 def ours_by_cards(post) -> dict[tuple, Fraction]:
     found: Counter = Counter()
     for b in post.branches:
-        found[tuple(c for _, c in sorted(b.cards, key=lambda ic: ic[0]))] += b.weight
+        found[tuple(c for _, c in sorted(b.cards, key=lambda ic: ic[0])) + b.discarded] += b.weight
     return {k: v / post.total for k, v in found.items()}
 
 
@@ -278,7 +294,7 @@ def test_a_card_between_two_spades_by_suit_makes_the_flush():
 
 def random_case(rng: random.Random, ranks=range(7, 12), copies=False, stones=False, wilds=False,
                 hidden_extra=False, gone=False, discarded=False, both=None, latent=(1, 3), face_up=(1, 3),
-                **kw) -> Case:
+                down_discarded=0, **kw) -> Case:
     suits = rng.sample(SUITS, 2)
     pool = [card(r, s, "m_wild" if wilds and rng.random() < 0.2 else "c_base") for r in ranks for s in suits]
     rng.shuffle(pool)
@@ -298,6 +314,8 @@ def random_case(rng: random.Random, ranks=range(7, 12), copies=False, stones=Fal
 
     up = take("U", rng.randint(*face_up))
     down = take("L", rng.randint(*latent))
+    # Face-down cards discarded after some of the sorts: in the first, and each other with even odds.
+    after = take("D", down_discarded)
     extra = take("H", 1) if hidden_extra else []
     played = take("G", 1) if gone else []
     thrown = [pool.pop()] if discarded else []
@@ -307,11 +325,11 @@ def random_case(rng: random.Random, ranks=range(7, 12), copies=False, stones=Fal
     tiebreak = {n: rng.randrange(100) for n in cards}
     views = {}
     for k, mode in enumerate(modes):
-        shown = up + down + (played if k == 0 else [])
+        shown = up + down + (played if k == 0 else []) + [n for n in after if k == 0 or rng.random() < 0.5]
         views[mode] = sorted(shown, key=lambda n: nominal(printed(cards[n]), mode, tiebreak[n]), reverse=True)
-    hand = [n for n in views[modes[-1]] if n not in played] + extra
-    return Case(hand=hand, cards=cards, down=set(down + extra), views=dict(sorted(views.items())), deck=pool,
-                discarded=thrown, kw=kw)
+    hand = [n for n in views[modes[-1]] if n not in played and n not in after] + extra
+    return Case(hand=hand, cards=cards, down=set(down + extra + after), views=dict(sorted(views.items())),
+                deck=pool, discarded=thrown, kw=kw)
 
 
 TARGETS = [get_target("Pair"), get_target("Two Pair"), get_target("Three of a Kind")]
@@ -392,6 +410,98 @@ def test_the_house_first_hand_keeping_it_is_todays_odds(monkeypatch):
                 == engine._evaluate_discard(state, TARGETS[0], discard, None, None).probability)
         assert evaluate_cards(state, QUERIES[0], discard).probability == engine._evaluate_cards(
             state, QUERIES[0], discard).probability
+
+
+# --- Face-down cards discarded after the sorts ---------------------------------------
+
+@pytest.mark.parametrize("seed", range(10))
+def test_cards_discarded_face_down_after_the_sorts(seed):
+    # Still where they were seen: they bound the cards around them, and say
+    # what's left to draw.
+    rng = random.Random(1000 + seed)
+    case = random_case(rng, down_discarded=rng.randint(1, 2), latent=(1, 2), both=True if seed % 2 else None)
+    assert case.gone
+    check(case, some_discards(rng, case), TARGETS[:2], QUERIES)
+
+
+def only_one_discarded() -> Case:
+    """A card discarded face down from between the 9♠ and the 7♥: the 9♦ or the 8♣."""
+    return Case(hand=["nine", "seven"], cards={"nine": card(9, "Spades"), "seven": card(7, "Hearts"),
+                                              "D": card(8, "Clubs")},
+                down={"D"}, views={"desc": ["nine", "D", "seven"]},
+                deck=[card(9, "Diamonds"), card(7, "Diamonds"), card(3, "Diamonds")])
+
+
+def test_a_discarded_card_alone_says_what_is_left_to_draw():
+    case = only_one_discarded()
+    state = case.state()
+    assert all(c.latent is None for c in state.hand) and state.discarded_hidden == 1
+    pair = get_target("Pair")
+    # The 7♦ is always left to draw, the 9♦ only if the 8♣ was discarded.
+    assert evaluate_discard(state, pair, [0]).probability == Fraction(1, 3)
+    assert evaluate_discard(state, pair, [1]).probability == Fraction(1, 6)
+    # Without the sort they're alike: either is left to draw 3 times in 4, then drawn 1 time in 3.
+    plain = engine._evaluate_discard(state, pair, [1], None, None).probability
+    assert plain == engine._evaluate_discard(state, pair, [0], None, None).probability == Fraction(1, 4)
+    check(case, [[], [0], [1], [0, 1]], [pair], [parse_query("9"), parse_query("at least 1 7")])
+
+
+def test_the_search_doesnt_relabel_with_a_discarded_card_in_a_sort():
+    # Pair can't tell a 9 from a 7, and as many of each are unseen, but they aren't
+    # as likely to be left to draw: so only throwing away the 9♠ is best.
+    state = only_one_discarded().state()
+    pair = get_target("Pair")
+    assert check_search(state, pair)[0] == [0]
+    found = best_discards(state, pair)
+    assert found.options == [[0]] and found.probability == Fraction(1, 3)
+
+
+def test_the_house_after_discarding_some_face_down():
+    # Its one sort, with some of its cards since discarded face down: those kept
+    # are the higher or the lower ones, so even keeping the hand needs the deals.
+    rng = random.Random(410)
+    case = random_case(rng, face_up=(0, 0), latent=(3, 3), down_discarded=2, both=False)
+    assert len(case.hand) == 3 and len(case.gone) == 2
+    state = case.state()
+    assert not engine._says_nothing_here(state, []) and not engine._says_nothing_here(state, [0])
+    check(case, [[], [0], [0, 1, 2]], TARGETS[:2], QUERIES[:2])
+    # Throwing away the rest too leaves them all gone: today's odds.
+    assert engine._says_nothing_here(state, [0, 1, 2])
+
+
+def test_dna_copies_of_the_higher_of_two_is_not_keeping_it():
+    # Two face-down cards sorted, the left one played alone and copied twice: the
+    # copies are of the higher card, so it isn't like keeping both.
+    case = Case(hand=["L", "R"], cards={"L": card(9, "Clubs"), "R": card(7, "Clubs")}, down={"L", "R"},
+                views={"desc": ["L", "R"]}, deck=[card(8, "Clubs"), card(2, "Hearts"), card(3, "Hearts")],
+                kw={"discards_left": 0, "hands_left": 2, "dna_copies": 2})
+    state = case.state()
+    assert not engine._says_nothing_here(state, [0])
+    nines = parse_query("at least 2 9")
+    # The left one is the 9 in 4 of the 10 pairs, the right one in none.
+    assert evaluate_cards(state, nines, [0]).probability == Fraction(4, 10)
+    assert evaluate_cards(state, nines, [1]).probability == 0
+    check(case, [[0], [1]], [get_target("Three of a Kind")], [nines])
+
+
+@pytest.mark.parametrize("seed", range(2))
+def test_the_mark_with_a_card_discarded_face_down(seed):
+    rng = random.Random(520 + seed)
+    while True:  # The Mark only flips face cards
+        case = random_case(rng, ranks=range(9, 14), blind="The Mark", down_discarded=1, latent=(1, 2))
+        state = case.state()
+        if all(flipped_by_mark(case.cards[n], state.rules) for n in case.down):
+            break
+    check(case, some_discards(rng, case), TARGETS[:1], QUERIES[:3])
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_the_search_with_cards_discarded_face_down(seed):
+    rng = random.Random(950 + seed)
+    case = random_case(rng, down_discarded=1, latent=(1, 2), face_up=(2, 3))
+    state = case.state()
+    for target in (get_target("Pair"), get_target("Three of a Kind"), QUERIES[0], QUERIES[1]):
+        check_search(state, target)
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -489,12 +599,17 @@ def test_face_up_cards_out_of_order_are_set_aside():
 
 
 def test_resolving_changes_no_counts():
-    case = random_case(random.Random(700), hidden_extra=True, discarded=True, latent=(1, 2), face_up=(1, 2))
+    case = random_case(random.Random(700), hidden_extra=True, discarded=True, latent=(1, 1), face_up=(1, 1),
+                       down_discarded=1)
     state = case.state()
+    assert state.discarded_hidden == 2
     for b in posterior(state).branches:
         resolved = engine._resolved(state, b)
+        assert len(b.discarded) == 1
         assert (resolved.deck_size, len(resolved.hand)) == (state.deck_size, len(state.hand))
-        assert sorted(map(repr, resolved.unseen + [c for i, c in b.cards])) == sorted(map(repr, state.unseen))
+        assert (len(resolved.discard), resolved.discarded_hidden) == (len(state.discard), 1)
+        assert sorted(map(repr, resolved.unseen + [c for i, c in b.cards] + list(b.discarded))) == sorted(
+            map(repr, state.unseen))
         for discard in ([], [0], [1, 2]):
             assert engine._discard(resolved, discard).draws == engine._discard(state, discard).draws
 

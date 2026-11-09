@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 12
+SCHEMA = 13
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -113,17 +113,19 @@ SORT_MODES = ("desc", "suit desc")  # the game's rank and suit sorts, in the sna
 @dataclass(frozen=True)
 class ObservedCard:
     """A card in an observation, as the player saw it: exactly one of its printed
-    rank and suit, a Stone (which shows neither), or face down in hand at `hand`."""
+    rank and suit, a Stone (which shows neither), face down in hand at `hand`, or
+    since discarded face down (one of the discard pile's hidden cards, not saying which)."""
 
     rank_id: int | None = None
     suit: str | None = None
     stone: bool = False
     hand: int | None = None  # 0-based index into `GameState.hand`, of a hidden card
+    discarded: bool = False
 
     @property
     def latent(self) -> bool:
         """Whether the player hasn't seen what it is."""
-        return self.hand is not None
+        return self.hand is not None or self.discarded
 
 
 @dataclass(frozen=True)
@@ -147,14 +149,14 @@ def _observed_card(raw: Any, hand: list[Card]) -> tuple[int, ObservedCard]:
     if not isinstance(raw, dict):
         raise TypeError(f"an observed card is a {type(raw).__name__}, not an object")
     card_id = _int(raw.get("id"), "an observed card's id")
-    kinds = [kind for kind, keys in (("printed", ("rank_id", "suit")), ("stone", ("stone",)), ("hand", ("hand",)))
-             if any(key in raw for key in keys)]
+    kinds = [kind for kind in ("printed", "stone", "hand", "discarded")
+             if any(key in raw for key in (("rank_id", "suit") if kind == "printed" else (kind,)))]
     if len(kinds) != 1:
         raise ValueError(f"observed card {card_id} is {' and '.join(kinds) or 'nothing'}, not one kind")
-    if kinds == ["stone"]:
-        if raw["stone"] is not True:
-            raise ValueError(f"observed card {card_id} has stone {raw['stone']!r}")
-        return card_id, ObservedCard(stone=True)
+    if kinds[0] in ("stone", "discarded"):
+        if raw[kinds[0]] is not True:
+            raise ValueError(f"observed card {card_id} has {kinds[0]} {raw[kinds[0]]!r}")
+        return card_id, ObservedCard(stone=True) if kinds == ["stone"] else ObservedCard(discarded=True)
     if kinds == ["hand"]:
         index = _int(raw["hand"], "an observed card's hand index")
         if not 0 <= index < len(hand) or not hand[index].hidden:
@@ -167,7 +169,8 @@ def _observed_card(raw: Any, hand: list[Card]) -> tuple[int, ObservedCard]:
     return card_id, ObservedCard(rank_id=rank_id, suit=suit)
 
 
-def _observations(raw: Any, hand: list[Card]) -> tuple[tuple[Observation, ...], tuple[ObservedCard, ...]]:
+def _observations(raw: Any, hand: list[Card],
+                  discard: list[Card]) -> tuple[tuple[Observation, ...], tuple[ObservedCard, ...]]:
     """The snapshot's observations, and what each of their cards is by id.
 
     Ids are renumbered 0, 1, ... by first appearance, with the "desc" sort first,
@@ -211,9 +214,11 @@ def _observations(raw: Any, hand: list[Card]) -> tuple[tuple[Observation, ...], 
                 raise ValueError(f"observed card {card_id} differs between the sorts")
             order.append(renumbered[card_id])
         observations.append(Observation(mode, tuple(order)))
-    hands = [card.hand for card in observed if card.latent]
+    hands = [card.hand for card in observed if card.hand is not None]
     if len(set(hands)) != len(hands):
         raise ValueError("two observed cards are at the same hand index")
+    if sum(card.discarded for card in observed) > sum(card.hidden for card in discard):
+        raise ValueError("more observed cards discarded face down than the discard pile has")
     return tuple(observations), tuple(observed)
 
 
@@ -292,9 +297,10 @@ class GameState:
             return cls(in_run=False, id=_text(d, "id"))
         tracked = d.get("tracked") or {}
         hand = _cards(d.get("hand"))
-        observations, observed = _observations(d.get("observations"), hand)
+        discard = _cards(d.get("discard"))
+        observations, observed = _observations(d.get("observations"), hand, discard)
         for card_id, card in enumerate(observed):
-            if card.latent:
+            if card.hand is not None:
                 hand[card.hand] = replace(hand[card.hand], latent=card_id)
         return cls(
             in_run=True,
@@ -310,7 +316,7 @@ class GameState:
             hand=hand,
             played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
-            discard=_cards(d.get("discard")),
+            discard=discard,
             jokers=[Joker(_text(j, "key"), bool(j.get("debuff", False)), bool(j.get("perished", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
             dna_copies=d.get("dna_copies") or 0,
