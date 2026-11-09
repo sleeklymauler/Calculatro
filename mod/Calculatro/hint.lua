@@ -57,11 +57,14 @@ local function candidates()
 end
 
 -- Each observation's mode, and for every face-down card in it, its position and
--- the sort keys of the face-up cards it lies between.
--- Face-up cards are in order, so the nearest ones are the tightest bounds.
+-- the sort keys of the face-up cards it lies between, in the order recorded (so
+-- the same hand always searches alike). A mode may repeat: every sort is true of
+-- the cards in it. Face-up cards are in order, so the nearest ones are the
+-- tightest bounds.
 local function read_observations()
     local list = {}
-    for mode, observation in pairs(Calculatro.observations) do
+    for _, observation in ipairs(Calculatro.observations) do
+        local mode = observation.mode
         local position, high, low = {}, {}, {}
         local bound = math.huge
         for i, entry in ipairs(observation.cards) do
@@ -78,8 +81,6 @@ local function read_observations()
         end
         list[#list + 1] = { mode = mode, position = position, high = high, low = low, entries = observation.cards }
     end
-    -- In a fixed order, as pairs' isn't, so the same hand always searches alike.
-    table.sort(list, function(a, b) return a.mode < b.mode end)
     return list
 end
 
@@ -92,7 +93,7 @@ end
 -- get whatever's left, which there's enough of, since the pool holds every
 -- face-down card. Two cards of the same rank and suit tie here in both modes, though
 -- the game breaks that tie the same way each time, so in the rare case they'd have to
--- be in opposite orders in the two sorts, this lets them be: too much again, never
+-- be in opposite orders in two sorts, this lets them be: too much again, never
 -- wrong.
 function Calculatro.possible_cards(card)
     local observations = read_observations()

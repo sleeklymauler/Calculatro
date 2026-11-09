@@ -132,11 +132,38 @@ def test_a_played_card_is_shown_and_a_discarded_one_stays(two_sorts):
     state = parsed(g)
     assert state.observed[2] == ObservedCard(discarded=True) and state.observed[2].latent
     assert all(c.latent is None for c in state.hand)
-    # A sort of the rest replaces its own mode's, which then doesn't have it.
+    # A sort of the rest, both face up, says nothing: the earlier sorts stay as they were.
+    before = exported(g)
     g.sort("suit desc", [low, high])
-    desc, suit = exported(g)
-    assert desc["cards"][2] == {"id": 2, "discarded": True}
-    assert [c["id"] for c in suit["cards"]] == [3, 0]
+    assert exported(g) == before
+
+
+def test_earlier_sorts_go_out_in_the_order_recorded(game):  # noqa: F811
+    # Sorted by rank, by suit, then a discard and a draw sorted by suit again.
+    nine, left, right, six = game.card("9H"), game.card("8C", "back"), game.card("7C", "back"), game.card("6S")
+    two, rest = game.card("2C"), game.card("KD")
+    game.deal([nine, left, right, six], [two, rest])
+    game.sort("suit desc", [six, nine, left, right])
+    right.ability.wheel_flipped = True
+    game.set_area("hand", [six, nine, left])
+    game.set_area("discard", [right])
+    game.frame()
+    game.set_area("deck", [rest])
+    game.set_area("hand", [six, nine, left, two])
+    game.frame(2)
+    assert exported(game) == [
+        {"mode": "desc", "cards": [{"id": 0, "rank_id": 9, "suit": "Hearts"}, {"id": 1, "hand": 2},
+                                   {"id": 2, "discarded": True}, {"id": 3, "rank_id": 6, "suit": "Spades"}]},
+        {"mode": "suit desc", "cards": [{"id": 3, "rank_id": 6, "suit": "Spades"},
+                                        {"id": 0, "rank_id": 9, "suit": "Hearts"},
+                                        {"id": 1, "hand": 2}, {"id": 2, "discarded": True}]},
+        {"mode": "suit desc", "cards": [{"id": 3, "rank_id": 6, "suit": "Spades"},
+                                        {"id": 0, "rank_id": 9, "suit": "Hearts"},
+                                        {"id": 1, "hand": 2}, {"id": 4, "rank_id": 2, "suit": "Clubs"}]},
+    ]
+    state = parsed(game)
+    assert [o.mode for o in state.observations] == ["desc", "suit desc", "suit desc"]
+    assert state.observations[2] == Observation("suit desc", (3, 0, 1, 4))
 
 
 LEFT_IN_HAND = [{"id": 0, "rank_id": 9, "suit": "Hearts"}, {"id": 1, "hand": 2},
@@ -237,18 +264,30 @@ def test_which_cards_are_face_down_changes_nothing_sent(runtime, tmp_path):
         g.set_area("hand", [king, a, nine, seven, two])
         g.set_area("discard", [b])
         g.frame()
-        # The 3♦ drawn: the draw sorts by suit, and only the rank sort still has b.
-        g.set_area("deck", [g.card(deck[0]), g.card(deck[1])])
+        # The 3♦ drawn: the draw sorts by suit. The earlier sorts stay, with b.
+        spade, heart = g.card(deck[0]), g.card(deck[1], "back")
+        g.set_area("deck", [spade, heart])
         g.set_area("hand", [king, a, nine, seven, two, three])
         g.frame(2)
+        # The 9♠ and the 2♣ discarded face up, and the other heart drawn face down,
+        # where b was in both games; then sorted by rank, the same in both too.
+        g.set_area("hand", [king, a, seven, three])
+        g.set_area("discard", [b, nine, two])
+        g.frame()
+        g.set_area("deck", [spade])
+        g.set_area("hand", [king, a, seven, heart, three])
+        g.frame(2)
+        g.sort("desc", [king, a, seven, heart, three])
+        g.sort("desc", [king, a, seven, heart, three])  # adds nothing
         g.rt.eval("G.GAME").round = 2
         g.frame()
         return snapshots
 
     first, second = play(("QS", "6H"), ("JS", "5H")), play(("JS", "5H"), ("QS", "6H"))
     assert first == second
-    assert {len(s["observations"]) for s in first} == {0, 1, 2}  # it had something to send
+    assert {len(s["observations"]) for s in first} == {0, 1, 2, 3, 4, 5}  # it had something to send
     assert sum(any(c.get("discarded") for o in s["observations"] for c in o["cards"]) for s in first) >= 3
+    assert sum(len(s["observations"]) == 5 for s in first) >= 3
 
 
 # --- What the app parses ------------------------------------------------------------
@@ -264,15 +303,32 @@ def nine(card_id=0):
     return {"id": card_id, "rank_id": 9, "suit": "Hearts"}
 
 
-def test_ids_are_numbered_by_first_appearance_rank_sort_first():
-    # Whatever the ids sent, equal evidence parses equal.
+def test_ids_are_numbered_by_first_appearance_in_the_order_sent():
+    # Whatever the ids sent, equal evidence parses equal. The sorts keep the order
+    # the mod recorded them in.
     state = GameState.from_json(snapshot(
         {"mode": "suit desc", "cards": [{"id": 7, "hand": 2}, nine(5)]},
         {"mode": "desc", "cards": [nine(5), {"id": 3, "hand": 1}, {"id": 7, "hand": 2}]},
     ))
-    assert state.observations == (Observation("desc", (0, 1, 2)), Observation("suit desc", (2, 0)))
-    assert state.observed == (ObservedCard(rank_id=9, suit="Hearts"), ObservedCard(hand=1), ObservedCard(hand=2))
-    assert [c.latent for c in state.observed] == [False, True, True]
+    assert state.observations == (Observation("suit desc", (0, 1)), Observation("desc", (1, 2, 0)))
+    assert state.observed == (ObservedCard(hand=2), ObservedCard(rank_id=9, suit="Hearts"), ObservedCard(hand=1))
+    assert [c.latent for c in state.observed] == [True, False, True]
+
+
+def test_a_mode_may_repeat():
+    # Earlier sorts are kept: a draw re-sorts the hand, but what they said is still true.
+    state = GameState.from_json({**snapshot(
+        {"mode": "desc", "cards": [nine(0), {"id": 1, "discarded": True}, {"id": 2, "hand": 1}]},
+        {"mode": "suit desc", "cards": [nine(0), {"id": 2, "hand": 1}]},
+        {"mode": "desc", "cards": [nine(0), {"id": 2, "hand": 1}, {"id": 3, "hand": 2}]}),
+        "discard": [{"hidden": True}]})
+    assert state.observations == (Observation("desc", (0, 1, 2)), Observation("suit desc", (0, 2)),
+                                  Observation("desc", (0, 2, 3)))
+    assert [c.latent for c in state.hand] == [None, 2, 3]
+    # An id is still the same card everywhere.
+    with pytest.raises(MalformedState):
+        GameState.from_json(snapshot({"mode": "desc", "cards": [nine(0)]},
+                                     {"mode": "desc", "cards": [{"id": 0, "rank_id": 8, "suit": "Hearts"}]}))
 
 
 def test_a_card_discarded_face_down():
@@ -305,7 +361,6 @@ def test_impossible_evidence_is_not_malformed():
     [["desc"]],
     [{"mode": "asc", "cards": []}],
     [{"cards": []}],
-    [{"mode": "desc", "cards": []}, {"mode": "desc", "cards": []}],
     [{"mode": "desc", "cards": {"id": 0}}],
     [{"mode": "desc", "cards": [None]}],
     # Not exactly one kind.

@@ -44,7 +44,8 @@ def _unseen(deck, hidden: list[Card]) -> dict[str, list[Card]]:
     return {"deck": deck, "hidden_pool": hidden}
 
 
-def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: int = 0) -> dict:
+def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: int = 0,
+            earlier: tuple[tuple[str, tuple[str, ...]], ...] = (), texts: tuple[str, ...] = ()) -> dict:
     """GameState's fields for the hand's sorts in `sorts` (modes), as the mod
     exports them: `cards` are the hand's cards as they really are, and `hand`
     as the player sees them. Ids are numbered by first appearance, the rank
@@ -52,30 +53,49 @@ def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: i
 
     The last `gone` cards, face down, were discarded face down after the sorts:
     they're in the discard pile, and in the sorts only in versions that keep them
-    there (stage 3 of docs/plans/face-down-windows.md)."""
+    there (stage 3 of docs/plans/face-down-windows.md).
+
+    `earlier` are sorts seen before those, as (mode, cards): each is one of the
+    hand's, by its text in `texts`, or a standard deck's card since gone, "?"
+    before it if it was discarded face down (in the discard pile, and unseen), and
+    otherwise played or discarded face up. Versions that keep only the latest sort
+    of each mode (before stage 4) get only `sorts`."""
     left = len(hand) - gone
-    discard = {"discard": [Card(hidden=True)] * gone} if gone else {}
+    downs = list(dict.fromkeys(t for _, ts in earlier for t in ts if t.startswith("?")))
+    hidden = gone + len(downs)
+    discard = {"discard": [Card(hidden=True)] * hidden} if hidden else {}
     if not sorts or "observations" not in GameState.__dataclass_fields__:
         return {"hand": hand[:left], **discard}
-    from calculatro.state import Observation, ObservedCard
-    suit = {"Diamonds": 0, "Clubs": 1, "Hearts": 2, "Spades": 3}
+    from calculatro.state import SCHEMA, Observation, ObservedCard
+    suit ={"Diamonds": 0, "Clubs": 1, "Hearts": 2, "Spades": 3}
+
+    def true(i: int | str) -> Card:
+        return cards[i] if isinstance(i, int) else _card(*_parse(i.lstrip("?")))
 
     def key(mode: str):
         if mode == "desc":
-            return lambda i: (cards[i].rank_id, suit[cards[i].suit])
-        return lambda i: (suit[cards[i].suit], cards[i].rank_id)
+            return lambda i: (true(i).rank_id, suit[true(i).suit])
+        return lambda i: (suit[true(i).suit], true(i).rank_id)
 
     keeps_gone = "discarded" in ObservedCard.__dataclass_fields__
+    keeps_earlier = SCHEMA >= 14
     shown = [i for i in range(len(cards)) if i < left or keeps_gone]
-    orders = {mode: sorted(shown, key=key(mode), reverse=True) for mode in sorted(sorts)}
-    ids = list(dict.fromkeys(i for order in orders.values() for i in order))
+    orders: list[tuple[str, list[int | str]]] = []
+    if keeps_earlier:
+        orders += [(mode, sorted([texts.index(t) if t in texts else t for t in ts], key=key(mode), reverse=True))
+                   for mode, ts in earlier]
+    orders += [(mode, sorted(shown, key=key(mode), reverse=True)) for mode in sorted(sorts)]
+    ids = list(dict.fromkeys(i for _, order in orders for i in order))
 
-    def observed_card(i: int) -> ObservedCard:
+    def observed_card(i: int | str) -> ObservedCard:
+        if isinstance(i, str):
+            return ObservedCard(discarded=True) if i.startswith("?") else ObservedCard(rank_id=true(i).rank_id,
+                                                                                       suit=true(i).suit)
         if i >= left:
             return ObservedCard(discarded=True)
         return ObservedCard(hand=i) if hand[i].hidden else ObservedCard(rank_id=cards[i].rank_id, suit=cards[i].suit)
     return {"hand": [replace(c, latent=ids.index(i)) if c.hidden else c for i, c in enumerate(hand[:left])],
-            "observations": tuple(Observation(m, tuple(ids.index(i) for i in o)) for m, o in orders.items()),
+            "observations": tuple(Observation(m, tuple(ids.index(i) for i in o)) for m, o in orders),
             "observed": tuple(observed_card(i) for i in ids), **discard}
 
 
@@ -128,6 +148,7 @@ class Situation:
     jokers: tuple[Joker, ...] = ()  # besides the scenario's
     sorts: tuple[str, ...] = ()  # the modes the hand was seen sorted in, with its cards in place (_sorted)
     gone: int = 0  # of the face-down cards, those discarded face down after the sorts (_sorted)
+    earlier: tuple[tuple[str, tuple[str, ...]], ...] = ()  # sorts seen before those, as (mode, cards) (_sorted)
 
     @property
     def unknown(self) -> int:
@@ -159,6 +180,17 @@ SORTED_2_GONE = Situation("6 unknown: 2 face-down, 1 since discarded, draw 5, so
                           sorts=("desc",), gone=1)
 SORTED_2_BOTH_GONE = Situation("6 unknown: 2 face-down, 1 since discarded, draw 5, sorted both ways", kept=1,
                                hidden=2, sorts=("desc", "suit desc"), gone=1)
+# Earlier sorts (stage 4). The House's first hand sorted by rank, all face down; then 3 of them
+# discarded face down, and 3 drawn face up, re-sorted by rank. That first sort still holds all 8.
+HOUSE_EARLIER = Situation("5 unknown: The House after its first discard, sorted by rank before and after", kept=3,
+                          hidden=5, sorts=("desc",),
+                          earlier=(("desc", ("?AS", "?6C", "?TD", "QC", "KD", "3S", "5D", "JH")),))
+# The Fish: the hand before had 5 cards drawn face down after a play; 3 of them were played (turned
+# up), the K and the 5 kept, and 3 more drawn face down. The earlier sort has the K between the A and
+# the 10 played, and the 5 between the 7 and the 4.
+FISH_EARLIER = Situation("5 unknown: The Fish, 2 face-down kept from the hand before, sorted by rank both times",
+                         kept=3, hidden=5, sorts=("desc",),
+                         earlier=(("desc", ("7H", "8H", "9S", "AS", "KD", "TC", "5D", "4D")),))
 MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by rank", kept=2, hidden=3,
                         blind="The Mark", sorts=("desc",))
 # Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
@@ -199,6 +231,10 @@ class Scenario:
         """The game state and the hand indices selected for discarding."""
         cards = {(c.rank_id, c.suit): c for c in deck(self.deck)}
         hand_cards = [cards.pop(_parse(t)) for t in HAND]
+        for _, texts in self.situation.earlier:  # played or discarded face up since: not unseen
+            for t in texts:
+                if t not in HAND and not t.startswith("?"):
+                    cards.pop(_parse(t), None)
         if self.situation.blind == "The Mark":
             hand_cards.sort(key=lambda c: c.rank_id in (11, 12, 13))
         known = len(HAND) - self.situation.hidden
@@ -207,7 +243,7 @@ class Scenario:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
             in_run=True, hand_size=len(HAND) - self.situation.gone, hands_left=4, discards_left=self.situation.discards,
-            **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone),
+            **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone, self.situation.earlier, tuple(HAND)),
             **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
@@ -326,6 +362,9 @@ def _scenarios() -> list[Scenario]:
         # Straight Flush tells almost every card apart, so here it goes through about 260,000 deals
         # one by one, which takes minutes: left out until that's faster.
         out += [Scenario(HOUSE_AFTER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
+        # Earlier sorts kept (stage 4). HOUSE_EARLIER is left out: its first sort, of 8 face-down cards,
+        # puts the 3 since discarded in wide windows: its posterior doesn't finish in 9 minutes.
+        out += [Scenario(FISH_EARLIER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
         out += [Scenario(s, t, jokers) for s in (SORTED_2_GONE, SORTED_2_BOTH_GONE)
                 for t in (("Pair",), ("Flush",), ("Straight",), ("Full House",), ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)

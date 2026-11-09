@@ -5,8 +5,8 @@ in game under The Wheel, The Fish and The House (not yet The Mark). Stage 1 (the
 parsing, schema 12) is done and checked in game (2026-11-08). Stage 2 (the odds and the search use
 the observations) is done, tested against dealing every way, and checked in game under The Fish
 (2026-11-08). Stage 3 (cards discarded face down stay in the observations, schema 13) is done and
-tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept) is
-planned (2026-11-08), not started. Stage 5 is by decision. Revised
+tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept, schema
+14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is by decision. Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -26,8 +26,9 @@ random unseen face card).
 The mod already records the hand's order when it can trust it to be the
 game's sort (an **observation**), keeping only what the player sees: the
 face-up cards' printed rank and suit, Stones, and where the face-down cards
-sit among them. It keeps the latest observation of each sort mode, and the
-hint shows what each face-down card can be given both. This plan exports
+sit among them. It keeps every sort seen this round (from stage 4; before,
+the latest of each mode), and the hint shows what each face-down card can be
+given all of them. This plan exports
 those observations, and Python conditions the face-down cards' identities on
 them, so the engine and the best-discard search use that posterior.
 
@@ -57,8 +58,8 @@ Decisions already made:
   carries none, so the odds and the search are today's. `observe.lua` watches
   the hand either way, so turning it on mid-hand takes effect at once.
 - **The odds know everything the hint knows** (decided 2026-11-08): they use
-  the same observations, the latest of each sort mode, whether the player has
-  sorted by rank, by suit or both. They weigh whole deals consistent with all
+  the same observations, every sort seen this round (from stage 4), whether
+  the player has sorted by rank, by suit or both. They weigh whole deals consistent with all
   of them, not the hint's per-card lists (see
   [why not](#why-not-the-hints-lists)). The only exception is The Mark with
   the `flipped_cards` modifier (see [The Mark's prior](#the-marks-prior)).
@@ -180,8 +181,9 @@ That's exactly what the player sees. It holds more than per-card intervals:
 it also says that, of two face-down cards side by side, the left one is the
 higher, and it bounds each latent card by its face-up neighbours.
 
-The mod keeps **the latest observation of each mode**, so at most two. A card
-that's in both is the same card in both, and the export says so (each card
+The mod keeps **every observation of the round** (from [stage 4](#stages);
+until then the latest of each mode), less those the others imply. A card
+that's in several is the same card in each, and the export says so (each card
 has an id, see [Snapshot](#snapshot)). The player can see this: cards move
 into place when sorted, and tied cards keep their relative order between the
 sorts anyway.
@@ -263,7 +265,7 @@ the observations the hint uses and weigh whole deals; a
 
 ### Which observations
 
-- The odds use the latest observation of each mode, exactly what the hint
+- The odds use every observation the mod keeps, exactly what the hint
   uses. Their latent entries are cards still face down in hand, or discarded
   face down since (from stage 3; stages 1-2 left those out).
   - A latent card that has since been revealed (played, or flipped up) has its
@@ -277,11 +279,15 @@ the observations the hint uses and weigh whole deals; a
     left out. Leaving cards out of an observation is conditioning on part of
     what was seen (a subsequence of a sorted order is the sorted order of those
     cards), so the posterior is still correct for that information.
-- A draw re-sorts the hand in the current mode and replaces that mode's
-  observation, which then holds only the cards in hand. So a card discarded
-  face down usually stays only in the other mode's observation, when the player
-  had sorted both ways before discarding it. [Stage 4](#stages) keeps the
-  earlier sorts instead.
+- A draw re-sorts the hand in the current mode and adds an observation, which
+  holds only the cards in hand. The earlier ones stay ([stage 4](#stages);
+  until then the draw replaced that mode's observation), so a card discarded
+  face down, or kept while its neighbours were discarded, keeps what it was
+  seen next to.
+- The mod keeps only what isn't implied by the rest (both exact): no
+  observation that's a subsequence of another of its mode, as its entries are
+  now (of two equal ones, the earlier), and none with no latent entries left
+  unless two of its cards are alike in print (copies or Stones).
 
 Every deliberate coarsening is listed here and in the code: the tie policy,
 dropping a latent card that leaves the hand face down other than by a discard,
@@ -346,8 +352,9 @@ Done in stage 0 (`observe.lua`). Since stage 1, entries keep their card for
 ids, face up too (`{card, latent = true}` or `{card, rank_id, suit}` /
 `{card, stone = true}`).
 
-Two things are kept apart: **evidence** (the latest observation of each mode,
-true until an event makes it false) and **readiness** (whether the current
+Two things are kept apart: **evidence** (every observation of the round, in
+the order recorded, true until an event makes it false; until stage 4 the
+latest of each mode) and **readiness** (whether the current
 order may be recorded as a new observation). A drag ends readiness but leaves
 the evidence; a consumable ends both.
 
@@ -413,7 +420,8 @@ mod's other reads of `G`.
 
 ### Snapshot
 
-The snapshot gains `observations`, a list of at most two, `"desc"` first:
+The snapshot gains `observations`, a list in the order recorded (from
+stage 4, schema 14; until then at most two, `"desc"` first):
 
 ```json
 "observations": [
@@ -426,14 +434,15 @@ The snapshot gains `observations`, a list of at most two, `"desc"` first:
 ]
 ```
 
-- `mode` is `"desc"` or `"suit desc"`, each at most once.
+- `mode` is `"desc"` or `"suit desc"`, and may repeat (until stage 4, each at
+  most once).
 - `cards` is the observed sequence, left to right. Each entry has an `id` and
   exactly one of:
   - a face-up card's printed `rank_id` (2..14) and `suit`;
   - `"stone": true` for a face-up Stone;
   - `"hand": i`: a latent card by its **current** 0-based hand index, which
     must be a `{hidden: true}` card.
-- `id` is the physical card: the same id in both observations is the same
+- `id` is the physical card: the same id in several observations is the same
   card, with the same content. Ids are numbered 0, 1, ... by first appearance,
   reading the observations in order, so they say nothing the order doesn't.
   An id appears at most once per observation, and two ids never share a hand
@@ -652,6 +661,21 @@ Measured in stage 3 (2026-11-08), with cards discarded face down kept:
   2.7%). Not in the scenarios (their hands can't be drawn into); measured by
   hand. Cancellation: under 10 ms.
 
+Measured in stage 4 (2026-11-08), with earlier sorts kept:
+
+- The Fish, five face-down cards around three face-up ones, two of them kept
+  from the hand before, whose earlier sort still bounds them (the "The Fish"
+  scenarios): 148,512 branches, built in 0.7 s; Pair, Flush and Full House in
+  0.6-1.6 s, Four Fingers + Shortcut included. Without the earlier sort it's
+  the 263,340 above, so more sorts leave fewer deals here.
+- The House sorted by rank, then 3 of its cards discarded face down and 3
+  drawn face up, re-sorted by rank: the first sort holds all 8, the 3
+  discarded with only their order to bound them. Building its posterior
+  doesn't finish in 9 minutes (cancelled in 18 ms), against 11 s when the
+  draw is re-sorted by suit (stage 3, above), whose suit order bounds the 5
+  kept far more than 7H, 8H and 9S do by rank. Not in the scenarios
+  (`HOUSE_EARLIER`); for stage 5.
+
 ## Tests
 
 - **Mod** (lupa). The state machine's cases are in `tests/test_hint.py` from
@@ -782,8 +806,8 @@ Measured in stage 3 (2026-11-08), with cards discarded face down kept:
    - Still to check in game: under The Wheel or The Fish, sort both ways,
      discard a face-down card, and hover its neighbour; and The House's speed
      after its first discard (see [Performance](#performance)).
-4. **Earlier sorts** (decided 2026-11-08), not started: keep every sort seen this
-   round, not just the latest of each mode.
+4. **Earlier sorts**, done and checked in game (2026-11-08): keep every sort
+   seen this round, not just the latest of each mode.
    - Why: a draw re-sorts the hand and replaces that mode's observation, so
      what an earlier sort said about a face-down card still in hand is lost. A
      card seen between a 9♣ and a 7♣ in a rank sort, kept while both are
@@ -843,6 +867,20 @@ Measured in stage 3 (2026-11-08), with cards discarded face down kept:
      - The odds and the hint agree with several sorts.
      - Benchmarks: The House sorted by rank only, after its first discard; The
        Fish over several hands.
+   - Done as planned: `observe.lua`'s `prune`, `subsequence` and
+     `says_something`; `record` keeps what's consistent and bumps `observed`
+     only when the list changes. The oracle is `Round` in
+     `tests/test_posterior.py` (rounds played out from a shuffled deck: every
+     draw order and tiebreak), and `tests/test_hint.py` replays the same rounds
+     in the mod, checking its pruned snapshot gives the same odds as every sort
+     kept, and the hint the posterior's support. Keeping only the latest sort
+     of each mode changed the posterior in 13 of 14 such rounds.
+   - Benchmarks: The Fish (`FISH_EARLIER`) is in the scenarios; The House
+     (`HOUSE_EARLIER`) isn't, being too slow (see [Performance](#performance)).
+   - Checked in game (2026-11-08): under The Fish, sorted by rank, some
+     face-down cards played and one kept, its hint stays as narrow after the
+     draw; a second Sort press doesn't restart the odds; and The House after
+     its first discard.
    - **Docs** that say "the latest of each mode": `docs/architecture.md` (the
      snapshot), `docs/probability-model.md`, `docs/panel.md` (the hint), and
      this plan's model sections.

@@ -138,17 +138,19 @@ panel (the `C` hotkey), hides while the card is dragged, and needs no answer fro
 - **No hook.** `refresh_hint` reads `states.hover.is` every frame and builds its own box, set up like
   the game's card popups (`Card:align_h_popup`). The game shows no popup of its own for a face-down
   card (`Card:hover`), so the two never meet.
-- **What's known.** `observe.lua` keeps the latest observation of each sort mode. See
+- **What's known.** `observe.lua` keeps every sort of the hand seen this round, less those that say
+  nothing more than the rest (`prune`), so a card kept while its neighbours are discarded keeps its
+  window after the draw re-sorts the hand. See
   [the plan](plans/face-down-windows.md#observation-state-machine) for when the hand's order is trusted.
   With no observation of the card there's no box, as after loading a save or using a consumable (until
   the next sort), or when the card was drawn during a drag.
 - **What's possible.** `possible_cards` lists the printed rank and suit pairs in the unseen pool for
-  which the other face-down cards can still all be dealt consistently with both sorts (with The Mark's
+  which the other face-down cards can still all be dealt consistently with every sort (with The Mark's
   face cards, as the engine models them). Those discarded face down since a sort are still in it, and
   dealt like the rest: of two face-down cards side by side, the left one is still the higher once the
   right one has been discarded. It's a bounded search on the game's thread (`SEARCH_STEPS`),
   run only when the hovered card or what's known changes. What it can't rule out in time stays listed.
-  It can also list too much when two copies of a card would have to tie in opposite orders in the two
+  It can also list too much when two copies of a card would have to tie in opposite orders in two
   sorts. It never leaves out a card that's possible. The odds read the same sorts and agree with it
   otherwise; under The Mark with the challenges' `flipped_cards` modifier the hint allows every card,
   while the odds don't use the sorts at all.
@@ -189,8 +191,8 @@ type, keeps the default. There's one so far:
 - **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and the
   snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds and the
   best-discard search use ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
-  With many face-down cards in wide windows (The House after its first discard), the odds can show
-  "Calculating..." for a long time.
+  With many face-down cards in wide windows (The House after its first discard, whose first sort is
+  kept), the odds can show "Calculating..." for a long time, or not finish.
 
 ## Target editor
 

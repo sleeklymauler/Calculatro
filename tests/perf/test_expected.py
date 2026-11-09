@@ -79,6 +79,8 @@ SLOW = {
     "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Straight Flush | Four Fingers + Shortcut",
     "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) "
     "| Four Fingers + Shortcut",
+    *(f"standard | 5 unknown: The Fish, 2 face-down kept from the hand before, sorted by rank both times | {t} | {j}"
+      for t in ("Pair", "Flush", "Full House") for j in ("No jokers", "Four Fingers + Shortcut")),
     "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Full House | No jokers",
     "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Straight Flush | No jokers",
     "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Flush + Straight + Full House (any) | No jokers",

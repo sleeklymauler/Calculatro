@@ -174,11 +174,13 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
   metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key
   (`m_stone`, `m_wild`, `c_base`, ...).
-- `observations` (with the "Face-down windows" setting on, `[]` otherwise) is the latest sort of the
-  hand in each mode, `"desc"` first, from `Calculatro.export_observations`: each card an `id` and one of
+- `observations` (with the "Face-down windows" setting on, `[]` otherwise) is every sort of the hand
+  seen this round, in the order recorded, where a mode may repeat (a draw re-sorts the hand, but an
+  earlier sort is still true of the cards in it), less those `observe.lua`'s `prune` drops as saying
+  nothing more, from `Calculatro.export_observations`: each card an `id` and one of
   a face-up card's printed `rank_id` and `suit`, `"stone": true`, `"hand": i` for a card face down
   at that hand index, or `"discarded": true` for one since discarded face down (still in the discard
-  pile with `wheel_flipped`). A card in both sorts has the same id. `GameState.from_json` checks them
+  pile with `wheel_flipped`). A card in several sorts has the same id. `GameState.from_json` checks them
   more than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree,
   and there can't be more discarded ones than the discard pile's `{hidden: true}` cards) and
   renumbers the ids by first appearance into `GameState.observations` and `observed`, and gives each
@@ -205,8 +207,8 @@ couldn't see.
 - The observations are exported as the player saw them: face-up cards' printed values, Stones, and where
   the face-down cards were, which are referred to by hand index only, or once discarded face down as
   `discarded`, without saying which of the discard pile's face-down cards it is. Their ids are numbered by first
-  appearance, so they say only which card in one sort is which in the other, as the player saw them
-  move. `test_which_cards_are_face_down_changes_nothing_sent` (`tests/test_observations.py`) swaps which
+  appearance, so they say only which card in one sort is which in another, as the player saw them
+  move, and each sort is one the player saw, at a time that's public. `test_which_cards_are_face_down_changes_nothing_sent` (`tests/test_observations.py`) swaps which
   unseen cards are face down and compares every snapshot, frame by frame.
 - Face-down cards in hand and in the discard pile are exported as `{hidden: true}`. The game turns every
   card in the discard pile over, so `facing` says nothing there: a card discarded face down is one with

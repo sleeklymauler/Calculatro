@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 13
+SCHEMA = 14
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -107,7 +107,7 @@ def _search(raw: Any) -> tuple[str, int] | None:
     return (raw["key"], nonce) if isinstance(nonce, int) and not isinstance(nonce, bool) else None
 
 
-SORT_MODES = ("desc", "suit desc")  # the game's rank and suit sorts, in the snapshot's order
+SORT_MODES = ("desc", "suit desc")  # the game's rank and suit sorts
 
 
 @dataclass(frozen=True)
@@ -173,23 +173,26 @@ def _observations(raw: Any, hand: list[Card],
                   discard: list[Card]) -> tuple[tuple[Observation, ...], tuple[ObservedCard, ...]]:
     """The snapshot's observations, and what each of their cards is by id.
 
-    Ids are renumbered 0, 1, ... by first appearance, with the "desc" sort first,
-    so equal evidence parses equal. Only the shape is checked here: evidence no deal
-    fits (face-up cards out of order, say) is well-shaped, and is for the odds to
-    set aside, not a malformed snapshot.
+    They're in the order the mod recorded them, and a mode may repeat (every
+    sort seen this round is true of the cards in it). Ids are renumbered 0, 1,
+    ... by first appearance, so equal evidence parses equal. Only the shape is
+    checked here: evidence no deal fits (face-up cards out of order, say) is
+    well-shaped, and is for the odds to set aside, not a malformed snapshot.
     """
     # An empty Lua table may arrive as {} instead of [].
     if not raw:
         return (), ()
     if not isinstance(raw, list):
         raise TypeError(f"observations is a {type(raw).__name__}, not a list")
-    by_mode: dict[str, list[tuple[int, ObservedCard]]] = {}
+    renumbered: dict[int, int] = {}
+    observed: list[ObservedCard] = []
+    observations = []
     for observation in raw:
         if not isinstance(observation, dict):
             raise TypeError(f"an observation is a {type(observation).__name__}, not an object")
         mode = observation.get("mode")
-        if mode not in SORT_MODES or mode in by_mode:
-            raise ValueError(f"observation of mode {mode!r}: unknown or repeated")
+        if mode not in SORT_MODES:
+            raise ValueError(f"observation of unknown mode {mode!r}")
         entries = observation.get("cards") or []
         if not isinstance(entries, list):
             raise TypeError(f"an observation's cards are a {type(entries).__name__}, not a list")
@@ -197,16 +200,8 @@ def _observations(raw: Any, hand: list[Card],
         ids = [card_id for card_id, _ in cards]
         if len(set(ids)) != len(ids):
             raise ValueError(f"observation {mode!r} has an id more than once")
-        by_mode[mode] = cards
-
-    renumbered: dict[int, int] = {}
-    observed: list[ObservedCard] = []
-    observations = []
-    for mode in SORT_MODES:
-        if mode not in by_mode:
-            continue
         order = []
-        for card_id, card in by_mode[mode]:
+        for card_id, card in cards:
             if card_id not in renumbered:
                 renumbered[card_id] = len(observed)
                 observed.append(card)
@@ -265,8 +260,8 @@ class GameState:
     # hand's name or "Any target") and its number, which goes up with each one.
     search: tuple[str, int] | None = None
     # What the hand's order has shown of its face-down cards, with the mod's
-    # "Face-down windows" setting on: the latest sort of each mode ("desc" first),
-    # and what each card in them is, by id (the index here). The odds average over
+    # "Face-down windows" setting on: the sorts seen this round, in the order
+    # recorded (a mode may repeat), and what each card in them is, by id (the index here). The odds average over
     # what the face-down cards in them are (engine.posterior).
     observations: tuple[Observation, ...] = ()
     observed: tuple[ObservedCard, ...] = ()

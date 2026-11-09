@@ -5,7 +5,8 @@
 -- included (Card:get_nominal ignores facing), so when the hand is known to be in
 -- the game's order, that order says something about them. An observation is the
 -- hand at such a moment, as the player saw it: the face-up cards' printed values,
--- and which card was face down where. The latest of each sort mode is kept.
+-- and which card was face down where. Every sort seen this round is kept, less
+-- those the others imply (`prune`).
 --
 -- It reads the game's state and hooks nothing. Whether the order is the game's
 -- comes only from public events (draws, Sort presses, drags, consumables), never
@@ -17,18 +18,19 @@ local Calculatro = require('calculatro.core')
 local array = require('calculatro.json').array
 local ui_children = require('calculatro.uibox').ui_children
 
--- By mode: {cards = {entry, ...}}, left to right. Each entry is one card, `card`,
--- and what the player saw of it: {latent = true} for a card face down, or the
--- printed {rank_id =, suit =} or {stone = true} of one face up. The card is kept
--- for face-up ones too, as the snapshot says which card in one sort is which in
--- the other (the player sees them move into place). A face-down card since
+-- A list of {mode =, cards = {entry, ...}}, in the order recorded, where a mode
+-- may repeat: a draw re-sorts the hand, but what an earlier sort said is still
+-- true of the cards in it. `cards` are left to right. Each entry is one card,
+-- `card`, and what the player saw of it: {latent = true} for a card face down, or
+-- the printed {rank_id =, suit =} or {stone = true} of one face up. The card is
+-- kept for face-up ones too, as the snapshot says which card in one sort is which
+-- in another (the player sees them move into place). A face-down card since
 -- discarded face down is still latent, and `discarded` too.
 Calculatro.observations = {}
 -- Goes up whenever the observations change.
 Calculatro.observed = 0
 
 local MODES = { desc = true, ['suit desc'] = true }
-local MODE_ORDER = { 'desc', 'suit desc' }  -- the snapshot's
 local SUIT_ORDER = { Diamonds = 1, Clubs = 2, Hearts = 3, Spades = 4 }
 local SORT_BUTTONS = { sort_hand_value = true, sort_hand_suit = true }
 
@@ -51,6 +53,54 @@ end
 
 local function same_entry(a, b)
     return a.latent == b.latent and a.stone == b.stone and a.rank_id == b.rank_id and a.suit == b.suit
+end
+
+-- Whether every entry of `a` is in `b`, seen alike and in the same order. For two
+-- sorts of one mode, `b` then says all `a` does: its cards' order, and so their
+-- places and the order of any that tie.
+local function subsequence(a, b)
+    local j = 1
+    for _, entry in ipairs(a) do
+        while b[j] and b[j].card ~= entry.card do j = j + 1 end
+        if not (b[j] and same_entry(b[j], entry)) then return false end
+        j = j + 1
+    end
+    return true
+end
+
+-- Whether an observation says anything: where a face-down card was (in hand or
+-- since discarded), or the order of two cards alike in print (copies, or Stones),
+-- which a card face down elsewhere may tie with. One of face-up cards all printed
+-- differently fits every deal, and orders no tie.
+local function says_something(observation)
+    local printed = {}
+    for _, entry in ipairs(observation.cards) do
+        if entry.latent then return true end
+        local key = entry.stone and 'stone' or (entry.rank_id .. entry.suit)
+        if printed[key] then return true end
+        printed[key] = true
+    end
+    return false
+end
+
+-- `list` without the observations that say nothing the rest don't, in the same
+-- order: one that says nothing, and one another of its mode implies (of two the
+-- same, the earlier is kept). Both are exact, and they keep a sort that shows
+-- nothing new from changing anything, so the odds and a search aren't restarted.
+local function prune(list)
+    local kept = {}
+    for i, o in ipairs(list) do
+        local keep = says_something(o)
+        for j, other in ipairs(list) do
+            if not keep then break end
+            if j ~= i and other.mode == o.mode and subsequence(o.cards, other.cards)
+                and not (j > i and subsequence(other.cards, o.cards)) then
+                keep = false
+            end
+        end
+        if keep then kept[#kept + 1] = o end
+    end
+    return kept
 end
 
 local function forget()
@@ -149,7 +199,7 @@ end
 -- use all the player saw.
 local function update_entries(in_hand)
     local changed, in_discard = false, nil
-    for _, observation in pairs(Calculatro.observations) do
+    for _, observation in ipairs(Calculatro.observations) do
         local cards = observation.cards
         for i = #cards, 1, -1 do
             local entry = cards[i]
@@ -181,7 +231,10 @@ local function update_entries(in_hand)
             end
         end
     end
-    if changed then Calculatro.observed = Calculatro.observed + 1 end
+    if changed then
+        Calculatro.observations = prune(Calculatro.observations)
+        Calculatro.observed = Calculatro.observed + 1
+    end
 end
 
 -- The hand as an observation, or nil if its face-up cards aren't in order for
@@ -199,29 +252,36 @@ local function observe(cards, mode)
             entries[i], last = printed, key
         end
     end
-    return { cards = entries }
+    return { mode = mode, cards = entries }
 end
 
--- Records `observation` for `mode`. A card in both sorts must be seen alike in
--- both, as the snapshot gives it one id. Only a change the mod doesn't know of
--- (a consumable ends both sorts' evidence) could break that, and it's public
--- anyway, so the other sort's observation is then dropped as out of date.
-local function record(mode, observation)
+-- Records `observation`, after the others. A card in several sorts must be seen
+-- alike in all, as the snapshot gives it one id. Only a change the mod doesn't know
+-- of (a consumable ends all the evidence) could break that, and it's public anyway,
+-- so a sort that saw it otherwise is dropped as out of date. Nothing changes if the
+-- sorts kept already say all this one does.
+local function record(observation)
     local seen = {}
     for _, entry in ipairs(observation.cards) do seen[entry.card] = entry end
-    for other_mode, other in pairs(Calculatro.observations) do
-        if other_mode ~= mode then
-            for _, entry in ipairs(other.cards) do
-                local now = seen[entry.card]
-                if now and not same_entry(now, entry) then
-                    Calculatro.observations[other_mode] = nil
-                    break
-                end
+    local list = {}
+    for _, other in ipairs(Calculatro.observations) do
+        local alike = true
+        for _, entry in ipairs(other.cards) do
+            local now = seen[entry.card]
+            if now and not same_entry(now, entry) then
+                alike = false
+                break
             end
         end
+        if alike then list[#list + 1] = other end
     end
-    Calculatro.observations[mode] = observation
-    Calculatro.observed = Calculatro.observed + 1
+    list[#list + 1] = observation
+    list = prune(list)
+    -- Pruning only drops, and this one is last if it's kept.
+    if list[#list] == observation or #list ~= #Calculatro.observations then
+        Calculatro.observations = list
+        Calculatro.observed = Calculatro.observed + 1
+    end
 end
 
 local function start_tracking()
@@ -279,7 +339,7 @@ function Calculatro.track_hand()
         local mode = G.hand.config.sort
         if t.pending and stable and G.STATE == G.STATES.SELECTING_HAND and MODES[mode] then
             local observation = observe(cards, mode)
-            if observation then record(mode, observation) end
+            if observation then record(observation) end
             t.pending = false
         end
     end
@@ -291,9 +351,9 @@ function Calculatro.track_hand()
     t.dragged = dragging
 end
 
--- The observations as the snapshot sends them, "desc" first: each card with an
--- id, numbered by first appearance so that it says nothing the order doesn't,
--- and the same for a card in both. A face-down card is given by its place in the
+-- The observations as the snapshot sends them, in the order recorded: each card
+-- with an id, numbered by first appearance so that it says nothing the order
+-- doesn't, and the same for a card in several. A face-down card is given by its place in the
 -- hand now (0-based), where the snapshot sends it as {hidden = true}, and one
 -- discarded face down only as `discarded` (it's one of the discard pile's
 -- {hidden = true}, but which isn't said). Empty unless the setting's on. See
@@ -315,35 +375,32 @@ function Calculatro.export_observations()
     for i, card in ipairs(G.hand.cards or {}) do index[card] = i - 1 end
     local in_discard = discard_set()
     local ids, count = {}, 0
-    for _, mode in ipairs(MODE_ORDER) do
-        local observation = Calculatro.observations[mode]
-        if observation then
-            local cards = array()
-            for _, entry in ipairs(observation.cards) do
-                local card = entry.card
-                -- update_entries has turned up or dropped any face-down card no
-                -- longer face down in hand or the discard pile; one that isn't
-                -- would be left out.
-                local in_hand = entry.latent and index[card] and card.facing == 'back'
-                local discarded = entry.latent and not in_hand and entry.discarded
-                    and discarded_face_down(card, in_discard)
-                if not entry.latent or in_hand or discarded then
-                    if not ids[card] then ids[card], count = count, count + 1 end
-                    local e = { id = ids[card] }
-                    if in_hand then
-                        e.hand = index[card]
-                    elseif discarded then
-                        e.discarded = true
-                    elseif entry.stone then
-                        e.stone = true
-                    else
-                        e.rank_id, e.suit = entry.rank_id, entry.suit
-                    end
-                    cards[#cards + 1] = e
+    for _, observation in ipairs(Calculatro.observations) do
+        local cards = array()
+        for _, entry in ipairs(observation.cards) do
+            local card = entry.card
+            -- update_entries has turned up or dropped any face-down card no
+            -- longer face down in hand or the discard pile; one that isn't
+            -- would be left out.
+            local in_hand = entry.latent and index[card] and card.facing == 'back'
+            local discarded = entry.latent and not in_hand and entry.discarded
+                and discarded_face_down(card, in_discard)
+            if not entry.latent or in_hand or discarded then
+                if not ids[card] then ids[card], count = count, count + 1 end
+                local e = { id = ids[card] }
+                if in_hand then
+                    e.hand = index[card]
+                elseif discarded then
+                    e.discarded = true
+                elseif entry.stone then
+                    e.stone = true
+                else
+                    e.rank_id, e.suit = entry.rank_id, entry.suit
                 end
+                cards[#cards + 1] = e
             end
-            out[#out + 1] = { mode = mode, cards = cards }
         end
+        out[#out + 1] = { mode = observation.mode, cards = cards }
     end
     return out
 end

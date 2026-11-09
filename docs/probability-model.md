@@ -99,8 +99,12 @@ these:
 
 ## Face-down cards in the hand's sorts
 
-With the "Face-down windows" setting on, the snapshot has the latest sort of the hand in each mode
-(`GameState.observations`, [architecture.md](architecture.md#shapes)). A face-down card in one of them
+With the "Face-down windows" setting on, the snapshot has every sort of the hand seen this round
+(`GameState.observations`, [architecture.md](architecture.md#shapes)), a mode perhaps several times: a
+draw re-sorts the hand, but an earlier sort is still true of the cards in it, so a card kept face down
+while its neighbours were discarded is still between them. The mod drops only sorts that say nothing
+more than the rest (`observe.lua`'s `prune`: one whose cards are in another of its mode in the same
+order, or one with no face-down card and no two cards alike in print), which gives the same odds. A face-down card in one of them
 is *latent* (`Card.latent`, its id there): its place says what it can be. Between a 9 and a 7 in a rank
 sort it's a 7, 8 or 9, and of two side by side the left one is the higher. One discarded face down
 after the sort stays in it (`ObservedCard.discarded`): it's out of play, but what it is still bounds
@@ -111,7 +115,7 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   random (under The Mark, the unseen face cards, `flipped_by_mark`). The likelihood is 0 unless every
   sort is in the game's order: by printed rank then suit, or suit then rank, with Diamonds < Clubs <
   Hearts < Spades and Stones lowest. Cards alike in print (copies, or Stones) tie: the game orders them
-  by hidden values, taken as random but the same in both sorts. Each tie group gives a factor, the share
+  by hidden values, taken as random but the same in every sort. Each tie group gives a factor, the share
   of its orders every sort agrees with (`tie_factor`, a count of linear extensions). `branches` lists
   every deal with a positive weight, merging copies, and goes through the latent cards between their
   face-up neighbours. `reference` does the same one unseen card at a time, for the tests.
@@ -149,7 +153,11 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   face down add to the deals: one of two face-down cards in narrow windows costs little (1 ms-2 s, 9 s
   for Four Fingers + Shortcut with Full House or Straight Flush), but The House sorted both ways, then
   3 of its cards discarded face down and 3 drawn, is about 1.5 million branches (11 s, then 14 s for
-  Pair and 54 s for Full House), against about 7,000 if they were left out. It can always be
+  Pair and 54 s for Full House), against about 7,000 if they were left out. Keeping earlier sorts makes
+  The House slower still: sorted by rank, then 3 of its cards discarded face down and 3 drawn, its
+  first sort of 8 face-down cards stays, with the 3 discarded in wide windows, and building the
+  posterior doesn't finish in 9 minutes (it cancels in 18 ms). The Fish with 2 face-down cards kept from the hand before (148,512 deals)
+  takes 0.6-1.6 s. It can always be
   cancelled (`check()` in `branches`, each branch in `_over_branches`). Benchmarks are the "sorted"
   scenarios in `tests/perf/scenarios.py`.
 - **Tests.** `tests/test_posterior.py` checks the posterior and the odds against dealing every way:
@@ -157,7 +165,9 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   (`tests/game_order.py`), keeping the deals that show what the player saw, then every draw. That
   covers copies and Stones in both sorts, cards discarded face down after the sorts, Wild Cards and
   Smeared, The House, The Mark, The Hook, The Serpent, Cerulean Bell, DNA and an exhausted deck, plus
-  the search against trying every discard.
+  the search against trying every discard. Rounds are also played out from the shuffled deck (`Round`):
+  every first hand, sort, discard or play, draw and sort again, against the posterior with every sort
+  kept. `tests/test_hint.py` replays them in the mod, to check that its pruning gives the same odds.
   `tests/test_hint.py` checks that the odds and the hint agree on what each card can be.
 
 ## The discard scenario

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import json
 import random
@@ -10,7 +11,7 @@ from fractions import Fraction
 
 import pytest
 
-from calculatro.engine import posterior
+from calculatro.engine import evaluate_cards, evaluate_discard, posterior
 from calculatro.state import GameState
 from game_order import game_order
 from test_overlay import TEXTS
@@ -96,6 +97,14 @@ class Game:
         if box is None:
             return None
         return "|".join(self.rt.execute(TEXTS)(box.definition).values())
+
+    def sorts(self) -> list:
+        """The observations kept, in the order recorded."""
+        return list(self.mod.observations.values())
+
+    def latest(self, mode):
+        """The latest observation of `mode` kept, or None."""
+        return next((o for o in reversed(self.sorts()) if o.mode == mode), None)
 
     def possible(self, card):
         found = self.mod.possible_cards(card)
@@ -205,9 +214,9 @@ def test_one_discarded_face_down_after_the_sort_still_narrows(game):
     game.set_area("discard", [right])
     game.frame()
     assert game.possible(left) == {(9, "Clubs"), (8, "Clubs")}
-    assert game.mod.observations["desc"].cards[3].discarded
+    assert game.latest("desc").cards[3].discarded
     # Leaving it out, as the hint used to, the left one could be the 7 as well.
-    game.rt.eval("table.remove")(game.mod.observations["desc"].cards, 3)
+    game.rt.eval("table.remove")(game.latest("desc").cards, 3)
     assert game.possible(left) == {(9, "Clubs"), (8, "Clubs"), (7, "Clubs")}
 
 
@@ -356,13 +365,14 @@ def test_cards_that_leave_the_hand(sorted_hand):
     game.set_area("hand", [high, low, other])
     game.set_area("play", [down])
     game.frame()
-    entries = game.mod.observations["desc"].cards
+    entries = game.latest("desc").cards
     assert [e.rank_id for e in entries.values() if e.rank_id] == [9, 8, 7]
     assert len(entries) == 4
-    # Discarded face down, it's left out.
+    # Gone face down but not to the discard pile, it's left out. The sort then has
+    # only face-up cards, all different, which says nothing, so it goes.
     game.set_area("hand", [high, low])
     game.frame()
-    assert len(game.mod.observations["desc"].cards) == 3
+    assert game.sorts() == []
 
 
 def test_it_resets_for_a_new_round_and_a_new_hand_area(sorted_hand):
@@ -399,11 +409,11 @@ def test_a_round_starting_with_no_buttons_still_counts_draws(game):
     # The buttons appearing is no press, and pressing them after is.
     game.rt.execute("G.buttons = make_buttons()")
     game.frame(2)
-    assert game.mod.observations["suit desc"] is None
+    assert game.latest("suit desc") is None
     game.rt.eval("press")(game.rt.eval("SUIT_BUTTON"))
     game.rt.eval("G.hand.config").sort = "suit desc"
     game.frame(2)
-    assert game.mod.observations["suit desc"] is not None
+    assert game.latest("suit desc") is not None
 
 
 def test_unsupported_modes_and_out_of_order_cards_record_nothing(game):
@@ -413,6 +423,84 @@ def test_unsupported_modes_and_out_of_order_cards_record_nothing(game):
     assert game.possible(down) is None
     game.sort("desc", [low, down, high])  # face-up cards out of order: not the game's sort
     assert game.possible(down) is None
+
+
+# --- Earlier sorts -----------------------------------------------------------------
+
+def discard_and_draw(game, kept, thrown, drawn, deck, wheel_flipped=()):
+    """Discards `thrown` (face down: those in `wheel_flipped`), then draws into `drawn`, the
+    hand as the draw sorts it, leaving `deck`."""
+    for card in wheel_flipped:
+        card.ability.wheel_flipped = True
+    game.set_area("hand", kept)
+    game.set_area("discard", list(game.rt.eval("G.discard").cards.values()) + list(thrown))
+    game.frame()
+    game.set_area("deck", deck)
+    game.set_area("hand", drawn)
+    game.frame(2)
+
+
+def test_a_draw_keeps_what_the_earlier_sort_said(game):
+    # The plan's example: between a 9♣ and a 7♣, then between a K and a 4 after both are
+    # discarded and the hand drawn up again.
+    nine, down, seven = game.card("9C"), game.card("8C", "back"), game.card("7C")
+    king, four = game.card("KD"), game.card("4H")
+    rest = [game.card(c) for c in ("8S", "6H", "TD")]
+    game.deal([nine, down, seven], [king, four, *rest])
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+    discard_and_draw(game, [down], [nine, seven], [king, down, four], rest)
+    assert [o.mode for o in game.sorts()] == ["desc", "desc"]
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades")}
+    # With only the latest sort, as before, it could be anything between the K and the 4.
+    game.rt.eval("table.remove")(game.mod.observations, 1)
+    assert game.possible(down) == {(8, "Clubs"), (8, "Spades"), (6, "Hearts"), (10, "Diamonds")}
+    # They all go with the round.
+    game.rt.eval("G.GAME").round = 2
+    game.frame()
+    assert game.sorts() == []
+
+
+def test_a_sort_that_adds_nothing_changes_nothing(sorted_hand):
+    game, down, high, low = sorted_hand
+    before = game.mod.observed
+    game.sort("desc", [high, down, low])
+    assert len(game.sorts()) == 1 and game.mod.observed == before
+    # One that says all an earlier one of its mode did, and more, takes its place.
+    other = game.card("2C")
+    game.deal([high, down, low, other], [game.card("8S")])
+    assert len(game.sorts()) == 1 and len(game.latest("desc").cards) == 4
+    # Another mode's is kept beside it, even if it has the same cards.
+    game.sort("suit desc", [high, other, low, down])
+    assert [o.mode for o in game.sorts()] == ["desc", "suit desc"]
+
+
+def test_a_sort_of_face_up_cards_is_kept_only_for_copies(game):
+    # With nothing face down left, a sort says nothing, unless two of its cards are alike
+    # in print: then it orders them, and a face-down card elsewhere may tie with them.
+    first, second, down = game.card("9H"), game.card("9H"), game.card("2C", "back")
+    game.deal([first, second, down], [game.card("8S")])
+    down.facing = "front"  # played
+    game.set_area("hand", [first, second])
+    game.set_area("play", [down])
+    game.frame()
+    assert len(game.sorts()) == 1
+    assert not any(e.latent for e in game.latest("desc").cards.values())
+
+
+def test_a_card_seen_differently_drops_only_the_sorts_that_saw_it(game):
+    high, left, right, low = game.card("9H"), game.card("8C", "back"), game.card("7C", "back"), game.card("6S")
+    two, rest = game.card("2C"), game.card("KD")
+    game.deal([high, left, right, low], [two, rest])
+    discard_and_draw(game, [high, left, low], [right], [high, left, low, two], [rest], wheel_flipped=[right])
+    assert len(game.sorts()) == 2
+    first = game.sorts()[0]
+    # Nothing the mod knows of changes a face-up card without a consumable, but if
+    # something did, the sort that saw the 2♣ as it was goes; the first never had it.
+    two.base.id = 3
+    game.sort("desc", [high, left, low, two])
+    assert len(game.sorts()) == 2
+    assert game.rt.eval("rawequal")(game.sorts()[0], first)
+    assert [e.rank_id for e in game.sorts()[1].cards.values()] == [9, None, 6, 3]
 
 
 # --- Against dealing every way ---------------------------------------------------
@@ -473,6 +561,104 @@ def test_against_dealing_every_way(game, seed):
         assert chance == {v: Fraction(sum(d[name] == v for d in deals), len(deals)) for v in chance}
         if name != gone:
             assert set(chance) == game.possible(objects[name])
+
+
+def replay(game, rnd, drawn, truth):
+    """Plays a round of test_posterior's out in the mocked game, as the mod would see
+    it: returns each slot's Lua card."""
+    facings = rnd.facings
+
+    def make(c, down):
+        if c.is_stone:
+            return game.make(5, "Clubs", "back" if down else "front", "m_stone")
+        return game.make(c.rank_id, c.suit, "back" if down else "front", c.enhancement)
+    objects = {f"s{i}": make(rnd.deck[n], facings[i]) for i, n in enumerate(drawn)}
+    # The deck, top first: the slots in the order drawn, then the cards never drawn.
+    deck = [objects[f"s{i}"] for i in range(len(drawn))]
+    deck += [make(c, False) for n, c in rnd.deck.items() if n not in drawn]
+    discard, held = [], 0
+    for event in truth.events:
+        kind = event[0]
+        if kind == "deal":
+            hand = [objects[s] for s in event[2]]
+            deck = deck[len(hand):]
+            game.deal(hand, deck, mode=event[1])
+            held = len(hand)
+        elif kind == "sort":
+            game.sort(event[1], [objects[s] for s in event[2]])
+        elif kind == "throw":
+            thrown = [objects[s] for s in event[2]]
+            for s, card in zip(event[2], thrown):
+                if facings[int(s[1:])]:
+                    if event[1] == "play":
+                        card.facing = "front"
+                    else:
+                        card.ability.wheel_flipped = True
+            game.set_area("hand", [objects[s] for s in event[3]])
+            if event[1] == "play":
+                game.set_area("play", thrown)
+                game.frame()
+                game.set_area("play", [])
+            discard += thrown
+            game.set_area("discard", discard)
+            game.frame()
+            held = len(event[3])
+        else:  # a draw, from the top of the deck, sorted in the current mode
+            assert game.rt.eval("G.hand.config").sort == event[1]
+            deck = deck[len(event[2]) - held:]
+            game.set_area("deck", deck)
+            game.set_area("hand", [objects[s] for s in event[2]])
+            game.frame(2)
+            held = len(event[2])
+    return objects
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_rounds_pruned_as_kept_and_the_hint_agrees(game, seed):
+    # Every sort of a round, as the mod keeps them (less those the others imply, or that
+    # say nothing), give the same odds as keeping every one; and the hint lists exactly
+    # what each face-down card can be by them, as no two cards are alike here.
+    from test_posterior import QUERIES, TARGETS, played, random_round, round_discards
+    rng = random.Random(1100 + seed)
+    rnd, drawn = random_round(rng, plays=seed % 2 == 1)
+    truth = played(rnd, drawn, seed)
+    objects = replay(game, rnd, drawn, truth)
+    case = rnd.case(truth)
+    every = case.state()
+    state = GameState.from_json(json.loads(game.rt.eval("require('calculatro.json')").encode(game.mod.snapshot())))
+    assert [c.hidden for c in state.hand] == [c.hidden for c in every.hand]
+    assert Counter((c.rank_id, c.suit, c.enhancement) for c in state.unseen) == Counter(
+        (c.rank_id, c.suit, c.enhancement) for c in every.unseen)  # the mock names ranks by number
+    assert len(state.observations) <= len(every.observations)
+    kept = dataclasses.replace(state, observations=every.observations, observed=every.observed,
+                               hand=[dataclasses.replace(c, latent=e.latent) for c, e in zip(state.hand, every.hand)])
+    for discard in round_discards(rng, case):
+        for target in TARGETS[:2]:
+            assert (evaluate_discard(state, target, discard).probability
+                    == evaluate_discard(kept, target, discard).probability), (target.name, discard)
+        for query in QUERIES[:2]:
+            assert (evaluate_cards(state, query, discard).probability
+                    == evaluate_cards(kept, query, discard).probability), (query.text, discard)
+    post = posterior(state)
+    for i, name in enumerate(case.hand):
+        if state.hand[i].latent is not None:
+            can_be = {(c.rank_id, c.suit) for b in post.branches for j, c in b.cards if j == i}
+            assert game.possible(objects[name]) == can_be, name
+
+
+def test_some_rounds_are_pruned(lua):  # noqa: F811
+    # So the test above compares something.
+    from test_posterior import played, random_round
+    pruned = 0
+    for seed in range(12):
+        game = Game(lua)
+        rnd, drawn = random_round(random.Random(1100 + seed), plays=seed % 2 == 1)
+        truth = played(rnd, drawn, seed)
+        replay(game, rnd, drawn, truth)
+        pruned += len(game.sorts()) < len(truth.sorts)
+        game.rt.eval("G.GAME").round = 100 + seed
+        game.frame()
+    assert pruned >= 3
 
 
 def test_which_card_is_face_down_changes_nothing_shown(lua):  # noqa: F811

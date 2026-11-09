@@ -1,8 +1,10 @@
 """What the hand's sorts say about its face-down cards: which unseen cards they are.
 
 See docs/plans/face-down-windows.md. The game sorts the hand by each card's true
-rank and suit, face-down cards included, and the mod exports the latest sort of
-each mode it saw (`GameState.observations`). A face-down card in one of them,
+rank and suit, face-down cards included, and the mod exports the sorts it saw
+this round (`GameState.observations`), any number of each mode: a draw re-sorts
+the hand, but an earlier sort is still true of the cards in it. A face-down card
+in one of them,
 still in hand or since discarded face down, is a *latent* card with evidence. Its
 identity is one of the unseen cards, and the order says which: between a 9 and a
 7 in a rank sort it's a 7, 8 or 9, and of two side by side the left one is the
@@ -18,7 +20,7 @@ likelihood of the observations given an assignment is:
     all Stones, which the player can't order), the share of its orders that
     every observation agrees with. Unknown tie-breakers (original suit,
     creation order, a Stone's underlying card) are taken as uniformly random,
-    and as the same in both sorts, as the game's are.
+    and as the same in every sort, as the game's are.
 
 A `Posterior` lists every assignment with a positive weight (prior times
 likelihood) as a `Branch`. Nothing is skipped or sampled: the engine averages
@@ -112,7 +114,7 @@ def orders(chains: tuple[tuple[int, ...], ...]) -> int:
 
 def tie_factor(members: Sequence[int], observations: Sequence[Observation]) -> Fraction:
     """The share of a tie group's orders that every observation agrees with:
-    each of its t! orders is equally likely, and one order holds in both sorts."""
+    each of its t! orders is equally likely, and one order holds in every sort."""
     if len(members) < 2:
         return Fraction(1)
     inside = set(members)
