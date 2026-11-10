@@ -149,6 +149,7 @@ class Situation:
     sorts: tuple[str, ...] = ()  # the modes the hand was seen sorted in, with its cards in place (_sorted)
     gone: int = 0  # of the face-down cards, those discarded face down after the sorts (_sorted)
     earlier: tuple[tuple[str, tuple[str, ...]], ...] = ()  # sorts seen before those, as (mode, cards) (_sorted)
+    discard: tuple[int, ...] | None = None  # the hand indices to discard, if not the known cards not kept
 
     @property
     def unknown(self) -> int:
@@ -191,6 +192,12 @@ HOUSE_EARLIER = Situation("5 unknown: The House after its first discard, sorted 
 FISH_EARLIER = Situation("5 unknown: The Fish, 2 face-down kept from the hand before, sorted by rank both times",
                          kept=3, hidden=5, sorts=("desc",),
                          earlier=(("desc", ("7H", "8H", "9S", "AS", "KD", "TC", "5D", "4D")),))
+# The House's first hand split: sorted by rank it's K Q J 9 8 7 5 3, hand indices 4 3 7 2 1 0 6 5. Throwing
+# away the 3 highest leaves the 5 lowest kept; the 3 in the middle, the 3 above and the 2 below.
+HOUSE_SPLIT_TOP = Situation("8 unknown: The House (all face-down), sorted by rank, the 3 highest discarded", kept=0,
+                            hidden=8, sorts=("desc",), discard=(4, 3, 7))
+HOUSE_SPLIT_MIDDLE = Situation("8 unknown: The House (all face-down), sorted by rank, the 3 in the middle discarded",
+                               kept=0, hidden=8, sorts=("desc",), discard=(2, 1, 0))
 MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by rank", kept=2, hidden=3,
                         blind="The Mark", sorts=("desc",))
 # Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
@@ -247,6 +254,8 @@ class Scenario:
             **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
+        if self.situation.discard is not None:
+            return state, list(self.situation.discard)
         return state, list(range(self.situation.kept, known))
 
     def target(self) -> Target:
@@ -359,12 +368,17 @@ def _scenarios() -> list[Scenario]:
         out += [Scenario(s, t, jokers) for s in (SORTED_1, SORTED_2, SORTED_2_SUIT, SORTED_2_BOTH)
                 for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",),
                           ("Full House", "Straight Flush"))]
-        # Straight Flush tells almost every card apart, so here it goes through about 260,000 deals
-        # one by one, which takes minutes: left out until that's faster.
-        out += [Scenario(HOUSE_AFTER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
-        # Earlier sorts kept (stage 4). HOUSE_EARLIER is left out: its first sort, of 8 face-down cards,
-        # puts the 3 since discarded in wide windows: its posterior doesn't finish in 9 minutes.
-        out += [Scenario(FISH_EARLIER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",))]
+        # About 260,000 deals, which Straight Flush tells almost all apart: two windows (posterior.windows).
+        out += [Scenario(HOUSE_AFTER, t, jokers) for t in (("Pair",), ("Flush",), ("Full House",), ("Straight Flush",))]
+        # Earlier sorts kept (stage 4). HOUSE_EARLIER's first sort, of 8 face-down cards, puts the 3 since
+        # discarded in wide windows: about 1.7 * 10^8 deals, summed as they're dealt (posterior.summed).
+        out += [Scenario(s, t, jokers) for s in (FISH_EARLIER, HOUSE_EARLIER)
+                for t in (("Pair",), ("Flush",), ("Full House",))]
+        # A discard that splits The House's first hand: split again by the cards at the edges (engine._split).
+        # Straight Flush with Four Fingers + Shortcut takes about 2 minutes there, so it's left out.
+        split_top = [("Pair",), ("Flush",), ("Full House",)] + ([("Straight Flush",)] if jokers == "No jokers" else [])
+        out += [Scenario(HOUSE_SPLIT_TOP, t, jokers) for t in split_top]
+        out += [Scenario(HOUSE_SPLIT_MIDDLE, t, jokers) for t in (("Pair",), ("Flush",))]
         out += [Scenario(s, t, jokers) for s in (SORTED_2_GONE, SORTED_2_BOTH_GONE)
                 for t in (("Pair",), ("Flush",), ("Straight",), ("Full House",), ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)
@@ -426,8 +440,8 @@ def _search_scenarios() -> list[BestDiscard]:
             for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
     out += [BestDiscard(h, t, "No jokers") for h in SEARCH_SORTED
             for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
-    # With Four Fingers + Shortcut, Straight Flush and "any" take a minute or more sorted by rank.
-    out += [BestDiscard(h, t, "Four Fingers + Shortcut") for h in SEARCH_SORTED for t in (("Flush",), ("Full House",))]
+    out += [BestDiscard(h, t, "Four Fingers + Shortcut") for h in SEARCH_SORTED
+            for t in (("Flush",), ("Full House",), ("Straight Flush",), ("Flush", "Straight", "Full House"))]
     out += [BestDiscard(h, ("Flush", "Straight", "Full House"), "No jokers") for h in SEARCH_LARGE]
     out += [BestDiscard(h, t, j) for h, j in SEARCH_CRIMSON
             for t in (("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),

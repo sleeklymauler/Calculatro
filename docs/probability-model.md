@@ -116,25 +116,40 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   sort is in the game's order: by printed rank then suit, or suit then rank, with Diamonds < Clubs <
   Hearts < Spades and Stones lowest. Cards alike in print (copies, or Stones) tie: the game orders them
   by hidden values, taken as random but the same in every sort. Each tie group gives a factor, the share
-  of its orders every sort agrees with (`tie_factor`, a count of linear extensions). `branches` lists
-  every deal with a positive weight, merging copies, and goes through the latent cards between their
-  face-up neighbours. `reference` does the same one unseen card at a time, for the tests.
+  of its orders every sort agrees with (`tie_factor`, a count of linear extensions). `summed` deals the
+  latent cards one at a time, between their face-up neighbours, and sums the partial deals that the rest
+  can't tell apart as it goes (the cards bounding the latent cards still to come, the cards they've used
+  that those could be, open tie groups, and what the caller sees of them so far: its `label`). So a run of
+  8 face-down cards, 10^8 deals, takes a fraction of a second. `reference` lists every deal one unseen
+  card at a time, for the tests.
 - **The odds** (`engine.evaluate_discard`, `evaluate_cards`). They're the average of today's odds over
   the branches, each with its latent cards turned up (`_resolved`: the card takes its place in hand, or
   one of the discard pile's `{hidden: true}` cards for one discarded before, and leaves `unseen`, so the
-  deck size, hand size and indices don't change). Branches that turn up as many cards of each class,
-  kept, discarded now or discarded before, and forced or not, give the same odds, so they share one
-  evaluation (`_over_branches`, `_rule_classes`). A card's class there is what the target can tell of
-  it, under every rule set the final hand may be judged under (`_counts_towards`: which requirements
-  of the patterns it counts towards, as in `search._groups`; the class itself under Cerulean Bell), or
-  for a card query whether it matches, and under The Mark its face status. So for Pair, deals that
-  differ only in suits share one evaluation. Nothing is sampled or cut off. `can_miss` picks a branch
-  for each try, so a draw it finds is one the evidence allows.
+  deck size, hand size and indices don't change). Deals that turn up as many cards of each class, kept
+  or gone (discarded now or before; nothing of those if nothing is drawn), and forced or not, give the
+  same odds, so `summed` makes them one branch and they share one evaluation (`engine._averaged`,
+  `_labels`, `_rule_classes`). A card's class there is what the target can tell of it, under every rule
+  set the final hand may be judged under (`_counts_towards`: which requirements of the patterns it counts
+  towards, as in `search._groups`; the class itself under Cerulean Bell), or for a card query whether it
+  matches, and under The Mark its face status. So for Pair, deals that differ only in suits share one
+  evaluation. Nothing is sampled or cut off. `can_miss` picks a branch for each try, so a draw it finds
+  is one the evidence allows.
+- **Windows** (`posterior.windows`, `engine._window_split`). Latent cards that depend on no others (not
+  side by side with them in a sort, and unable to be cards alike in print) whose posterior is uniform
+  over the sets of their candidates are a *window*: a run of face-down cards in one sort between face-up
+  cards none can tie with, say, or one face-down card. If they're all kept or all gone, the odds don't go
+  through them: the search weighs each draw by how many of each window's cards it has, as The Mark's
+  split does for face cards (`_Layout.bases` packs a count for each window into one int). Kept, a draw with
+  a of a window's w cards holds its r in C(a, r) ways; gone, it misses them in C(w - a, r). A window
+  whose cards meet different fates, side by side in a sort, is split by the cards at the edges of its
+  blocks (`engine._split`): given those, each block's other cards are a window of the cards between. Not
+  under The Mark, The Hook, Cerulean Bell or DNA's copies of a face-down card, which branch as above.
 - **No evidence needed.** A single sort with no face-up card (The House's first hand) only says which
   of its cards is higher, not what they are. So while they all meet the same fate (all kept, or all
   gone: thrown away now or discarded face down before), the odds are today's exactly
-  (`_says_nothing_here`). A discard that splits them throws away the higher or the lower cards, and
-  goes through every deal. So does keeping the rest after some were discarded, and DNA copying one.
+  (`_says_nothing_here`). A discard that splits them throws away the higher or the lower cards: it's
+  split as a window (above), or its deals summed. So is keeping the rest after some were discarded, and
+  DNA copying one is branched on.
 - **Evidence set aside.** If no deal fits the sorts (a card changed while face down, say), the odds are
   today's, and it's logged once on stderr (`engine.posterior`). The search then treats the face-down
   cards as interchangeable again (`with_usable_evidence`).
@@ -144,22 +159,14 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   doesn't allow, so the mod sends no sorts then. Selling Pareidolia, or changing a face-down card's rank,
   mid-round can leave a face-down card whose face status differs from when it was flipped. That isn't
   modelled.
-- **Speed.** One or two face-down cards in a narrow window are a few branches. Long face-down runs in
-  wide windows are many: The House's hand after its first discard (5 face-down cards around 3 face-up
-  ones) is about 260,000. Building them takes about a second, and the odds 1-2 s for Pair, Flush or
-  Full House. Straight Flush tells almost every card apart, so it takes minutes there, as does a
-  discard that splits The House's first hand. Four Fingers + Shortcut with Straight Flush takes 6-12 s
-  with two or three face-down cards, and its best-discard search a minute or more. Cards discarded
-  face down add to the deals: one of two face-down cards in narrow windows costs little (1 ms-2 s, 9 s
-  for Four Fingers + Shortcut with Full House or Straight Flush), but The House sorted both ways, then
-  3 of its cards discarded face down and 3 drawn, is about 1.5 million branches (11 s, then 14 s for
-  Pair and 54 s for Full House), against about 7,000 if they were left out. Keeping earlier sorts makes
-  The House slower still: sorted by rank, then 3 of its cards discarded face down and 3 drawn, its
-  first sort of 8 face-down cards stays, with the 3 discarded in wide windows, and building the
-  posterior doesn't finish in 9 minutes (it cancels in 18 ms). The Fish with 2 face-down cards kept from the hand before (148,512 deals)
-  takes 0.6-1.6 s. It can always be
-  cancelled (`check()` in `branches`, each branch in `_over_branches`). Benchmarks are the "sorted"
-  scenarios in `tests/perf/scenarios.py`.
+- **Speed.** Measured in stage 5 of [the plan](plans/face-down-windows.md#performance). One or two
+  face-down cards in sorts take milliseconds for a single target, or 0.3-2.2 s for Four Fingers + Shortcut
+  with Straight Flush or "any", and the best-discard search 0.06-0.8 s, or 1.4-20 s for Four Fingers +
+  Shortcut with Straight Flush or "any". The House's hand after its first discard, kept or with earlier
+  sorts, takes under a second, and so does a discard that throws away the highest or the lowest cards of
+  its first hand; one that splits it in the middle takes 1-10 s. What's still slow is listed there. It can
+  always be cancelled (`check()` in `summed`, each branch in `_averaged`, and the engine's own checks).
+  Benchmarks are the "sorted" scenarios in `tests/perf/scenarios.py`.
 - **Tests.** `tests/test_posterior.py` checks the posterior and the odds against dealing every way:
   every deal of the unseen cards, every order of the tie-breakers, sorted by the game's `get_nominal`
   (`tests/game_order.py`), keeping the deals that show what the player saw, then every draw. That

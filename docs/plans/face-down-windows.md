@@ -6,7 +6,9 @@ parsing, schema 12) is done and checked in game (2026-11-08). Stage 2 (the odds 
 the observations) is done, tested against dealing every way, and checked in game under The Fish
 (2026-11-08). Stage 3 (cards discarded face down stay in the observations, schema 13) is done and
 tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept, schema
-14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is by decision. Revised
+14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is in two parts: 5a,
+exact optimizations, is done and tested against dealing every way (2026-11-09), not yet checked in game; 5b,
+shortcuts that give up accuracy, is by decision, for the cases [still slow](#still-slow). Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -661,7 +663,7 @@ Measured in stage 3 (2026-11-08), with cards discarded face down kept:
   2.7%). Not in the scenarios (their hands can't be drawn into); measured by
   hand. Cancellation: under 10 ms.
 
-Measured in stage 4 (2026-11-08), with earlier sorts kept:
+Measured in stage 4 (2026-11-08), with earlier sorts kept (before stage 5a, below):
 
 - The Fish, five face-down cards around three face-up ones, two of them kept
   from the hand before, whose earlier sort still bounds them (the "The Fish"
@@ -675,6 +677,74 @@ Measured in stage 4 (2026-11-08), with earlier sorts kept:
   draw is re-sorted by suit (stage 3, above), whose suit order bounds the 5
   kept far more than 7H, 8H and 9S do by rank. Not in the scenarios
   (`HOUSE_EARLIER`); for stage 5.
+
+Measured in stage 5a (2026-11-09), after the exact optimizations (see
+[stage 5](#stages)), on the same machine (AMD Ryzen 7 7700X), with
+`benchmark.py -k face-down --repeat 3`, against the same scenarios measured
+before the stage. Every existing scenario's result is unchanged, and the new
+scenarios' results match the deal-by-deal sum (no windows), which took up to
+7 minutes:
+
+- One or two face-down cards in sorts: 1-30 ms for single targets, 0.05-0.25
+  s for "any" (from 0.15-2.4 s), and 0.3-2.2 s for Four Fingers + Shortcut
+  with Straight Flush or "any" (from 0.7-13 s).
+- Best discard with two face-down cards: 0.06-0.8 s (from 0.04-6.6 s). Four
+  Fingers + Shortcut with Straight Flush or "any", new scenarios: 1.4-20 s.
+  The only slowdown measured: sorted both ways, Flush, 36-44 ms to 61-70 ms.
+- Five face-down cards kept around three face-up ones (The House after its
+  first discard): 1-3 ms (from 1-2.3 s). Straight Flush 3 ms, or 64 ms with
+  Four Fingers + Shortcut (24 s and 7 minutes summing every deal). The Fish
+  with earlier sorts: 6-27 ms (from 0.5-1.5 s).
+- The House after its first discard with the earlier sort of all 8
+  (`HOUSE_EARLIER`), about 1.7 * 10^8 deals: 0.4-0.7 s (measured with other
+  jobs running; it didn't finish in 9 minutes before). Sorted both ways,
+  then 3 discarded face down and 3 drawn re-sorted by suit: 0.3-0.4 s (from
+  14-54 s).
+- A discard that splits The House's first hand: the 3 highest thrown away,
+  0.04-0.34 s, Straight Flush included (summing every deal, Pair took 40 s,
+  Full House 4 minutes); the 3 in the middle, Pair 1 s (44 s), Flush 2.1-2.4
+  s, Straight Flush 10 s (over 2 minutes).
+- The Mark is unchanged (no windows there): 11 ms-7.9 s.
+- Cancellation: under 75 ms everywhere measured, the slowest part being
+  freeing the partial sums of a big `summed`.
+
+### Still slow
+
+The cases that are still slow after stage 5a, for the shortcuts of stage 5b.
+Times are for one odds row (or one best-discard search), measured as above.
+
+1. **Discards that split The House's first hand into several blocks**, for
+   targets that tell most cards apart. Throwing away every other card of
+   the sort (K, J, 8, 5 of K Q J 9 8 7 5 3): Pair 62 s, Flush 4 s, Straight
+   Flush over 3 minutes, using 9 GB of memory before it's cancelled. Blocks
+   of more than two make too many ways to split (`engine.SPLITS`), so their
+   deals are summed (`posterior.summed`), and with fine-grained labels the
+   partial sums grow huge. The 3 in the middle thrown away: Straight Flush
+   10 s. The 3 highest, with Four Fingers + Shortcut and Straight Flush:
+   about 2 minutes.
+2. **Best discard on The House's first hand** (all 8 face down, sorted): it
+   tries discards of every shape, many of them case 1. Flush took 554 s.
+3. **After The House's first discard, a discard that draws** (the
+   `HOUSE_EARLIER` hand with its 3 face-up cards thrown away), so the 3
+   cards discarded face down earlier matter to what's left to draw: Pair
+   13 s, Full House 72 s, Straight Flush over 3 minutes. Its first sort has
+   all 8 cards in a row with different fates and another sort, so it's no
+   window.
+4. **Four Fingers + Shortcut best-discard searches with face-down cards**:
+   Straight Flush 9-16 s and "any" 1.4-20 s with two face-down cards (2.0-2.6 s
+   with none). Each discard is one search, but weighing a window's draw
+   makes the engine's search slower than with no face-down cards.
+5. **The Mark** with sorted face-down cards: windows aren't used there, as
+   The Mark's split already weighs the draw by face cards. Four Fingers +
+   Shortcut with Straight Flush or "any": 6.4-7.9 s with 3 face-down cards.
+6. **Memory.** `summed` keeps one layer of partial sums at a time, but for
+   long mixed-fate runs and fine-grained targets a layer can hold millions
+   (case 1). There's no limit: a calculation that would need more memory than
+   there is fails instead of finishing slowly.
+
+Not measured, and likely slow: face-down cards in sorts under The Hook and
+Cerulean Bell (no windows there either; the deals are summed), and DNA's
+copies of a face-down card (branched on with every unseen card).
 
 ## Tests
 
@@ -884,10 +954,55 @@ Measured in stage 4 (2026-11-08), with earlier sorts kept:
    - **Docs** that say "the latest of each mode": `docs/architecture.md` (the
      snapshot), `docs/probability-model.md`, `docs/panel.md` (the hint), and
      this plan's model sections.
-5. **Performance, later and by decision:** with the first pass's
-   measurements, choose any shortcuts that give up accuracy for speed, and
-   exact ones not done yet (such as generalizing `_mark_split` from a face
-   predicate to any subset of the pool, for a run whose candidates are one set).
+5. **Performance**, in two parts (decided 2026-11-09): exact optimizations
+   first, then shortcuts that give up accuracy for the cases still slow.
+   - **5a, exact**, done (2026-11-09), not yet checked in game. Measurements
+     in [Performance](#performance).
+     - `posterior.summed` replaces `branches`. It deals the latent cards one
+       at a time and sums the partial deals that the rest can't tell apart as
+       it goes: the cards that bound the latent cards still to come (the
+       nearest dealt one on each side in each sort), the cards used that one
+       still to come could be, open tie groups, and the multiset of labels
+       so far. The label is what the odds see of a card (`engine._labels`):
+       its class and whether it's kept, copied by DNA or gone (gone cards not
+       at all when nothing is drawn). So the posterior is built already summed
+       by what the evaluation sees, and a run of 8 face-down cards (10^8
+       deals) takes a fraction of a second. `engine.usable` checks the
+       evidence with every label alike: one branch.
+     - Windows (`posterior.windows`): latent cards that depend on no others
+       (not side by side with them in a sort, and unable to share a printed
+       key with them) and whose posterior is uniform over the sets of their
+       candidates. A run in one sort, and in no other, between face-up cards
+       none of them can tie with is one; other groups are checked by their
+       sum (at most `WINDOW_SETS` sets). Each is independent of the rest of
+       the deal, so the odds needn't go through its cards: when they're all
+       kept or all gone, the engine weighs each draw by how many of each
+       window's cards it has (`engine._window_split`, the generalization of
+       `_mark_split` the first draft of this stage named). The search packs
+       a count for each window into one int (`_Layout.bases`). Kept, a draw
+       with a of a window's w cards holds its r in C(a, r) ways; gone, it
+       misses them in C(w - a, r); out of C(w, r) C(N - R, m).
+     - A window whose cards meet different fates, side by side in a sort, is
+       split by the card at the bottom of each block of one fate
+       (`engine._split`): given those, each block's other cards are a window
+       of the cards between. Used when there are at most `SPLITS` ways and
+       they're likely fewer than the deals `summed` would go through.
+     - No windows under The Mark, The Hook, Cerulean Bell or DNA's copies of
+       a face-down card: those branch as before.
+     - Smaller ones: with nothing to draw, `probability` checks the kept
+       cards (`_holds`) instead of building a search; `_resolver` resolves
+       many branches without searching `unseen` each time; a card's
+       requirements per target are cached (`_memberships`).
+     - Tests: `summed` against `reference` and the oracle as before (so is
+       every window, through the odds), `test_windows_weigh_the_draw`, and
+       `test_dna_one_copy_with_nothing_drawn` (a card DNA copies once, with
+       nothing drawn, isn't gone). Checked by hand: every window found in 550
+       random cases is independent of the other latent cards and uniform,
+       against `reference`. New benchmark scenarios: Straight Flush after The
+       House's first discard, `HOUSE_EARLIER`, The House's first hand split
+       at the top and in the middle, and the Four Fingers + Shortcut
+       searches.
+   - **5b, shortcuts**, by decision, for the cases [still slow](#still-slow).
 
 Update `docs/architecture.md` (information hiding, the snapshot contract),
 `docs/probability-model.md`, `docs/panel.md` (the hint and the setting),
@@ -897,12 +1012,8 @@ The Fish, The Mark, The House) as each stage lands.
 ## Open questions
 
 - What the panel should show for a calculation that won't finish in a useful
-  time (a discard splitting The House's first hand, or Straight Flush after
-  its first discard, until an exact optimization makes them tractable):
-  "Calculating..." indefinitely, as now, or something more telling.
-- Whether The House sorted both ways, then partly discarded, is too slow to
-  be worth its extra accuracy (see [Performance](#performance)): for stage 5.
-  Stage 4 makes this the usual case after The House's first discard.
+  time (the cases [still slow](#still-slow)): "Calculating..." indefinitely,
+  as now, or something more telling. For stage 5b.
 - How The Mark should handle `flipped_cards` properly (an existing engine
   limitation; this plan only avoids leaning on it).
 - Whether the hint should adopt the exact tie model, so it's never wider than

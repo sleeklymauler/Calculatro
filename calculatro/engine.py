@@ -7,7 +7,7 @@ modelled as part of that draw, since by symmetry it's the same distribution.
 The Mark's face-down cards are known to be face cards, so there the draw is
 weighted by how many face cards it has; see _mark_split. Face-down cards whose
 place in the hand's sorts says what they can be aren't like that: the odds
-average over what they are, by the posterior (`posterior`, _over_branches).
+average over what they are, by the posterior (`posterior`, _averaged).
 
 Cards are grouped into classes that every pattern treats identically, so for
 example Pair only distinguishes 13 ranks. Draws are then enumerated class by
@@ -74,7 +74,7 @@ from .hands import (
     forced_patterns,
     suit_keys,
 )
-from .posterior import Branch, Posterior, branches
+from .posterior import Branch, Label, Posterior, Window, printed, sort_value, summed, windows
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -86,7 +86,7 @@ class Cancelled(Exception):
 def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
                 rules: Rules = Rules(), cancel: Event | None = None,
                 marked: int = 0, marked_kept: int = 0, forced: Card | None = None,
-                reuse: Reuse | None = None) -> Fraction:
+                reuse: Reuse | None = None, windows: Sequence[Marked] = ()) -> Fraction:
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
 
     With The Mark, `marked` of the pool's cards are face down (in hand or
@@ -99,10 +99,19 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
 
     `reuse` shares work between calculations with the same pool (see Reuse).
 
+    With `windows`, some face-down cards are a random set of each one's cards,
+    kept (among the `draws`) or gone (not among them); see _window_split. Not
+    with The Mark.
+
     Raises Cancelled soon after `cancel` is set.
     """
     draws = max(0, min(draws, len(pool)))
     patterns = target.patterns(rules) if forced is None else forced_patterns(target, rules, card_key(forced, rules))
+    if not draws:
+        # Nothing to draw (The Mark's split then weighs the one draw by 1): the
+        # kept cards make the target or don't. Quick, for the many deals of
+        # face-down cards that are kept (_averaged).
+        return Fraction(int(_holds(patterns, kept, rules)))
     _, by_suit = _split_by_suit(patterns)
     # An unseen Wild Card counts as every suit, which ties the suits back together.
     # With two suits (Smeared Joker's colours), one search only has to carry
@@ -110,20 +119,29 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     # pattern, so splitting doesn't pay.
     split = len(by_suit) > 2 and not any(key[1] == WILD for key in map(card_key, pool, repeat(rules)) if key)
 
-    def favourable(faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = ()) -> int:
+    def favourable(faces: list[int] | None = None, face_weights: Sequence[tuple[tuple[int, ...], int]] = ()) -> int:
         if split:
-            return _union_by_suit(patterns, kept, pool, draws, rules, cancel, faces, face_weights, reuse)
+            return _union_by_suit(patterns, kept, pool, draws, rules, cancel, faces, face_weights, reuse,
+                                  relabel=not windows)
         return _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel,
                            faces=faces, face_weights=face_weights, reuse=reuse)
 
     with _gc_paused():
-        split_faces = _mark_split(pool, draws, rules, marked, marked_kept)
+        split_faces = _window_split(pool, draws, windows) if windows else _marks(
+            _mark_split(pool, draws, rules, marked, marked_kept))
         if split_faces is None:
             return Fraction(favourable(), comb(len(pool), draws))
         # One search for every number of face cards, with the weights scaled to integers.
         faces, weights = split_faces
         scale = lcm(*(w.denominator for _, w in weights))
         return Fraction(favourable(faces, [(a, int(w * scale)) for a, w in weights]), scale)
+
+
+def _holds(patterns: Sequence[Pattern], cards: Sequence[Card], rules: Rules) -> bool:
+    """Whether `cards` satisfy one of `patterns`."""
+    have = Counter(k for c in cards if (k := card_key(c, rules)) is not None)
+    return any(all(sum(n for key, n in have.items() if key in req.keys) >= req.need for req in pattern)
+               for pattern in patterns)
 
 
 def flipped_by_mark(card: Card, rules: Rules) -> bool:
@@ -158,6 +176,69 @@ def _mark_split(pool: list[Card], draws: int, rules: Rules, marked: int,
     d = draws - marked_kept
     weights = [(marked_kept + k, Fraction(comb(f - marked, k), comb(n - marked, d) * comb(f, marked_kept + k)))
                for k in range(max(0, d - (n - f)), min(d, f - marked) + 1)]
+    return faces, weights
+
+
+Split = tuple[list[int], list[tuple[tuple[int, ...], Fraction]]]
+
+
+def _marks(split: tuple[list[bool], list[tuple[int, Fraction]]] | None) -> Split | None:
+    """The Mark's split (_mark_split) as the search takes it: the face cards are
+    mark 0 (-1 for none), and each count a one-mark tuple."""
+    if split is None:
+        return None
+    faces, weights = split
+    return [0 if f else -1 for f in faces], [((a,), w) for a, w in weights]
+
+
+@dataclass(frozen=True)
+class Marked:
+    """Face-down cards that are a uniformly random set of `size` of `cards`
+    (counting copies), all kept or all gone (posterior.Window)."""
+    cards: frozenset[Card]
+    size: int
+    kept: bool
+
+
+def _window_split(pool: list[Card], draws: int, windows: Sequence[Marked]) -> Split:
+    """How windows of face-down cards skew the unseen cards in the final hand,
+    as _mark_split does The Mark's: which pool cards are each window's (its
+    mark, or -1), and a weight for each count of each window's cards in the
+    draw.
+
+    A window's r face-down cards are a uniform r-set of its w cards, each
+    window's independently, and the m other unknown cards of the final hand a
+    uniform m-set of the N - R pool cards left, R being all the windows' r. A
+    kept window's cards are among the `draws`, which are m and theirs: a draw
+    with a of its cards has them in C(a, r) ways. A gone one's aren't: a draw
+    misses them in C(w - a, r) ways. A draw is the product of its windows'
+    ways out of the product of their C(w, r), times C(N - R, m).
+    """
+    faces = [-1] * len(pool)
+    sizes = [0] * len(windows)
+    for j, card in enumerate(pool):
+        for k, window in enumerate(windows):
+            if card in window.cards:
+                faces[j] = k
+                sizes[k] += 1
+                break
+    n = len(pool)
+    m = draws - sum(w.size for w in windows if w.kept)
+    whole = comb(n - sum(w.size for w in windows), m)
+    ranges = []
+    for window, w in zip(windows, sizes):
+        r = window.size
+        whole *= comb(w, r)
+        if window.kept:
+            ranges.append([(a, comb(a, r)) for a in range(r, min(w, draws) + 1)])
+        else:
+            ranges.append([(a, comb(w - a, r)) for a in range(min(w - r, m) + 1)])
+    others = n - sum(sizes)
+    weights = []
+    for picked in product(*ranges):
+        drawn = sum(a for a, _ in picked)
+        if drawn <= draws and draws - drawn <= others:
+            weights.append((tuple(a for a, _ in picked), Fraction(prod(ways for _, ways in picked), whole)))
     return faces, weights
 
 
@@ -225,8 +306,9 @@ def _interchangeable(patterns: tuple[Pattern, ...]) -> bool:
 
 
 def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[Card], draws: int,
-                   rules: Rules, cancel: Event | None, faces: list[bool] | None = None,
-                   face_weights: Sequence[tuple[int, int]] = (), reuse: Reuse | None = None) -> int:
+                   rules: Rules, cancel: Event | None, faces: list[int] | None = None,
+                   face_weights: Sequence[tuple[tuple[int, ...], int]] = (), reuse: Reuse | None = None,
+                   relabel: bool = True) -> int:
     """Favourable draws for `patterns`, by inclusion-exclusion over suits.
 
     The patterns with requirements on one suit's cards are grouped by that
@@ -249,11 +331,12 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
 
     `faces` and `face_weights` are passed on to _favourable: the identity
     holds for any weighting of the draws that depends only on their number of
-    face cards, and relabelling suits keeps every card's rank.
+    marked cards, and relabelling suits keeps every card's rank, so its face.
+    Not `relabel` if the marks depend on suits (windows, _window_split).
     """
     rest, by_suit = _split_by_suit(patterns)
     suits = list(by_suit)
-    if _interchangeable(patterns):
+    if relabel and _interchangeable(patterns):
         ranks = {s: (tuple(sorted(k[0] for c in kept if (k := card_key(c, rules)) and k[1] == s)),
                      tuple(sorted(k[0] for c in pool if (k := card_key(c, rules)) and k[1] == s))) for s in SUITS}
 
@@ -312,7 +395,7 @@ def _cards_within(pattern: Pattern, keys: frozenset[ClassKey], present: set[Clas
 
 def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card], pool: list[Card],
                 draws: int, rules: Rules, cancel: Event | None, constraint: Pattern | None = None,
-                faces: list[bool] | None = None, face_weights: Sequence[tuple[int, int]] = (),
+                faces: list[int] | None = None, face_weights: Sequence[tuple[tuple[int, ...], int]] = (),
                 reuse: Reuse | None = None) -> int:
     """Draws of `draws` cards from `pool` after which the satisfied patterns cover every group.
 
@@ -321,11 +404,12 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     groups are covered without a pattern that belongs to all of them, so once
     it's out of reach only such patterns are left.
 
-    With `faces` (which pool cards are face cards, for The Mark), a draw with
-    a face cards counts w times for each (a, w) in `face_weights` (none if a
-    isn't listed). Face cards and others are then kept in separate classes,
-    and the search tracks how many face cards are still to be drawn; the
-    searches for each a share their memo.
+    With `faces` (each pool card's mark, or -1: The Mark's face cards, or
+    windows of face-down cards), a draw with a_k cards of each mark k counts w
+    times for each (a, w) in `face_weights` (none if a isn't listed). Cards of
+    each mark and the others are then kept in separate classes, and the search
+    tracks how many of each mark are still to be drawn; the searches for each
+    a share their memo.
 
     With `reuse`, the search's layout (_layout) and its result are kept for
     later calls with the same patterns and pool.
@@ -374,13 +458,15 @@ class _Layout:
     patterns: list[Pattern]
     masks: list[int]
     c: int | None
-    faces: tuple[bool, ...] | None
+    faces: tuple[int, ...] | None
     needs: list[tuple[int, ...]]
     members: dict[object, list[tuple[int, int]]]
     classes: list[tuple[tuple[tuple[int, int], ...], int]]
-    face_class: list[bool]
+    face_class: list[int]  # the class's mark, or -1
     remaining: list[int]
-    faces_left: list[int]
+    faces_left: list[int]  # marked cards from class i on, of any mark
+    marks_left: list[tuple[int, ...]]  # of each mark
+    bases: tuple[int, ...]  # a count of each mark is one int, sum(count[k] * bases[k])
     part_mask: list[int]
     part_reqs: list[tuple[tuple[int, int], ...]]
     part_need: list[int]
@@ -404,7 +490,7 @@ class _Layout:
 
 
 def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Card], rules: Rules,
-            constraint: Pattern | None, faces: tuple[bool, ...] | None, reuse: Reuse | None) -> _Layout:
+            constraint: Pattern | None, faces: tuple[int, ...] | None, reuse: Reuse | None) -> _Layout:
     """The layout of a search for _favourable; from `reuse` if it has one for these."""
     layout_key = None
     if reuse is not None:
@@ -443,36 +529,47 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     # their rank. If no requirement spans several suits, the suits don't
     # interact (but through Wild Cards), and sweeping suit by suit only has to
     # remember one suit's progress at a time.
-    # A class is its cards' membership and whether they're face cards (only told apart with `faces`).
-    class_counts: Counter[tuple[tuple[tuple[int, int], ...], bool]] = Counter()
-    lowest: dict[tuple[tuple[tuple[int, int], ...], bool], tuple] = {}
+    # A class is its cards' membership and their mark (-1 for none; only told apart with `faces`).
+    class_counts: Counter[tuple[tuple[tuple[int, int], ...], int]] = Counter()
+    lowest: dict[tuple[tuple[tuple[int, int], ...], int], tuple] = {}
     suit_by_suit = not any(len({suit for _, suit in req.keys} - {WILD}) > 1
                            for pattern in patterns for req in pattern)
     for j, card in enumerate(pool):
         key = card_key(card, rules)
-        cls = tuple(members.get(key, ())), faces is not None and faces[j]
+        cls = tuple(members.get(key, ())), -1 if faces is None else faces[j]
         class_counts[cls] += 1
         if cls[0]:
             rank, suit = key
             place = (suit != WILD, suit, rank) if suit_by_suit else (rank, suit != WILD, suit)
             lowest[cls] = min(lowest.get(cls, place), place)
-    dead = class_counts.pop(((), False), 0)
-    dead_faces = class_counts.pop(((), True), 0)
+    marks = max(1, 1 + max(faces, default=-1)) if faces is not None else 0
+    dead = class_counts.pop(((), -1), 0)
+    dead_marks = [class_counts.pop(((), k), 0) for k in range(marks)]
     by_place = sorted(class_counts.items(), key=lambda item: (lowest[item[0]], item[0]))
     classes = [(sig, count) for (sig, _), count in by_place]
-    face_class = [face for (_, face), _ in by_place]
+    face_class = [mark for (_, mark), _ in by_place]
     # Requirements on a single rank, which decide when a pattern joins the search.
     local = [[len({rank for rank, _ in req.keys}) == 1 for req in pattern] for pattern in patterns]
     n = len(classes)
 
-    # remaining[i] = pool cards in classes i.. plus dead cards; faces_left[i] = the face cards among them
+    # remaining[i] = pool cards in classes i.. plus dead cards; marks_left[i] = those of each mark,
+    # and faces_left[i] those of any.
     remaining = [0] * (n + 1)
-    remaining[n] = dead + dead_faces
-    faces_left = [0] * (n + 1)
-    faces_left[n] = dead_faces
+    remaining[n] = dead + sum(dead_marks)
+    left = list(dead_marks)
+    marks_left = [()] * (n + 1)
+    marks_left[n] = tuple(left)
     for i in range(n - 1, -1, -1):
         remaining[i] = remaining[i + 1] + classes[i][1]
-        faces_left[i] = faces_left[i + 1] + (classes[i][1] if face_class[i] else 0)
+        if face_class[i] >= 0:
+            left[face_class[i]] += classes[i][1]
+        marks_left[i] = tuple(left)
+    faces_left = [sum(m) for m in marks_left]
+    bases = []
+    base = 1
+    for total in marks_left[0]:
+        bases.append(base)
+        base *= total + 1
 
     # slots[i] = for each pattern class i counts towards, the requirements it counts towards.
     slots: list[dict[int, list[int]]] = []
@@ -624,6 +721,7 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     lay = _Layout(
         every=every, patterns=patterns, masks=masks, c=c, faces=faces, needs=needs, members=members,
         classes=classes, face_class=face_class, remaining=remaining, faces_left=faces_left,
+        marks_left=marks_left, bases=tuple(bases),
         part_mask=part_mask, part_reqs=part_reqs, part_need=part_need, part_bits=part_bits,
         part_single=part_single, single_parts=single_parts, intern=intern, status=status, step=step,
         transitions=transitions, cards_needed=cards_needed, start=start, deferred=deferred,
@@ -768,7 +866,7 @@ def _drop_implied(lay: _Layout, live: set[int], singles: set[int], todo: int) ->
 
 
 def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: Event | None,
-            face_weights: Sequence[tuple[int, int]], shared: bool) -> int:
+            face_weights: Sequence[tuple[tuple[int, ...], int]], shared: bool) -> int:
     """_favourable's count, for the kept cards' contributions `kept_have` to each requirement.
     `shared` if other searches will use the layout too (see _class_signatures).
 
@@ -784,9 +882,16 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
                                                              lay.in_deferred, lay.join_at)
     n = len(classes)
     split = lay.faces is not None
+    marks_left, bases = lay.marks_left, lay.bases
+    marks = len(bases)
+    single = marks == 1  # The Mark, or one window: the count is the number itself
     if split:
-        face_weights = [(a, w) for a, w in face_weights
-                        if a <= faces_left[0] and draws - a <= remaining[0] - faces_left[0]]
+        # Each count of each mark as one int (see _Layout.bases), with its weight.
+        coded = []
+        for a, w in face_weights:
+            if (all(x <= total for x, total in zip(a, marks_left[0])) and not any(a[marks:])
+                    and draws - sum(a) <= remaining[0] - faces_left[0]):
+                coded.append((sum(x * b for x, b in zip(a, bases)), a, w))
     drawn_from = [0] * len(deferred_sets)
     initial, deficits_of = _initial_parts(lay, kept_have, draws, shared)
     if c is not None:
@@ -801,8 +906,8 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
             todo &= ~masks[p]
     if not todo:
         if split:
-            return sum(w * comb(faces_left[0], a) * comb(remaining[0] - faces_left[0], draws - a)
-                       for a, w in face_weights)
+            return sum(w * prod(comb(total, x) for total, x in zip(marks_left[0], a))
+                       * comb(remaining[0] - faces_left[0], draws - sum(a)) for _, a, w in coded)
         return comb(remaining[0], draws)
     activate, join_need, pending, tracked = _join_tables(lay, kept_have, draws, masks, c, initial)
     c_start = start[c] if c is not None else n
@@ -830,13 +935,25 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
         patterns that have joined and may still be possible, and `todo`
         already leaves out the groups of satisfied ones. `cp` is the
         constraint's part once it has joined (DEAD once out of reach). With
-        `faces`, exactly `fr` of the `rem` cards are face cards (0 otherwise)."""
-        if split:
+        `faces`, exactly `fr` of the `rem` cards are face cards (0 otherwise);
+        with several marks, `fr` codes how many of each (_Layout.bases)."""
+        if single:
             others = remaining[i] - faces_left[i]
             if fr > faces_left[i] or rem - fr > others:
                 return 0
             if not todo:
                 return comb(faces_left[i], fr) * comb(others, rem - fr)
+            marked = fr
+        elif split:
+            counts = [fr // b % (total + 1) for b, total in zip(bases, marks_left[0])]
+            if any(map(gt, counts, marks_left[i])):
+                return 0
+            marked = sum(counts)
+            others = remaining[i] - faces_left[i]
+            if rem - marked > others:
+                return 0
+            if not todo:
+                return prod(map(comb, marks_left[i], counts)) * comb(others, rem - marked)
         elif not todo:
             return comb(remaining[i], rem)
         if i == n:
@@ -904,12 +1021,15 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
         c_moves = cp is not None and cp != DEAD and part_bits[cp] & bit
         sets = in_deferred[i]
         # The most cards of class i that can be drawn, and whether they use up `fr`.
+        mark = face_class[i]
         if not split:
             drawn, face_step = min(count, rem), 0
-        elif face_class[i]:
+        elif mark < 0:
+            drawn, face_step = min(count, rem - marked), 0
+        elif single:
             drawn, face_step = min(count, fr), 1
         else:
-            drawn, face_step = min(count, rem - fr), 0
+            drawn, face_step = min(count, counts[mark]), bases[mark]
         total = 0
         moves = transitions[i]
         for k in range(drawn + 1):
@@ -943,7 +1063,7 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
 
     try:
         if split:
-            return sum(w * ways(0, draws, todo, [], None, a) for a, w in face_weights)
+            return sum(w * ways(0, draws, todo, [], None, code) for code, _, w in coded)
         return ways(0, draws, todo, [], None, 0)
     finally:
         # `ways` refers to itself through its closure, which would keep this whole
@@ -1076,82 +1196,146 @@ def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) 
 
 # --- What the hand's sorts say about face-down cards (docs/plans/face-down-windows.md) ---
 
-_POSTERIORS_KEPT = 16  # posteriors kept for the latest states: build_report and the search ask many times
-_posteriors: OrderedDict[tuple, Posterior | None] = OrderedDict()
-_posteriors_lock = Lock()
+_USABLE_KEPT = 16  # states whose evidence was checked: build_report and the search ask many times
+_usable: OrderedDict[tuple, bool] = OrderedDict()
+_usable_lock = Lock()
 _ignored: set[tuple] = set()  # observations no deal fits, already logged
 
 
-def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = ()) -> Posterior | None:
-    """What the face-down cards in `state.observations` are, as a posterior
-    (posterior.branches), with the face-down cards at hand indices `extra` too
-    (no evidence: see _posterior_for). None if there's nothing to branch on.
-
-    Under The Mark the face-down cards are face cards (`flipped_by_mark`), as
-    in _mark_split. Observations that no deal fits (a card changed while face
-    down, say) are set aside, logged once on stderr: the odds are then today's,
-    with no part of that evidence used.
-    Raises Cancelled soon after `cancel` is set.
-    """
-    in_hand = {o.hand for o in state.observed if o.hand is not None}
+def _allowed(state: GameState) -> Callable[[Card], bool]:
+    """Which unseen cards a face-down card can be: under The Mark only face cards
+    (`flipped_by_mark`), as in _mark_split."""
     rules = state.rules
-    key = (state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and rules.pareidolia, extra)
-    with _posteriors_lock:
-        if key in _posteriors:
-            _posteriors.move_to_end(key)
-            return _posteriors[key]
+    return lambda card: not state.mark or flipped_by_mark(card, rules)
 
-    def allowed(card: Card) -> bool:
-        return not state.mark or flipped_by_mark(card, rules)
 
+def _checker(cancel: Event | None) -> Callable[[], None]:
     def check() -> None:
         if cancel is not None and cancel.is_set():
             raise Cancelled
+    return check
 
-    found: Posterior | None = None
-    if any(o.latent for o in state.observed):
-        found = branches(state.observations, state.observed, state.unseen, allowed,
-                         tuple(i for i in extra if i not in in_hand), check)
-        if not found.total:
-            found = None
-            failure = state.observations, state.observed
-            with _posteriors_lock:
-                first = failure not in _ignored
-                _ignored.add(failure)
-            if first:
-                print("The hand's sorts fit no deal of the unseen cards, so the odds don't use them: "
-                      f"{state.observations} of {state.observed}", file=sys.stderr, flush=True)
-    if found is None and extra:
-        found = branches((), (), state.unseen, allowed, extra, check)
-        if not found.total:  # no card it can be: only a rank changed under The Mark does that
-            found = None
-    with _posteriors_lock:
-        _posteriors[key] = found
-        while len(_posteriors) > _POSTERIORS_KEPT:
-            _posteriors.popitem(last=False)
+
+def usable(state: GameState, cancel: Event | None = None) -> bool:
+    """Whether some deal of the unseen cards fits `state.observations`.
+
+    Observations that none does (a card changed while face down, say) are set
+    aside, logged once on stderr: the odds are then today's, with no part of
+    that evidence used. Raises Cancelled soon after `cancel` is set.
+    """
+    if not any(o.latent for o in state.observed):
+        return True
+    key = (state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and state.rules.pareidolia)
+    with _usable_lock:
+        if key in _usable:
+            _usable.move_to_end(key)
+            return _usable[key]
+    # Telling no deals apart, the sum is one branch: quick even for The House's first hand.
+    found = summed(state.observations, state.observed, state.unseen, _allowed(state), (), _nothing,
+                   _checker(cancel)).total > 0
+    if not found:
+        failure = state.observations, state.observed
+        with _usable_lock:
+            first = failure not in _ignored
+            _ignored.add(failure)
+        if first:
+            print("The hand's sorts fit no deal of the unseen cards, so the odds don't use them: "
+                  f"{state.observations} of {state.observed}", file=sys.stderr, flush=True)
+    with _usable_lock:
+        _usable[key] = found
+        while len(_usable) > _USABLE_KEPT:
+            _usable.popitem(last=False)
     return found
 
 
+def _nothing(hand: int | None, card: Card) -> None:
+    return None
+
+
+def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = (),
+              label: Label | None = None, skip: frozenset[int] = frozenset()) -> Posterior | None:
+    """What the face-down cards in `state.observations` are, as a posterior
+    (posterior.summed), with the face-down cards at hand indices `extra` too
+    (no evidence: see _posterior_for). None if there's nothing to branch on.
+
+    Branches are summed by `label`, what the caller sees of each card (see
+    posterior.summed); without it each deal is its own branch. The latent
+    cards with ids in `skip` are left out.
+    Under The Mark the face-down cards are face cards (`_allowed`). Observations
+    no deal fits are set aside (`usable`).
+    Raises Cancelled soon after `cancel` is set.
+    """
+    observations, observed = state.observations, state.observed
+    if not usable(state, cancel):
+        observations, observed = (), ()
+    in_hand = {o.hand for o in observed if o.hand is not None}
+    extra = tuple(i for i in extra if i not in in_hand)
+    if not any(o.latent for i, o in enumerate(observed) if i not in skip) and not extra:
+        return None
+    found = summed(observations, observed, state.unseen, _allowed(state), extra, label, _checker(cancel), skip)
+    # No card it can be: only a rank changed under The Mark does that, with DNA's copies alone.
+    return found if found.total else None
+
+
 def with_usable_evidence(state: GameState, cancel: Event | None = None) -> GameState:
-    """`state`, or, if its observations are set aside (see `posterior`), `state`
+    """`state`, or, if its observations are set aside (see `usable`), `state`
     without them, so that its face-down cards are interchangeable again."""
-    if not state.observed or posterior(state, cancel) is not None:
+    if usable(state, cancel):
         return state
     return replace(state, observations=(), observed=(), hand=[replace(c, latent=None) for c in state.hand])
 
 
-def _posterior_for(state: GameState, discard: list[int], cancel: Event | None) -> Posterior | None:
-    """The posterior the odds of discarding `discard` average over.
+def _posterior_for(state: GameState, discard: list[int], cancel: Event | None,
+                   classes: Callable[[Card], object] | None, skip: frozenset[int] = frozenset()) -> Posterior | None:
+    """The posterior the odds of discarding `discard` average over, its deals
+    summed by what those odds see of them (`classes`, see _labels); every deal
+    its own branch without `classes`.
 
     Besides the evidence, a face-down card played alone as the round's first
     hand is enumerated when DNA makes 2 or more copies of it: they're the same
     card, which isn't like as many separate unseen ones. (One copy is exactly
     the card kept face down, so it needs no branching.)
+
+    The face-down cards with ids in `skip` are left out (a window, _window_for).
     """
-    dna = discard[0] if _dna_copies(state, discard) >= 2 and state.hand[discard[0]].hidden else None
+    dna = _dna_branch(state, discard)
+    label = None if classes is None else _labels(state, discard, dna, classes)
     if _says_nothing_here(state, discard):
         state = replace(state, observations=(), observed=())
-    return posterior(state, cancel, () if dna is None else (dna,))
+    return posterior(state, cancel, () if dna is None else (dna,), label, skip)
+
+
+def _dna_branch(state: GameState, discard: list[int]) -> int | None:
+    """The face-down card DNA copies 2 or more times, if any: it's branched on."""
+    return discard[0] if _dna_copies(state, discard) >= 2 and state.hand[discard[0]].hidden else None
+
+
+def _labels(state: GameState, discard: list[int], dna: int | None,
+            classes: Callable[[Card], object]) -> Label:
+    """What the odds of discarding `discard` see of a face-down card being
+    `card`, given where it ends up (posterior.summed's `label`).
+
+    A card kept (or copied by DNA) is part of the final hand: its class
+    (`classes`), and whether Cerulean Bell forces it. One gone, thrown away now
+    or discarded face down before, is only missing from the cards left to
+    draw, so where it went doesn't matter, and nothing about it does if no card
+    is drawn. Deals alike in all of that give the same odds: the engine sees
+    cards only through their classes, and the unseen cards left are the same
+    classes too.
+    """
+    thrown = set(discard)
+    copied = discard[0] if _dna_copies(state, discard) else None  # in the final hand, once or more
+    resolved = {o.hand for o in state.observed if o.hand is not None} | ({dna} if dna is not None else set())
+    d = _discard(state, discard)
+    # Face-down cards the branches don't resolve are drawn like the deck's cards.
+    unresolved = sum(1 for i, c in enumerate(state.hand) if c.hidden and i not in thrown and i not in resolved)
+    drawn = d.draws + unresolved + (d.added_hidden if dna is None else 0) > 0
+
+    def label(hand: int | None, card: Card) -> object:
+        if hand is None or (hand in thrown and hand != copied):
+            return ("gone", classes(card)) if drawn else None
+        return ("copied" if hand == copied else "kept", state.hand[hand].forced, classes(card))
+    return label
 
 
 def _says_nothing_here(state: GameState, discard: list[int]) -> bool:
@@ -1184,17 +1368,32 @@ def _resolved(state: GameState, branch: Branch) -> GameState:
     one of it leaves the unseen cards, whether it's kept or discarded. Those
     discarded face down before take the place of one of the discard pile's
     hidden cards each. Deck size, hand size and indices stay as they were."""
-    hand = list(state.hand)
-    unseen = list(state.unseen)
-    for i, card in branch.cards:
-        unseen.remove(card)
-        hand[i] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
-    discard = list(state.discard)
-    hidden = (i for i, c in enumerate(discard) if c.hidden)
-    for card in branch.discarded:
-        unseen.remove(card)
-        discard[next(hidden)] = card
-    return replace(state, hand=hand, unseen=unseen, discard=discard, observations=(), observed=())
+    return _resolver(state)(branch)
+
+
+def _resolver(state: GameState) -> Callable[[Branch], GameState]:
+    """_resolved for many branches of `state`: where each unseen card is is found once."""
+    places: dict[Card, list[int]] = {}
+    for j, card in enumerate(state.unseen):
+        places.setdefault(card, []).append(j)
+    hidden = [i for i, c in enumerate(state.discard) if c.hidden]
+
+    def resolve(branch: Branch) -> GameState:
+        taken: dict[Card, int] = {}
+        gone = set()
+        for card in [c for _, c in branch.cards] + list(branch.discarded):
+            n = taken.get(card, 0)
+            gone.add(places[card][n])
+            taken[card] = n + 1
+        hand = list(state.hand)
+        for i, card in branch.cards:
+            hand[i] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
+        discard = list(state.discard)
+        for i, card in zip(hidden, branch.discarded):
+            discard[i] = card
+        unseen = [c for j, c in enumerate(state.unseen) if j not in gone]
+        return replace(state, hand=hand, unseen=unseen, discard=discard, observations=(), observed=())
+    return resolve
 
 
 def _rule_classes(state: GameState, discard: list[int],
@@ -1224,44 +1423,203 @@ def _counts_towards(target: Target, state: GameState) -> Callable[[Card, Rules],
     the card's class itself."""
     if state.bell and bell_matters(target, state.rules):
         return card_key
-    tables: dict[Rules, tuple[Pattern, ...]] = {}
 
     def test(card: Card, rules: Rules) -> object:
-        key = card_key(card, rules)
-        if key is None:
-            return frozenset()
-        if rules not in tables:
-            tables[rules] = target.patterns(rules)
-        return frozenset((p, q) for p, pattern in enumerate(tables[rules])
-                         for q, req in enumerate(pattern) if key in req.keys)
+        return _memberships(target.hands, rules).get(card_key(card, rules), frozenset())
     return test
 
 
-def _over_branches(state: GameState, discard: list[int], post: Posterior, classes: Callable[[Card], object] | None,
-                   odds: Callable[[GameState], Fraction], cancel: Event | None) -> Fraction:
-    """The odds averaged over the posterior's branches, by weight: `odds` of
-    each branch's resolved state.
+@cache
+def _memberships(hands: tuple[str, ...], rules: Rules) -> dict[ClassKey, frozenset[tuple[int, int]]]:
+    """For each class, the requirements of the hands' patterns it counts towards, as (pattern, requirement)."""
+    found: dict[ClassKey, set[tuple[int, int]]] = defaultdict(set)
+    for p, pattern in enumerate(Target("", hands).patterns(rules)):
+        for q, req in enumerate(pattern):
+            for key in req.keys:
+                found[key].add((p, q))
+    return {key: frozenset(pq) for key, pq in found.items()}
 
-    Branches that resolve the same number of cards of each class (`classes`),
-    kept, discarded now or discarded before, and forced or not, leave the odds
-    the same numbers to work with (the engine sees cards only through those, and the unseen cards
-    left are the same classes too), so they share one evaluation. That's exact;
-    `classes=None` evaluates every branch, as the tests' reference.
-    """
-    thrown = set(discard)
-    done: dict[object, Fraction] = {}
+
+def _over_branches(state: GameState, post: Posterior, odds: Callable[[GameState], Fraction],
+                   cancel: Event | None) -> Fraction:
+    """The odds averaged over the posterior's branches, by weight: `odds` of
+    each branch's resolved state, every face-down card turned up. With one
+    branch for each deal (posterior.reference), it's the tests' reference for
+    _averaged."""
     total = Fraction(0)
-    for b, branch in enumerate(post.branches):
+    resolve = _resolver(state)
+    for branch in post.branches:
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        seen: object = b if classes is None else frozenset(Counter(
-            [(i in thrown, state.hand[i].forced, classes(card)) for i, card in branch.cards]
-            + [("before", False, classes(card)) for card in branch.discarded]).items())
-        p = done.get(seen)
-        if p is None:
-            p = done[seen] = odds(_resolved(state, branch))
-        total += branch.weight * p
+        total += branch.weight * odds(resolve(branch))
     return total / post.total
+
+
+def _averaged(state: GameState, discard: list[int], classes: Callable[[Card], object],
+              odds: Callable[[GameState, tuple[Marked, ...]], Fraction], cancel: Event | None) -> Fraction | None:
+    """The odds of discarding `discard`, averaged over what the face-down cards the
+    hand's sorts tell about are; None if they tell about none, or say nothing
+    here (_says_nothing_here). `odds` evaluates a branch's resolved state, with
+    the windows' cards left face down (_windows_for).
+
+    The branches are summed by what the odds see of them (`classes`, _labels),
+    so there's one evaluation for each thing they can tell apart, and none at
+    all for each of a window's cards.
+    """
+    windows, splits = _windows_for(state, discard, classes, cancel)
+    skip = frozenset(i for ids, _ in windows + splits for i in ids)
+    marked = tuple(m for _, m in windows)
+    post = _posterior_for(state, discard, cancel, classes, skip)
+    if post is None:
+        if not skip:
+            return None
+        post = Posterior((Branch((), Fraction(1)),), Fraction(1))  # the windows' cards were all there was
+    whole = post.total
+    for _, options in splits:
+        whole *= sum(w for w, _, _ in options)
+    total = Fraction(0)
+    resolve = _resolver(state)
+    for branch in post.branches:
+        for chosen in product(*(options for _, options in splits)):
+            if cancel is not None and cancel.is_set():
+                raise Cancelled
+            weight = branch.weight * prod(w for w, _, _ in chosen)
+            cards = [c for _, turned, _ in chosen for c in turned]
+            resolved = Branch(branch.cards + tuple((i, c) for i, c in cards if i is not None), branch.weight,
+                              branch.discarded + tuple(c for i, c in cards if i is None))
+            total += weight * odds(resolve(resolved), marked + tuple(m for _, _, ms in chosen for m in ms))
+    return total / whole
+
+
+_WINDOWS_KEPT = 16
+_windows: OrderedDict[tuple, list[Window]] = OrderedDict()
+WINDOW_COUNTS = 64  # most combinations of how many of each window's cards a draw has
+SPLITS = 5000  # most ways to split a window by its cards' fates (_split)
+
+# A way to split a window: its weight, the cards it turns up (by hand index, None if
+# discarded face down before) and the windows left.
+WindowSplit = tuple[int, tuple[tuple[int | None, Card], ...], tuple[Marked, ...]]
+
+
+def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card], object],
+                 cancel: Event | None) -> tuple[list[tuple[frozenset[int], Marked]],
+                                                list[tuple[frozenset[int], list[WindowSplit]]]]:
+    """Windows of `state`'s face-down cards (posterior.windows) for the odds of
+    discarding `discard` to weigh the draw by, rather than go through their
+    cards: each one's card ids and how the engine sees it.
+
+    A window's cards must all meet one fate, all kept or all gone, as only then
+    does what the final hand holds depend on how many of its cards the draw
+    has. Under The Mark the draw is already weighed (_mark_split), and The Hook
+    and Cerulean Bell pick from the final hand at random; DNA's copies of a
+    face-down card are branched on. None of those take windows. Of the rest,
+    those whose cards the odds tell apart (`classes`) are taken, the most told
+    apart first: one whose cards they see alike costs no more to go through.
+    The search goes through every combination of how many of each window's
+    cards the draw has, so they're taken while those are at most WINDOW_COUNTS.
+
+    A window whose cards meet different fates, side by side in a sort, is split
+    instead (_split), if it can be in at most SPLITS ways, and they're likely
+    fewer than the deals `summed` would go through: that's the second list,
+    with each window's ids and its ways.
+    """
+    if (state.mark or state.bell or _hooked(state, discard) or _dna_copies(state, discard)
+            or _says_nothing_here(state, discard) or not usable(state, cancel)):
+        return [], []
+    key = (state.observations, state.observed, tuple(state.unseen))
+    with _usable_lock:
+        found = _windows.get(key)
+        if found is not None:
+            _windows.move_to_end(key)
+    if found is None:
+        found = windows(state.observations, state.observed, state.unseen, _allowed(state), _checker(cancel))
+        with _usable_lock:
+            _windows[key] = found
+            while len(_windows) > _WINDOWS_KEPT:
+                _windows.popitem(last=False)
+    thrown = set(discard)
+    d = _discard(state, discard)
+    unknown = d.draws + d.hidden_kept + d.added_hidden  # cards drawn from the unseen ones, with the kept face-down
+    useful = []
+    splits = []
+
+    def fate(i: int) -> bool:  # kept
+        return state.observed[i].hand is not None and state.observed[i].hand not in thrown
+
+    for w in found:
+        fates = {fate(i) for i in w.ids}
+        if len(fates) != 1:
+            if w.order and (ways := _split(w, [fate(i) for i in w.order], state)) is not None:
+                # Each way is a search with a window for each block, which costs about twice what a
+                # deal summed by its labels does (posterior.summed): there may be as many as
+                # this of those, for each fate's multiset of the labels its cards can have.
+                labels = len({classes(c) for c in w.cards})
+                kept = sum(map(fate, w.ids))
+                deals = comb(labels + kept - 1, kept) * (comb(labels + w.size - kept - 1, w.size - kept)
+                                                         if unknown else 1)
+                if 2 * len(ways) <= deals:
+                    splits.append((w.ids, ways))
+            continue
+        kept = fates.pop()
+        if not kept and not unknown:
+            continue  # gone, with nothing drawn: nothing to see of them
+        seen = len({classes(c) for c in w.cards})
+        if seen > 1:
+            # How many of its cards the draw can have.
+            counts = min(len(w.cards), unknown) - w.size + 1 if kept else min(len(w.cards) - w.size, unknown) + 1
+            useful.append((seen, counts, w, kept))
+    taken = []
+    options = 1
+    for _, counts, w, kept in sorted(useful, key=lambda u: -u[0]):
+        if options * counts <= WINDOW_COUNTS:
+            options *= counts
+            taken.append((w.ids, Marked(w.cards, w.size, kept)))
+    return taken, splits
+
+
+def _split(window: Window, kept: list[bool], state: GameState) -> list[WindowSplit] | None:
+    """The ways a window's cards can be, by the cards at the edges of its blocks
+    of cards meeting one fate (`kept`, for each card in `window.order`); None if
+    there are more than SPLITS.
+
+    The window's cards are a uniform set, sorted into its order, so its blocks
+    hold the highest cards, then the next, and so on. Given the lowest card of
+    each block but the last, which the odds see turned up, each block's other
+    cards are a uniform set of the window's cards between that one and the
+    block above's: windows that meet one fate each. A way is as likely as the
+    sets it leaves: the product of C(cards between, cards left in the block).
+    """
+    cards = sorted(window.cards, key=lambda c: sort_value(printed(c), window.mode), reverse=True)
+    blocks: list[list[int]] = []  # each block's ids, top first
+    fates: list[bool] = []
+    for i, k in zip(window.order, kept):
+        if fates and fates[-1] == k:
+            blocks[-1].append(i)
+        else:
+            blocks.append([i])
+            fates.append(k)
+    below = [sum(map(len, blocks[b + 1:])) for b in range(len(blocks))]  # cards the blocks under b need
+    found: list[WindowSplit] = []
+
+    def ways(b: int, above: int, weight: int, turned: tuple, left: tuple) -> None:
+        """Block b and those under it, the cards up to index `above` being taken."""
+        if len(found) > SPLITS:
+            return
+        block = blocks[b]
+        if b == len(blocks) - 1:
+            rest = cards[above + 1:]
+            found.append((weight * comb(len(rest), len(block)), turned,
+                          (*left, Marked(frozenset(rest), len(block), fates[b]))))
+            return
+        hand = state.observed[block[-1]].hand
+        for j in range(above + len(block), len(cards) - below[b]):
+            between = cards[above + 1:j]
+            more = (Marked(frozenset(between), len(block) - 1, fates[b]),) if len(block) > 1 else ()
+            ways(b + 1, j, weight * comb(len(between), len(block) - 1), (*turned, (hand, cards[j])), (*left, *more))
+
+    ways(0, -1, 1, (), ())
+    found = [w for w in found if w[0]]
+    return found if len(found) <= SPLITS else None
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
@@ -1277,23 +1635,22 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
 
     What the hand's sorts show of its face-down cards (`GameState.observations`)
     is used: the odds are the average over what those cards are, weighed by
-    the posterior (`_posterior_for`, `_over_branches`).
+    the posterior (`_averaged`).
     """
-    post = _posterior_for(state, discard, cancel)
-    if post is None:
+    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
+        return _evaluate_discard(resolved, target, discard, cancel, reuse, windows).probability
+
+    p = _averaged(state, discard, _rule_classes(state, discard, _counts_towards(target, state)), odds, cancel)
+    if p is None:
         return _evaluate_discard(state, target, discard, cancel, reuse)
-    classes = _rule_classes(state, discard, _counts_towards(target, state))
-
-    def odds(resolved: GameState) -> Fraction:
-        return _evaluate_discard(resolved, target, discard, cancel, reuse).probability
-
     d = _discard(state, discard)
-    return DiscardOutcome(d.discarded, d.draws, _over_branches(state, discard, post, classes, odds, cancel))
+    return DiscardOutcome(d.discarded, d.draws, p)
 
 
 def _evaluate_discard(state: GameState, target: Target, discard: list[int],
-                      cancel: Event | None, reuse: Reuse | None) -> DiscardOutcome:
-    """evaluate_discard with every face-down card unknown, or resolved by a branch."""
+                      cancel: Event | None, reuse: Reuse | None, windows: Sequence[Marked] = ()) -> DiscardOutcome:
+    """evaluate_discard with every face-down card unknown, or resolved by a
+    branch, but for those in the `windows`."""
     d = _discard(state, discard)
     outcomes = rules_after(state, discard)
     total = sum(n for _, n in outcomes)
@@ -1302,14 +1659,15 @@ def _evaluate_discard(state: GameState, target: Target, discard: list[int],
         # Flush, or any of them for a Pair. Smeared also changes the cards' classes.
         # (Crimson Heart is the boss, so The Mark's split and Cerulean Bell don't apply.)
         outcomes = _merged(outcomes, lambda rules: (target.patterns(rules), rules.smeared))
-    p = sum((n * _discard_odds(state, target, discard, d, rules, cancel, reuse) for rules, n in outcomes),
+    p = sum((n * _discard_odds(state, target, discard, d, rules, cancel, reuse, windows) for rules, n in outcomes),
             Fraction(0)) / total
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
 def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Discard, rules: Rules,
-                  cancel: Event | None, reuse: Reuse | None) -> Fraction:
-    """evaluate_discard's odds with the final hand judged under `rules`."""
+                  cancel: Event | None, reuse: Reuse | None, windows: Sequence[Marked] = ()) -> Fraction:
+    """evaluate_discard's odds with the final hand judged under `rules`.
+    `windows` only come without The Hook, Cerulean Bell or The Mark (_windows_for)."""
     if d.hooked:
         return _after_hook(target, d, rules, cancel, reuse)
     hidden = d.hidden_kept + d.added_hidden
@@ -1322,7 +1680,7 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
             kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
             return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
         return _bell_after_draw(target, known, d.pool, unseen, rules, cancel, reuse)
-    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse)
+    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse, windows=windows)
 
 
 def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200,
@@ -1340,8 +1698,10 @@ def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, 
     Where the hand's sorts tell about face-down cards, a uniform draw could be
     one they rule out, so each try first picks what those cards are: any branch
     of the posterior has some chance, and so has any draw from what's left.
+    The branches are summed by what the target sees, so they're all it can
+    tell apart.
     """
-    post = _posterior_for(state, discard, cancel)
+    post = _posterior_for(state, discard, cancel, _rule_classes(state, discard, _counts_towards(target, state)))
     if post is None:
         return _can_miss(state, target, discard, rng, tries)
     resolved: dict[int, GameState] = {}
@@ -1457,7 +1817,8 @@ def _forced_group(hands: tuple[str, ...], rules: Rules, key: ClassKey | None) ->
 
 
 def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rules = Rules(),
-                      marked: int = 0, marked_kept: int = 0, have: int = 0) -> Fraction:
+                      marked: int = 0, marked_kept: int = 0, have: int = 0,
+                      windows: Sequence[Marked] = ()) -> Fraction:
     """P(`have` plus the number of matching cards among `draws` random cards from
     `pool` satisfies `query`).
 
@@ -1465,22 +1826,30 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
     discarded), so they
     are known to be face cards, and `marked_kept` of them are among the
     `draws`. The other draws come from the rest of the pool; see _mark_split.
+    Windows of face-down cards skew the draw instead (_window_split).
     """
     draws = max(0, min(draws, len(pool) - marked + marked_kept))
-    split = _mark_split(pool, draws, rules, marked, marked_kept)
+    split = _window_split(pool, draws, windows) if windows else _marks(
+        _mark_split(pool, draws, rules, marked, marked_kept))
     if split is not None:
         faces, weights = split
-        f = sum(faces)
-        others = len(pool) - f
-        face_matches = sum(1 for c, face in zip(pool, faces) if face and query.filter.test(c, rules))
-        other_matches = sum(1 for c, face in zip(pool, faces) if not face and query.filter.test(c, rules))
-        # Given a face cards among the unseen cards, they're a uniform sample of all f
-        # (as the face-down ones are), and the other draws - a one of the others.
-        return sum((w * sum(comb(face_matches, x) * comb(f - face_matches, a - x)
-                            * comb(other_matches, y) * comb(others - other_matches, draws - a - y)
-                            for x in range(min(face_matches, a) + 1)
-                            for y in range(min(other_matches, draws - a) + 1) if query.accepts(have + x + y))
-                    for a, w in weights), Fraction(0))
+        marks = max(len(a) for a, _ in weights) if weights else 0
+        sizes = [0] * (marks + 1)  # each mark's cards, and the others' last
+        matching = [0] * (marks + 1)
+        for c, mark in zip(pool, faces):
+            sizes[mark] += 1
+            matching[mark] += query.filter.test(c, rules)
+        total = Fraction(0)
+        for a, w in weights:
+            # Given a_k cards of each mark among the unseen cards, they're a uniform
+            # sample of its cards (as its face-down ones are), and the others one of the rest.
+            ways = [1]  # ways[x]: draws with x matching cards
+            for size, match, k in zip(sizes, matching, (*a, draws - sum(a))):
+                here = [comb(match, x) * comb(size - match, k - x) for x in range(min(match, k) + 1)]
+                ways = [sum(ways[i] * here[x - i] for i in range(len(ways)) if 0 <= x - i < len(here))
+                        for x in range(len(ways) + len(here) - 1)]
+            total += w * sum(n for x, n in enumerate(ways) if query.accepts(have + x))
+        return total
     draws = min(draws, len(pool))
     matches = sum(1 for c in pool if query.filter.test(c, rules))
     others = len(pool) - matches
@@ -1494,20 +1863,21 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
     """Probability that the final hand after discarding satisfies `query`.
 
     Like evaluate_discard, it averages over what the face-down cards the hand's
-    sorts tell about are (`_over_branches`). Raises Cancelled soon after
+    sorts tell about are (`_averaged`). Raises Cancelled soon after
     `cancel` is set.
     """
-    post = _posterior_for(state, discard, cancel)
-    if post is None:
+    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
+        return _evaluate_cards(resolved, query, discard, windows).probability
+
+    p = _averaged(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel)
+    if p is None:
         return _evaluate_cards(state, query, discard)
-    classes = _rule_classes(state, discard, query.filter.test)
     d = _discard(state, discard)
-    p = _over_branches(state, discard, post, classes,
-                       lambda resolved: _evaluate_cards(resolved, query, discard).probability, cancel)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def _evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> DiscardOutcome:
+def _evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
+                    windows: Sequence[Marked] = ()) -> DiscardOutcome:
     """evaluate_cards with every face-down card unknown, or resolved by a branch.
 
     The final hand is the kept cards and the draw. From the player's view the
@@ -1530,17 +1900,18 @@ def _evaluate_cards(state: GameState, query: CardQuery, discard: list[int]) -> D
         # change that, and Smeared and Pareidolia only for some queries.
         cards = (*d.kept_known, *d.added, *d.pool)
         outcomes = _merged(outcomes, lambda rules: tuple(query.filter.test(c, rules) for c in cards))
-    p = sum((n * _card_odds(query, d, rules) for rules, n in outcomes), Fraction(0)) / total
+    p = sum((n * _card_odds(query, d, rules, windows) for rules, n in outcomes), Fraction(0)) / total
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def _card_odds(query: CardQuery, d: _Discard, rules: Rules) -> Fraction:
-    """evaluate_cards's odds with the final hand judged under `rules`."""
+def _card_odds(query: CardQuery, d: _Discard, rules: Rules, windows: Sequence[Marked] = ()) -> Fraction:
+    """evaluate_cards's odds with the final hand judged under `rules`. `windows`
+    only come without The Hook or The Mark (_windows_for)."""
     have = sum(query.filter.test(c, rules) for c in d.kept_known)
     added = sum(query.filter.test(c, rules) for c in d.added)
     if not d.hooked:
         hidden = d.hidden_kept + d.added_hidden
-        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden, have + added)
+        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden, have + added, windows)
     # Of the kept cards, only whether each matches matters, or that it's face down.
     sizes = (have, len(d.kept_known) - have, d.hidden_kept)
     total = Fraction(0)

@@ -237,8 +237,8 @@ def check(case: Case, discards, targets=(), queries=()) -> None:
             found = evaluate_discard(state, target, discard)
             assert found.probability == oracle(case, discard, target_holds(target, state)), (target.name, discard)
             one_by_one = engine._over_branches(
-                state, discard, ref, None,
-                lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability, None)
+                state, ref, lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability,
+                None)
             assert one_by_one == found.probability
             assert found.discarded == [state.hand[i] for i in sorted(discard)]  # as the player sees them
         for query in queries:
@@ -298,6 +298,30 @@ def test_a_card_between_two_spades_by_suit_makes_the_flush():
     # So no draw can miss: can_miss mustn't find one the evidence rules out.
     assert not engine.can_miss(state, get_target("Flush"), [], random.Random(0))
     check(case, [[], [0], [2]], targets=[get_target("Flush"), get_target("Pair")])
+
+
+def test_windows_weigh_the_draw():
+    # Two runs of face-down cards, each between face-up cards that none of them can
+    # tie with: each is a uniformly random set of the cards between (posterior.windows),
+    # and the engine weighs the draw by how many of each it has, kept or gone.
+    case = Case(hand=["K", "high1", "high2", "9", "low", "3"],
+                cards={"K": card(13, "Spades"), "9": card(9, "Hearts"), "3": card(3, "Diamonds"),
+                       "high1": card(12, "Clubs"), "high2": card(10, "Hearts"), "low": card(6, "Clubs")},
+                down={"high1", "high2", "low"}, views={"desc": ["K", "high1", "high2", "9", "low", "3"]},
+                deck=[card(11, "Hearts"), card(10, "Clubs"), card(7, "Hearts"), card(5, "Clubs"), card(2, "Hearts")])
+    state = case.state()
+    found = engine.windows(state.observations, state.observed, state.unseen, lambda c: True)
+    assert sorted(w.size for w in found) == [1, 2]
+    classes = engine._rule_classes(state, [], engine._counts_towards(get_target("Straight"), state))
+    assert len(engine._windows_for(state, [], classes, None)[0]) == 2  # both kept
+    assert len(engine._windows_for(state, [0, 4], classes, None)[0]) == 2  # one kept, one gone
+    # The run of two split, kept and gone: split again by its lower card, the higher one is a window
+    # of the cards above it (engine._split), and the other run is a window as it was.
+    windows, splits = engine._windows_for(state, [1], classes, None)
+    assert [w.size for _, w in windows] == [1]
+    assert [len(ways) for _, ways in splits] == [3]  # J, 10 or 7 is the lower one: Q and 10 left above
+    discards = [[], [0], [4], [0, 4], [1], [0, 3, 5]]
+    check(case, discards, [get_target("Straight"), get_target("Pair"), get_target("Flush")], QUERIES)
 
 
 # --- Against dealing every way --------------------------------------------------------
@@ -414,7 +438,7 @@ def test_the_house_first_hand_keeping_it_is_todays_odds(monkeypatch):
     cards = dict(zip(names, sorted(deck[:8], key=lambda c: nominal(printed(c), "desc"), reverse=True)))
     case = Case(hand=names, cards=cards, down=set(names), views={"desc": names}, deck=deck[8:])
     state = case.state()
-    monkeypatch.setattr(engine, "branches", None)  # never called
+    monkeypatch.setattr(engine, "summed", None)  # never called
     for discard in ([], list(range(8))):
         assert (evaluate_discard(state, TARGETS[0], discard).probability
                 == engine._evaluate_discard(state, TARGETS[0], discard, None, None).probability)
@@ -494,6 +518,19 @@ def test_dna_copies_of_the_higher_of_two_is_not_keeping_it():
     check(case, [[0], [1]], [get_target("Three of a Kind")], [nines])
 
 
+def test_dna_one_copy_with_nothing_drawn():
+    # One copy of the left card fills the hand, so nothing is drawn: what was played
+    # is still in the final hand, so its branches mustn't merge like those of a card gone.
+    case = Case(hand=["L", "R"], cards={"L": card(9, "Clubs"), "R": card(7, "Clubs")}, down={"L", "R"},
+                views={"desc": ["L", "R"]}, deck=[card(8, "Clubs"), card(2, "Hearts"), card(3, "Hearts")],
+                kw={"discards_left": 0, "hands_left": 2, "dna_copies": 1})
+    state = case.state()
+    assert engine._discard(state, [0]).draws == 0
+    nines = parse_query("at least 1 9")
+    assert evaluate_cards(state, nines, [0]).probability == Fraction(4, 10)
+    check(case, [[0], [1]], [get_target("Pair")], [nines])
+
+
 @pytest.mark.parametrize("seed", range(2))
 def test_the_mark_with_a_card_discarded_face_down(seed):
     rng = random.Random(520 + seed)
@@ -558,7 +595,7 @@ def test_an_exhausted_deck():
 # the shuffled deck: it draws the first hand every way, sorts it, throws cards away,
 # draws every way and sorts again, keeping the deals whose every step looks as the
 # player saw it. So it checks that conditioning on every sort seen this round, as
-# `posterior.branches` does, is right however the cards got there.
+# `posterior.summed` does, is right however the cards got there.
 
 @dataclass
 class Played:
@@ -864,7 +901,7 @@ def test_cancelled():
     cancel.set()
     case = random_case(random.Random(800), latent=(3, 3))
     state = case.state()
-    engine._posteriors.clear()
+    engine._usable.clear()
     with pytest.raises(Cancelled):
         posterior(state, cancel)
     with pytest.raises(Cancelled):

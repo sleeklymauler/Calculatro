@@ -33,6 +33,14 @@ second pass.
   reaches the same position as drawing another card when 2 are left. That
   makes it 1-1.5x the time of the same cards without The Mark, against
   2-2.5x for a separate search per count.
+- **Windows of face-down cards in a sort work the same way.** A run of
+  latent cards between face-up ones in a sort is a uniform choice of the
+  cards between them (see the [probability model](../probability-model.md)),
+  so a draw's weight depends on how many of each window's candidates it has
+  (`_window_split`). Each window is a mark of its own: a class is its cards'
+  membership and their mark (-1 for none), and the search tracks how many of
+  each mark are still to be drawn, packed into one int (`_Layout.bases`; The
+  Mark is the case of one mark). With one mark the search runs as before.
 - **Cerulean Bell averages searches.** After a discard it forces a random
   card of the final hand, so the odds are an average over which card that
   is: one search per kept card, and one per unseen card, each with the
