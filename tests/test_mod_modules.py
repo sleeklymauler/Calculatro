@@ -25,7 +25,8 @@ def runtime(request):
 
 def test_every_lua_file_is_registered():
     registered = {name.removeprefix("calculatro.") for name in MODULES}
-    assert registered == {path.stem for path in MOD_DIR.glob("*.lua")}
+    # steamodded.lua is Steamodded's entry point, which only Steamodded runs.
+    assert registered == {path.stem for path in MOD_DIR.glob("*.lua")} - {"steamodded"}
 
 
 def test_every_module_has_the_mods_name():

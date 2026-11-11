@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import sys
 import tomllib
@@ -154,3 +155,5 @@ def test_versions_match():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     lovely = (ROOT / "mod" / "Calculatro" / "lovely.toml").read_text(encoding="utf-8")
     assert calculatro.__version__ == project == re.search(r'^version\s*=\s*"([^"]+)"', lovely, re.M)[1]
+    steamodded = json.loads((ROOT / "mod" / "Calculatro" / "Calculatro.json").read_text(encoding="utf-8"))
+    assert steamodded["version"] == project

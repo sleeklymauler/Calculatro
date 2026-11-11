@@ -19,6 +19,11 @@ bare `json` would clash with other mods'. A new file must be registered there. I
 `Game:update` to call `calculatro.lua` every frame, and `Controller:key_press_update` for the
 panel's hotkey (`C`).
 
+`Calculatro.json` and `steamodded.lua` are only for Steamodded, which the mod doesn't need: with
+Steamodded installed, they give the mod's entry in its mod list a version, author, description and
+icon (`assets/1x/icon.png`, 34×34, and `assets/2x`, 68×68), instead of "(Lovely Mod)".
+`steamodded.lua` isn't a Lovely module, so it's left out of `lovely.toml` and the modules' tests.
+
 The modules share one table, `Calculatro` (`core.lua`; it's what `require('calculatro')` returns).
 Each adds its functions to it and calls the others' through it, requires the modules it uses (they
 have no cycles, and each loads on its own), and returns only what other modules need besides
@@ -187,8 +192,8 @@ state file path). What to calculate is set in game, with the panel's target edit
 Python (`$PythonVersion`/`$PythonSha256`) with the `calculatro` package in the mod's `python` folder,
 which the mod runs when there's no `launch.txt` (`Calculatro.launch_command`).
 
-The versions in `pyproject.toml`, `lovely.toml` and `calculatro/__init__.py` must match (and `-Tag`,
-if given). Pushing a `v*` tag runs `.github/workflows/release.yml`: tests, build, and a draft GitHub
+The versions in `pyproject.toml`, `lovely.toml`, `Calculatro.json` and `calculatro/__init__.py` must
+match (and `-Tag`, if given). Pushing a `v*` tag runs `.github/workflows/release.yml`: tests, build, and a draft GitHub
 release with the zip.
 
 ## The contract between the halves

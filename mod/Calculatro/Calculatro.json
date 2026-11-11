@@ -1,0 +1,10 @@
+{
+    "id": "Calculatro",
+    "name": "Calculatro",
+    "author": ["sleeklymauler"],
+    "description": "Live odds calculator: exact chances of drawing the hands you're after, in a panel above the deck.",
+    "prefix": "calculatro",
+    "main_file": "steamodded.lua",
+    "version": "0.1.0",
+    "badge_colour": "FE5F55"
+}

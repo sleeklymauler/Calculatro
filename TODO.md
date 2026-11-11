@@ -3,6 +3,9 @@
   - The plan (`docs/plans/face-down-windows.md`) now works from ordered "observations" rather than per-card windows (since 2026-10-15). Consider renaming the file and this item. The review found it consistent with the information-hiding contract and with the current code.
   - Also fixes several DNA copies of a face-down card, which count as separate unseen cards for now. The plan's "Evaluation" section says what it needs, and `test_dna_several_copies_of_a_face_down_card` pins today's behaviour until then.
 - [ ] remove python terminal part?
+- [ ] Before the public release, finalise the mod's Steamodded listing (`mod/Calculatro/Calculatro.json`)
+  - Replace the placeholder icon, `assets/1x/icon.png` (34×34) and `assets/2x/icon.png` (68×68, the 1x scaled with no smoothing).
+  - Set the release version (it must match `pyproject.toml`, `lovely.toml` and `calculatro/__init__.py`) and the author name to show.
 
 # Code review (2026-11-02)
 
@@ -164,7 +167,8 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
   - `release.yml` runs tests but not ruff, and tests on "3.14" rather than the bundled 3.14.8.
 - [ ] **[low]** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which doesn't exist in Windows PowerShell 5.1
   - Under 5.1 the mod is copied, then the script throws before writing `launch.txt`. Add `#Requires -Version 7`, or use `[IO.File]::WriteAllText` as `build_release.ps1` does.
-- [ ] **[low]** `build_release.ps1:101`: `Copy-Item mod\Calculatro\* $mod` has no `-Recurse`, so a future mod subfolder (assets, localisation) would ship empty
+- [x] **[low]** `build_release.ps1:101`: `Copy-Item mod\Calculatro\* $mod` has no `-Recurse`, so a future mod subfolder (assets, localisation) would ship empty
+  - Fixed with the Steamodded icon's `assets` folder.
 - [ ] **[low]** The plain test suite takes about 3.5 minutes; consider `pytest-xdist` (`-n auto`) as a dev dependency
   - The slowest single test is 6.8 s (`test_matches_trying_every_discard_with_jokers[jokers1]`). The time is spread over many brute-force and Lua tests that would parallelise well.
   - LuaJIT runtimes are per-test, so check that the `lua` fixture is safe across worker processes.

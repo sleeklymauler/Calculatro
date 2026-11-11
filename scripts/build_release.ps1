@@ -6,7 +6,7 @@
 #
 # Runs on Windows PowerShell 5.1 and PowerShell 7. -Tag (e.g. v0.1.0, as the
 # release workflow passes) must match the version, which must be the same in
-# pyproject.toml, the mod's lovely.toml and calculatro\__init__.py.
+# pyproject.toml, the mod's lovely.toml and Calculatro.json, and calculatro\__init__.py.
 param(
     [string]$Tag
 )
@@ -31,6 +31,10 @@ $version = Get-Version "pyproject.toml"
 $modVersion = Get-Version "mod\Calculatro\lovely.toml"
 if ($version -ne $modVersion) {
     throw "pyproject.toml's version ($version) differs from lovely.toml's ($modVersion)"
+}
+$steamoddedVersion = (Get-Content -Raw (Join-Path $root "mod\Calculatro\Calculatro.json") | ConvertFrom-Json).version
+if ($version -ne $steamoddedVersion) {
+    throw "pyproject.toml's version ($version) differs from Calculatro.json's ($steamoddedVersion)"
 }
 $appVersion = Get-Version "calculatro\__init__.py"
 if ($version -ne $appVersion) {
@@ -67,7 +71,7 @@ $stage = Join-Path $dist "stage"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 $mod = Join-Path $stage "Calculatro"
 New-Item -ItemType Directory -Force $mod | Out-Null
-Copy-Item (Join-Path $root "mod\Calculatro\*") $mod -Exclude "launch.txt"
+Copy-Item (Join-Path $root "mod\Calculatro\*") $mod -Exclude "launch.txt" -Recurse
 Copy-Item (Join-Path $root "LICENSE") $mod
 $python = Join-Path $mod "python"
 Expand-Archive $pythonZip $python

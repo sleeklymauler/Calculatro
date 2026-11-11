@@ -13,7 +13,12 @@ import pytest
 
 luajit = pytest.importorskip("lupa.luajit21")
 
-MOD = sorted((Path(__file__).resolve().parents[1] / "mod" / "Calculatro").glob("*.lua"))
+# Not steamodded.lua, Steamodded's entry point, which only Steamodded runs (and reads its SMODS).
+MOD = sorted(
+    path
+    for path in (Path(__file__).resolve().parents[1] / "mod" / "Calculatro").glob("*.lua")
+    if path.name != "steamodded.lua"
+)
 
 # The game's globals the mod uses; add to this when it uses another.
 GAME_GLOBALS = {"G", "love", "Sprite", "UIBox", "UIElement", "prep_draw"}
