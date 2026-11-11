@@ -12,7 +12,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 14,
+    schema = 15,
     odds_schema = 9,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -35,6 +35,7 @@ local Calculatro = {
     -- these are the defaults, until it's read as the app starts.
     settings = {
         face_down = false,  -- the hint over a face-down card: what the hand's sorts say it can be
+        memory_gb = 2,  -- the most the app's calculations may use, in GB (memory.lua)
     },
     settings_open = nil,  -- true while the settings page is open
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open

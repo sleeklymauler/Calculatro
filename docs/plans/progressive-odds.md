@@ -34,6 +34,10 @@ Decisions already made (2026-11-10):
 - **No accuracy setting.** The player never has to choose between speed and
   accuracy: they get the exact odds whenever they can be worked out within
   the limits, and an approximation, marked as one, until then.
+  Revised 2026-11-11: the memory limit is now the player's "Memory limit" setting
+  (1/2/4/8 GB, up to half the computer's; 2 GB by default, as before), since
+  the benchmark's slowest cases need about 2 GB and finish well within the
+  time limits. The time limits stay fixed.
 - **The mark is an asterisk** on the value, with a popup on hover, as the
   settings' names have.
 - **A plan of its own.** Showing an approximation first is for every row, not

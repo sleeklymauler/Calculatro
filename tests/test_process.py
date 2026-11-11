@@ -23,6 +23,22 @@ def test_exited_for_a_missing_process():
     assert process.exited(0xFFFFFFF0)()
 
 
+def test_memory_limit_is_the_setting_up_to_half_the_computers():
+    gb = process.GB
+    assert process.memory_limit(None, 32 * gb) == 2 * gb  # the default
+    assert process.memory_limit(8, 32 * gb) == 8 * gb
+    assert process.memory_limit(8, 16 * gb) == 8 * gb
+    assert process.memory_limit(8, 8 * gb) == 4 * gb
+    assert process.memory_limit(None, 3 * gb) == 3 * gb // 2
+    assert process.memory_limit(4, None) == 4 * gb  # the computer's memory unknown
+
+
+def test_installed_memory_is_read():
+    installed = process.installed_memory()
+    assert installed is not None and installed >= process.GB
+    assert process.memory_limit(1024) == installed // 2  # read when not given
+
+
 def test_one_instance():
     name = f"Local\\CalculatroTest-{uuid.uuid4()}"
     assert process.claim_instance(name)

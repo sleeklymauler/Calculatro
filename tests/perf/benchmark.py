@@ -37,6 +37,7 @@ discard's exact odds are.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import statistics
 import sys
@@ -44,47 +45,83 @@ import time
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
-from threading import Event, Timer
+from threading import Event, Thread, Timer
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from calculatro.engine import Cancelled
+from calculatro.process import memory_used
 from calculatro.worker import LIMITS
 from perfdata import add_results, engine_path, load_expected, save_expected, save_results
 from scenarios import JOKERS, SCENARIOS, BestDiscard, Scenario
 
 WARMUP = 1.0  # seconds; see measure()
 NOISY = 0.25  # a standard deviation above this fraction of the mean, see --rerun-noisy
+MEMORY_PERIOD = 0.01  # seconds between readings of the memory, see PeakMemory
+MB = 2**20
+
+
+class PeakMemory:
+    """The most memory the process committed while it was running, read as the app's
+    watchdog reads it (process.memory_used) every MEMORY_PERIOD seconds, so a peak
+    shorter than that can be missed. `start` is the reading when it began."""
+
+    def __init__(self):
+        self.start = self.peak = memory_used()
+        self._stop = Event()
+        self._thread = Thread(target=self._run, name="peak-memory", daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.wait(MEMORY_PERIOD):
+            self.peak = max(self.peak, memory_used())
+
+    def __enter__(self) -> PeakMemory:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        self._thread.join()
+        self.peak = max(self.peak, memory_used())
 
 
 def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> dict:
-    """Timings of up to `repeat` runs; `timed_out` if a run hit `timeout`.
+    """Timings of up to `repeat` runs; `timed_out` if a run hit `timeout`. Also the
+    peak memory over the runs (`peak_mb`, the whole process's, as the app's
+    memory limit counts it) and its growth over the start (`growth_mb`).
 
     The first run fills one-off caches. It's left out unless it took over
     WARMUP seconds, since then those costs are lost in the noise and
     repeating it would be expensive.
     """
     scenario.prepare()
+    gc.collect()
     times: list[float] = []
     result = None
     warmup = True
-    while len(times) < repeat and sum(times) < budget:
-        cancel = Event()
-        timer = Timer(timeout, cancel.set)
-        timer.start()
-        start = time.perf_counter()
-        try:
-            result = scenario.run(cancel)
-        except Cancelled:
-            return {"timed_out": timeout, "runs": len(times)}
-        finally:
-            timer.cancel()
-        elapsed = time.perf_counter() - start
-        if warmup:
-            warmup = False
-            if elapsed < WARMUP:
-                continue
-        times.append(elapsed)
+    timed_out = False
+    with PeakMemory() as memory:
+        while len(times) < repeat and sum(times) < budget:
+            cancel = Event()
+            timer = Timer(timeout, cancel.set)
+            timer.start()
+            start = time.perf_counter()
+            try:
+                result = scenario.run(cancel)
+            except Cancelled:
+                timed_out = True
+                break
+            finally:
+                timer.cancel()
+            elapsed = time.perf_counter() - start
+            if warmup:
+                warmup = False
+                if elapsed < WARMUP:
+                    continue
+            times.append(elapsed)
+    used = {"peak_mb": round(memory.peak / MB, 1), "growth_mb": round((memory.peak - memory.start) / MB, 1)}
+    if timed_out:
+        return {"timed_out": timeout, "runs": len(times), **used}
     return {
         "runs": len(times),
         "mean": statistics.fmean(times),
@@ -94,6 +131,7 @@ def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> d
         "max": max(times),
         "times": [round(t, 6) for t in times],
         "probability": str(result),
+        **used,
     }
 
 
@@ -240,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     wrong = 0
     for s in scenarios:
         r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
-        line = f"{s.id:<{width}}  {cell(r):>22}  runs={r['runs']}"
+        line = f"{s.id:<{width}}  {cell(r):>22}  runs={r['runs']}  peak={r['peak_mb']:.0f} MB (+{r['growth_mb']:.0f})"
         if before is not None:
             line += f"  before={cell(before.get(s.id), spread=False)}"
             b = before.get(s.id)

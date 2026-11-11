@@ -48,8 +48,11 @@ _kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
 _kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MemoryCounters), wintypes.DWORD]
 _kernel32.GlobalMemoryStatusEx.restype = wintypes.BOOL
 _kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MemoryStatus)]
+_kernel32.GetPhysicallyInstalledSystemMemory.restype = wintypes.BOOL
+_kernel32.GetPhysicallyInstalledSystemMemory.argtypes = [ctypes.POINTER(ctypes.c_ulonglong)]
 
-MEMORY_LIMIT = 2 * 2**30  # bytes the app may use at most, if the computer has twice that
+GB = 2**30
+MEMORY_LIMIT = 2 * GB  # bytes the app may use at most by default (the "Memory limit" setting's default)
 
 
 def memory_used() -> int:
@@ -61,13 +64,27 @@ def memory_used() -> int:
     return counters.PrivateUsage
 
 
-def memory_limit() -> int:
-    """The most the app's calculations may make it use: MEMORY_LIMIT, or half the
-    computer's memory if that's less."""
+def installed_memory() -> int | None:
+    """The computer's memory in bytes, as installed (16 GB for 16 GB, where Windows
+    reports a little less as usable), or what Windows can use if it won't say that;
+    None if it says neither. The mod reads it the same way (settings.lua)."""
+    kb = ctypes.c_ulonglong()
+    if _kernel32.GetPhysicallyInstalledSystemMemory(ctypes.byref(kb)) and kb.value:
+        return kb.value * 1024
     status = _MemoryStatus(dwLength=ctypes.sizeof(_MemoryStatus))
-    if not _kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-        return MEMORY_LIMIT
-    return min(MEMORY_LIMIT, status.ullTotalPhys // 2)
+    if _kernel32.GlobalMemoryStatusEx(ctypes.byref(status)) and status.ullTotalPhys:
+        return status.ullTotalPhys
+    return None
+
+
+def memory_limit(gb: int | None = None, installed: int | None = None) -> int:
+    """The most the app's calculations may make it use: the player's "Memory limit"
+    setting (`gb`, or MEMORY_LIMIT without one), or half the computer's memory if
+    that's less. `installed` is the computer's (installed_memory() if not given)."""
+    limit = gb * GB if gb else MEMORY_LIMIT
+    if installed is None:
+        installed = installed_memory()
+    return limit if installed is None else min(limit, installed // 2)
 
 
 def exited(pid: int) -> Callable[[], bool]:

@@ -3,6 +3,7 @@ local json = require('calculatro.json')
 local report = require('calculatro.log').report
 require('calculatro.tracked')
 require('calculatro.observe')
+require('calculatro.memory')
 
 local array, encode = json.array, json.encode
 
@@ -186,7 +187,7 @@ end
 
 function Calculatro.snapshot()
     if not (G and G.GAME and G.deck and G.hand and G.STAGE == G.STAGES.RUN) then
-        return { schema = Calculatro.schema, in_run = false }
+        return { schema = Calculatro.schema, in_run = false, memory_gb = Calculatro.memory_gb() }
     end
     local round = G.GAME.current_round or {}
     -- Sorted like the deck: Amber Acorn flips the jokers face down and
@@ -227,5 +228,7 @@ function Calculatro.snapshot()
         search = Calculatro.request,
         -- What the hand's order showed of its face-down cards, with the setting on.
         observations = Calculatro.export_observations(),
+        -- The "Memory limit" setting as it applies here (memory.lua), for the app's memory limit.
+        memory_gb = Calculatro.memory_gb(),
     }
 end

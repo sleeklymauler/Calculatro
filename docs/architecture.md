@@ -39,6 +39,7 @@ have no cycles, and each loads on its own), and returns only what other modules 
 | `widgets` | the definition nodes and sizes the views share |
 | `uibox` | what's done to a built box, `remove_box` |
 | `anim` | the panel's animation |
+| `memory` | the "Memory limit" setting's choices, from the computer's memory (through the FFI) |
 | `odds`, `editor`, `settings` | the panel's three views: model, definition (`settings` also keeps the settings file) |
 | `panel` | placing and refreshing it |
 | `observe` | what the hand's order has shown about its face-down cards |
@@ -65,7 +66,8 @@ itself (`Calculatro.replace_file`, `read_odds`).
 
 The player's settings ([panel.md](panel.md#settings)) are kept in `calculatro_settings.json`, which only
 the mod uses. It's read once as the mod starts, before the thread does, and written on the thread
-(its newest settings, in the same pass as the newest snapshot), or by the mod itself without one.
+(its newest settings, in the same pass as the newest snapshot), or by the mod itself without one. The
+app learns the one it needs, "Memory limit", from the snapshot (`memory_gb`).
 
 ### File access
 
@@ -105,8 +107,10 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
   sets, saying which (`reason`: `TIME`, `MEMORY`, or the job's). One `worker.Watchdog` thread checks
   them every 20 ms: a deadline passed, or the app's committed memory (`process.memory_used`) over
-  `process.memory_limit` (2 GB, or half the computer's if that's less), which stops every running
-  attempt, of both jobs. A part stopped by a limit is `worker.TooSlow`; one stopped by a new state still
+  `process.memory_limit`, which stops every running attempt, of both jobs. The limit is the player's
+  "Memory limit" setting (1, 2, 4 or 8 GB; 2 by default), or half the computer's memory as installed
+  (`process.installed_memory`) if that's less. Each state sets it (`run_watch`'s `memory_limit`), and
+  it's part of `odds_basis` and `search_basis`, so changing it tries again what was given up on. A part stopped by a limit is `worker.TooSlow`; one stopped by a new state still
   raises `Cancelled`. Python gives a stopped calculation's memory back to Windows as it unwinds (2 GB in
   about 0.4 s), so the limit is on the app's memory, not its growth; the watchdog stops nothing for
   memory again until it falls below the limit or 2 s pass (`grace`), so another job's next part isn't
@@ -223,6 +227,9 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
   `options: []` and a `mark` without a `how`.
 - The snapshot also sends `select_limit` (`G.hand.config.highlighted_limit`) and the latest `search`
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
+- Every snapshot, in a run or not, sends `memory_gb`, the "Memory limit" setting as the panel shows it
+  (`Calculatro.memory_gb`: already no more than half the computer's memory). Anything but a whole
+  number above 0 parses as `None`, the default.
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`
   metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key

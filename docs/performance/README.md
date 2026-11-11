@@ -56,8 +56,17 @@ time `search.best_discards` instead, a click on a row's search button (see
 - A run is cancelled after `--timeout` seconds (default 120) and shown as
   "> 120 s". A timeout doesn't change the exit status. `--repeat`,
   `--budget` and `--timeout` must be above 0.
+- Each line also shows the scenario's peak memory, `peak=… MB (+…)`: the
+  whole process's committed memory, read as the app's memory limit reads it
+  (`process.memory_used`) every 10 ms over the scenario's runs, timed out or
+  not, and in brackets how much it grew from the start. The benchmark has no
+  memory limit, so a slow case shows what it would use if left alone. Caches
+  that outlive a scenario count in the next one's start, so the growth is
+  the fairer figure for one scenario; the peak is what the app's limit would
+  have seen in this process.
 - `--save FILE` writes the results as JSON: each run's time, the mean,
-  median and standard deviation, and the exact probability. `--compare FILE`
+  median and standard deviation, the exact probability, and the peak memory
+  (`peak_mb`, `growth_mb`). `--compare FILE`
   shows a saved run alongside and flags any result that differs.
   `--markdown` prints a table like the ones in [benchmarks.md](benchmarks.md),
   and `--from FILE` prints it from a saved file without measuring.

@@ -652,6 +652,26 @@ def test_search_request(search, parsed):
     assert GameState.from_json({"schema": SCHEMA, "in_run": True, "search": search}).search == parsed
 
 
+@pytest.mark.parametrize(("raw", "parsed"), [(4, 4), (1, 1), (None, None), ("4", None), (True, None), (0, None),
+                                             (-2, None), (2.5, None)])
+def test_memory_setting(raw, parsed):
+    snapshot = {"schema": SCHEMA, "memory_gb": raw}
+    assert GameState.from_json({**snapshot, "in_run": True}).memory_gb == parsed
+    assert GameState.from_json({**snapshot, "in_run": False}).memory_gb == parsed
+
+
+def test_snapshot_sends_the_memory_setting_as_it_applies(lua):
+    """In a run or not, as the panel shows it: no more than half the computer's memory."""
+    rt, mod = lua
+    mod.installed_memory = rt.eval("function() return 8 * 2^30 end")
+    assert GameState.from_json(snapshot_json(lua)).memory_gb == 2  # the default
+    mod.settings.memory_gb = 8
+    assert GameState.from_json(snapshot_json(lua)).memory_gb == 4
+    rt.execute("G.STAGE = G.STAGES.MAIN_MENU")
+    state = GameState.from_json(snapshot_json(lua))
+    assert not state.in_run and state.memory_gb == 4
+
+
 def test_malformed_snapshot_skipped_until_a_valid_one(lua, tmp_path, capsys):
     """Valid JSON of the wrong shape is skipped with one message, not fatal."""
     _, mod = lua

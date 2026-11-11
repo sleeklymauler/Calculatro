@@ -205,14 +205,16 @@ of gliding.
 
 The gear after the title's `+` (`settings_cell`) opens the settings page (`settings.lua`:
 `settings_model`/`settings_definition`), which replaces the odds like the editor until Done, and is
-rebuilt only by its own buttons. Each setting (`SETTINGS`) is a row of its name and an On/Off toggle,
-blue while on. Hovering the name shows a popup saying what it does (its `about`: lines of ASCII
-broken by hand, since the game's text doesn't wrap, passed to `popup_definition` as `text`).
+rebuilt only by its own buttons. Each setting (`SETTINGS`) is a row of its name and its control: an
+On/Off toggle, blue while on, or (`kind = 'cycle'`) the editor's `<` value `>` cycle (`widgets.cycle`)
+through its `choices`, wrapping around, inert while there's only one. Hovering the name shows a popup
+saying what it does (its `about`: lines of ASCII broken by hand, since the game's text doesn't wrap,
+passed to `popup_definition` as `text`; a function where they depend on the computer).
 
 Settings are the player's, not the run's, so they're kept in `calculatro_settings.json` in the save
 directory rather than on `G.GAME` (see [architecture.md](architecture.md#snapshots) for when it's read
 and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
-type, keeps the default. There's one so far:
+type, keeps the default. There are two:
 
 - **Face-down hints** (`face_down`, off by default): the [face-down hint](#face-down-hint), and
   only that. The snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the
@@ -221,6 +223,14 @@ type, keeps the default. There's one so far:
   way (before face-down stage 5b, this setting turned them on too, as "Face-down windows"). Where the
   exact odds are slow (many face-down cards in wide windows, as The House after its first discard),
   the panel shows an estimate, marked, until they arrive.
+- **Memory limit** (`memory_gb`, 2 by default): the most the app's exact odds and searches may use, 1, 2,
+  4 or 8 GB ([architecture.md](architecture.md#the-app), Limits). Only the sizes up to half the
+  computer's memory are offered (`memory.lua`: `memory_choices`), read through the FFI as installed
+  (`GetPhysicallyInstalledSystemMemory`, so 16 GB offers 8), or as usable if Windows won't say; 1 and
+  2 GB if it can't be read at all. The app holds to the same half (`process.memory_limit`). A saved
+  size that isn't offered shows, and is sent, as the largest offered below it (`memory_gb`), and the
+  file keeps it, so it comes back on a computer with more. The popup says the half in GB. Slow cases
+  measured by the benchmark need up to about 2 GB (`docs/performance/README.md`, peak memory).
 
 ## Target editor
 

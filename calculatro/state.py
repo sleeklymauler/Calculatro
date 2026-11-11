@@ -8,7 +8,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 14
+SCHEMA = 15
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -105,6 +105,12 @@ def _search(raw: Any) -> tuple[str, int] | None:
     nonce = raw.get("nonce")
     # bool is a kind of int, but `true` isn't a number.
     return (raw["key"], nonce) if isinstance(nonce, int) and not isinstance(nonce, bool) else None
+
+
+def _memory_gb(raw: Any) -> int | None:
+    """The "Memory limit" setting, or None (the default) for anything but a number of GB above 0."""
+    # bool is a kind of int, but `true` isn't a number.
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else None
 
 
 SORT_MODES = ("desc", "suit desc")  # the game's rank and suit sorts
@@ -264,6 +270,9 @@ class GameState:
     # what the face-down cards in them are (engine.posterior).
     observations: tuple[Observation, ...] = ()
     observed: tuple[ObservedCard, ...] = ()
+    # The player's "Memory limit" setting: the most the app's calculations may use, in GB, as the
+    # panel shows it (already no more than half the computer's); None without one (process.memory_limit).
+    memory_gb: int | None = None
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -288,7 +297,7 @@ class GameState:
     @classmethod
     def _parse(cls, d: dict[str, Any]) -> GameState:
         if not d.get("in_run"):
-            return cls(in_run=False, id=_text(d, "id"))
+            return cls(in_run=False, id=_text(d, "id"), memory_gb=_memory_gb(d.get("memory_gb")))
         tracked = d.get("tracked") or {}
         hand = _cards(d.get("hand"))
         discard = _cards(d.get("discard"))
@@ -320,6 +329,7 @@ class GameState:
             search=_search(d.get("search")),
             observations=observations,
             observed=observed,
+            memory_gb=_memory_gb(d.get("memory_gb")),
         )
 
     @property

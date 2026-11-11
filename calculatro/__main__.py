@@ -240,7 +240,8 @@ def run_watch(source: StateSource, write: Callable[[str], None],
               panel: Callable[[dict], object] = lambda payload: None, *,
               patience: float = 0.25, poll_interval: float = 0.05,
               stop: Callable[[], bool] = lambda: False,
-              limits: Limits = LIMITS, watchdog: Watchdog | None = None) -> None:
+              limits: Limits = LIMITS, watchdog: Watchdog | None = None,
+              memory_limit: Callable[[int | None], int] | None = None) -> None:
     """Print each new state and the odds of what it tracks (`tracked`), calculating
     them in the background.
 
@@ -263,7 +264,10 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     or once `watchdog` finds the app using too much memory, and is given up on
     (`worker.TooSlow`). A search given up on answers from estimates if it can
     (`search_within`), and is answered the same at once when asked for again,
-    until what it depends on changes.
+    until what it depends on changes. With `memory_limit`, each state sets the
+    watchdog's limit to `memory_limit(state.memory_gb)`, the player's "Memory limit"
+    setting. The setting is part of `odds_basis` and `search_basis`, so changing
+    it starts afresh: what was given up on under the old limit is tried again.
 
     A state asking for a best-discard search (`GameState.search`, with a number
     not seen before) starts one in a job of its own. Only a change to what it
@@ -368,6 +372,8 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 send(unsent)
             state = source.poll()
             if state is not None:
+                if memory_limit is not None:
+                    watchdog.memory_limit = memory_limit(state.memory_gb)
                 start_search(state)
                 if job is not None:
                     job.cancel()
@@ -486,9 +492,11 @@ def main(argv: list[str] | None = None) -> int:
             if stop():
                 print(f"Game process {args.game_pid} isn't running or can't be opened: exiting.", file=sys.stderr)
         print(f"Watching {source.path} (Ctrl+C to stop)")
+        installed = process.installed_memory()
         try:
             run_watch(source, lambda text: print(text, flush=True), panel, stop=stop,
-                      watchdog=Watchdog(process.memory_used, process.memory_limit()))
+                      watchdog=Watchdog(process.memory_used, process.memory_limit(None, installed)),
+                      memory_limit=lambda gb: process.memory_limit(gb, installed))
         except KeyboardInterrupt:
             pass
     return 0

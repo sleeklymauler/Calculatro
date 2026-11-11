@@ -16,6 +16,7 @@ local label, plain, suit_icon, name_label = widgets.label, widgets.plain, widget
 local card_name_cell, cell, blank, row = widgets.card_name_cell, widgets.cell, widgets.blank, widgets.row
 local padded, button, remove_cell, edit_cell = widgets.padded, widgets.button, widgets.remove_cell, widgets.edit_cell
 local title, frame, inset = widgets.title, widgets.frame, widgets.inset
+local cycle, cycle_w = widgets.cycle, widgets.cycle_w
 
 ---------------------------------------------------------------------------
 -- Target editor: replaces the odds in the panel while it's open (`+` opens
@@ -27,7 +28,6 @@ local CARDS_PER_PAGE = 5
 local TAB_W = 1.3
 local TOGGLE_W, TOGGLE_GAP = 1.9, 0.25     -- the Hands tab's hand toggles
 local FIELD_W = 0.8                        -- the builder's row names ("Special")
-local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
 local OPTION_W = 1.6                       -- a cycle's value ("Holographic")
 local CMP_W, COUNT_W, COUNT_GAP = 1.2, 0.25, 0.05  -- CMP_W leaves room around "at least"
 local AND_W = 0.4                          -- "and", before a range's top
@@ -37,7 +37,6 @@ local BUILDER_GAP = 0.3                    -- between the builder and the tracke
 local PAGE_W = 1.25                        -- fits "Page 2/2"
 local ADD_GAP = 0.1                        -- between the builder and Add
 
-local function cycle_w(w) return w + 2 * (CYCLE_ARROW_W + CYCLE_GAP) end
 -- The Cards tab: the builder beside the tracked list, with the rows' padding
 -- around and between their cells; under them, Add and the page cycle, which
 -- stays put as pages change. The rank chips start at the builder's left
@@ -105,24 +104,6 @@ function Calculatro.editor_model()
                                           editing = c.query == editor.editing or nil }
     end
     return model
-end
-
--- An option cycle in the game's style: '<' value '>'.
-local function cycle(id, text, w, prev, next)
-    local C = G.C
-    local text_colour = prev and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE
-    local function step(symbol, action, suffix)
-        return button({ plain(symbol, text_colour) }, action,
-                      { id = id .. suffix, w = CYCLE_ARROW_W, colour = C.RED, padded = true })
-    end
-    return { n = G.UIT.C, config = { align = 'cm', padding = 0 }, nodes = {
-        step('<', prev, '_prev'),
-        blank(CYCLE_GAP),
-        { n = G.UIT.C, config = { id = id, align = 'cm', minw = w, maxw = w, r = 0.06, colour = C.L_BLACK },
-          nodes = padded({ plain(text, text_colour) }) },
-        blank(CYCLE_GAP),
-        step('>', next, '_next'),
-    } }
 end
 
 local function builder_cycle(field, text, w, enabled)

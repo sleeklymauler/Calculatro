@@ -260,6 +260,30 @@ local function button(nodes, action, opts)
     }, nodes = nodes }
 end
 
+-- An option cycle in the game's style: '<' value '>', its value `w` wide.
+-- `prev` and `next` are the arrows' actions; without them it's inert, its
+-- text dimmed. The editor's builder and page, and the settings page's Memory limit.
+local CYCLE_ARROW_W, CYCLE_GAP = 0.25, 0.03
+
+local function cycle_w(w) return w + 2 * (CYCLE_ARROW_W + CYCLE_GAP) end
+
+local function cycle(id, text, w, prev, next)
+    local C = G.C
+    local text_colour = prev and C.UI.TEXT_LIGHT or C.UI.BACKGROUND_INACTIVE
+    local function step(symbol, action, suffix)
+        return button({ plain(symbol, text_colour) }, action,
+                      { id = id .. suffix, w = CYCLE_ARROW_W, colour = C.RED, padded = true })
+    end
+    return { n = G.UIT.C, config = { align = 'cm', padding = 0 }, nodes = {
+        step('<', prev, '_prev'),
+        blank(CYCLE_GAP),
+        { n = G.UIT.C, config = { id = id, align = 'cm', minw = w, maxw = w, r = 0.06, colour = C.L_BLACK },
+          nodes = padded({ plain(text, text_colour) }) },
+        blank(CYCLE_GAP),
+        step('>', next, '_next'),
+    } }
+end
+
 -- The x that stops tracking a row's target or card query.
 local function remove_cell(key, action)
     return { n = G.UIT.C, config = { align = 'cr', minw = REMOVE_W }, nodes = {
@@ -341,6 +365,7 @@ return {
     TITLE_SCALE = TITLE_SCALE, TITLE_ROW = TITLE_ROW, SUIT_ICONS = SUIT_ICONS,
     label = label, plain = plain, suit_icon = suit_icon, name_label = name_label,
     card_name_cell = card_name_cell, cell = cell, blank = blank, row = row, padded = padded, button = button,
+    cycle = cycle, cycle_w = cycle_w,
     remove_cell = remove_cell, search_cell = search_cell, edit_cell = edit_cell, settings_cell = settings_cell,
     title = title, frame = frame, inset = inset, without_sprites = without_sprites,
 }

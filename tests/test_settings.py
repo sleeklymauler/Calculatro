@@ -25,10 +25,12 @@ def open_settings(lua, tmp_path):  # noqa: F811
 
 
 def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):  # noqa: F811
+    with_memory(lua, 16 * GB)
     rt, mod = open_settings(lua, tmp_path)
     assert mod.settings_open and mod.editor is None
     assert panel_texts(rt) == ["CALCULATRO@light", "Done@light", "Settings@muted",
-                               "Face-down hints@light", "Off@light"]
+                               "Face-down hints@light", "Off@light",
+                               "Memory limit@light", "<@light", "2 GB@light", ">@light"]
     assert rt.eval("BOXES[#BOXES].config.can_collide")
     # New odds and snapshots don't rebuild it under the cursor.
     boxes = rt.eval("#BOXES")
@@ -64,12 +66,12 @@ def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):  # noqa:
 
     assert click(lua, toggle)
     assert mod.settings.face_down
-    assert panel_texts(rt)[-1] == "On@light" and find(rt, toggle).config.colour == "blue"
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True}
+    assert panel_texts(rt)[4] == "On@light" and find(rt, toggle).config.colour == "blue"
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
 
     assert click(lua, toggle)
-    assert not mod.settings.face_down and panel_texts(rt)[-1] == "Off@light"
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False}
+    assert not mod.settings.face_down and panel_texts(rt)[4] == "Off@light"
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 2}
 
 
 def test_setting_name_explains_it_when_hovered(lua, tmp_path):  # noqa: F811
@@ -98,6 +100,100 @@ def test_unreadable_or_unknown_settings_keep_the_defaults(lua, tmp_path, content
     mod.update(1.0)
     assert mod.settings.face_down is False
     assert not (tmp_path / "calculatro.log").exists()  # not an error
+
+
+# --- Memory -------------------------------------------------------------------
+
+GB = 2**30
+
+
+def with_memory(lua, installed: int | None):  # noqa: F811
+    """The mod as if the computer had `installed` bytes of memory (None: it can't tell)."""
+    rt, mod = lua
+    mod.installed_memory = rt.eval(f"function() return {'nil' if installed is None else installed} end")
+    return rt, mod
+
+
+def choices(mod) -> list[int]:
+    return list(mod.memory_choices().values())
+
+
+@pytest.mark.parametrize(("installed", "offered"), [
+    (64 * GB, [1, 2, 4, 8]), (16 * GB, [1, 2, 4, 8]), (15 * GB, [1, 2, 4]), (8 * GB, [1, 2, 4]),
+    (4 * GB, [1, 2]), (2 * GB, [1]), (GB, [1]), (None, [1, 2]),
+])
+def test_memory_offers_up_to_half_the_computers(lua, installed, offered):  # noqa: F811
+    _, mod = with_memory(lua, installed)
+    assert choices(mod) == offered
+
+
+@pytest.mark.parametrize(("saved", "applies"), [(2, 2), (8, 4), (4, 4), (3, 2), (0.5, 1), (-1, 1)])
+def test_memory_applies_the_largest_choice_up_to_the_saved_one(lua, saved, applies):  # noqa: F811
+    _, mod = with_memory(lua, 8 * GB)
+    mod.settings.memory_gb = saved
+    assert mod.memory_gb() == applies
+    assert mod.settings.memory_gb == saved  # kept for a computer with more
+
+
+def test_installed_memory_is_read_in_the_game(lua, request):  # noqa: F811
+    _, mod = lua
+    if "luajit" not in request.node.name:
+        assert mod.installed_memory() is None  # no FFI: offers up to the default
+        assert choices(mod) == [1, 2]
+        return
+    assert mod.installed_memory() >= GB
+    assert mod.installed_memory() == mod.installed_memory()  # read once
+
+
+def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):  # noqa: F811
+    with_memory(lua, 16 * GB)
+    rt, mod = open_settings(lua, tmp_path)
+    shown = lambda: panel_texts(rt)[7].split("@")[0]  # between the cycle's arrows
+    assert shown() == "2 GB"
+    assert click(lua, "calculatro_setting_memory_gb_next")
+    assert mod.settings.memory_gb == 4 and shown() == "4 GB"
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 4}
+    assert click(lua, "calculatro_setting_memory_gb_next")
+    assert click(lua, "calculatro_setting_memory_gb_next")  # wraps around
+    assert mod.settings.memory_gb == 1 and shown() == "1 GB"
+    assert click(lua, "calculatro_setting_memory_gb_prev")
+    assert mod.settings.memory_gb == 8 and shown() == "8 GB"
+
+
+def test_memory_cycle_steps_from_what_it_shows(lua, tmp_path):  # noqa: F811
+    """A saved 8 GB shows as 4 on a computer with 8, and steps on from there."""
+    _, mod = with_memory(lua, 8 * GB)
+    mod.settings.memory_gb = 8
+    rt, mod = open_settings(lua, tmp_path)
+    assert click(lua, "calculatro_setting_memory_gb_prev")
+    assert mod.settings.memory_gb == 2
+
+
+def test_memory_cycle_is_inert_with_one_choice(lua, tmp_path):  # noqa: F811
+    with_memory(lua, 2 * GB)
+    rt, mod = open_settings(lua, tmp_path)
+    assert find(rt, "calculatro_setting_memory_gb_next").config.button is None
+    assert not click(lua, "calculatro_setting_memory_gb_next")
+    assert mod.settings.memory_gb == 2 and mod.memory_gb() == 1
+
+
+def test_memory_explains_its_limit_when_hovered(lua, tmp_path):  # noqa: F811
+    with_memory(lua, 16 * GB)
+    rt, mod = open_settings(lua, tmp_path)
+    cell = find(rt, "calculatro_setting_name_memory_gb")
+    rt.execute("UIElement = {hover = function(self) end}")
+    mod.hover_popups(cell)
+    cell.hover(cell)
+    lines = [t.split("@")[0] for t in rt.execute(TEXTS)(cell.config.h_popup).values()]
+    assert lines[0] == "Memory limit" and "Up to half your memory (16 GB here)." in lines
+    assert all(line.isascii() for line in lines)
+
+
+def test_memory_setting_is_read_as_the_mod_starts(lua, tmp_path):  # noqa: F811
+    rt, mod = lua
+    (tmp_path / SETTINGS_FILE).write_text('{"memory_gb": 8}', encoding="utf-8")
+    mod.update(1.0)
+    assert mod.settings.memory_gb == 8
 
 
 def test_face_down_hint_needs_the_setting(lua):  # noqa: F811
@@ -138,7 +234,7 @@ def test_settings_are_saved_on_the_file_thread(threaded, tmp_path):
 
     rt.eval("RUN_THREAD")()
     mod.check_worker()
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True}
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
     # The snapshot handed over with them was written too.
     assert mod.state_id is not None
 

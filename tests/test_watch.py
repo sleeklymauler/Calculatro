@@ -676,6 +676,8 @@ def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
         (picked(5, (9,), tracked_hands=["Pair", "Pair"]), []),
         (picked(6, (9,), jokers=[Joker("j_joker")]), [(), (9,)]),  # a joker gained: nothing carries over
         (picked(7, (10,), jokers=[Joker("j_joker")]), [(10,)]),
+        # The "Memory limit" setting changed: what was given up on under the old limit is tried again.
+        (picked(8, (10,), jokers=[Joker("j_joker")], memory_gb=4), [(), (10,)]),
     ]
     source, answers = FakeSource(steps[0][0]), []
 
@@ -723,6 +725,20 @@ def test_watchdog_stops_attempts_at_their_deadline_and_over_the_memory_limit():
             watchdog.grace = 0
             watchdog.check()
             assert unseen.is_set() and unseen.reason == MEMORY
+
+
+def test_each_state_sets_the_memory_limit_from_the_setting():
+    watchdog = Watchdog()
+    limits: list[int] = []
+    source = FakeSource(*(replace(state(f"b{i}"), memory_gb=gb) for i, gb in enumerate((4, None, 1))))
+
+    def stop():
+        limits.append(watchdog.memory_limit)
+        return not source.queue
+
+    cli.run_watch(source, lambda text: None, poll_interval=0.001, stop=stop, watchdog=watchdog,
+                  memory_limit=lambda gb: (gb or 2) * 1000)
+    assert limits == [0, 4000, 2000, 1000]  # none until the first state: the watchdog's own
 
 
 def test_limited_gives_up_at_a_limit_but_not_when_cancelled():
