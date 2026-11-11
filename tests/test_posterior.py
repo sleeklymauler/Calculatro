@@ -15,7 +15,7 @@ import random
 import threading
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from math import factorial, prod
 
@@ -25,7 +25,7 @@ from calculatro import engine
 from calculatro.cards import CardQuery, parse_query
 from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard, flipped_by_mark, posterior
 from calculatro.hands import Target, combine, get_target
-from calculatro.posterior import reference
+from calculatro.posterior import deals, reference
 from calculatro.search import best_card_discards, best_discards
 from calculatro.state import SCHEMA, SUITS, Card, GameState
 from game_order import nominal
@@ -908,3 +908,61 @@ def test_cancelled():
         evaluate_cards(state, QUERIES[0], [0], cancel)
     with pytest.raises(Cancelled):
         evaluate_discard(state, TARGETS[0], [0], cancel)
+    with pytest.raises(Cancelled):
+        engine.estimate_discard(state, TARGETS[0], [0], cancel)
+
+
+# --- Estimates (docs/plans/progressive-odds.md) ----------------------------------------
+
+@pytest.mark.parametrize("seed", range(8))
+def test_deals_are_drawn_by_their_posterior_weight(seed):
+    """Each deal is drawn as often as the oracle's posterior says, within 4 standard errors (seeded, so stable),
+    and only deals it allows."""
+    rng = random.Random(seed)
+    case = random_case(rng, copies=seed % 2 == 0, stones=seed % 4 == 1, latent=(2, 3), down_discarded=seed % 3 == 2)
+    state = case.state()
+    want = posterior_by_cards(case, state)
+    drawn = deals(state.observations, state.observed, state.unseen, lambda c: True)
+    n = 4000
+    got = Counter()
+    draw = random.Random(seed)
+    for _ in range(n):
+        b = drawn.draw(draw)
+        got[tuple(c for _, c in sorted(b.cards, key=lambda ic: ic[0])) + b.discarded] += 1
+    assert set(got) <= set(want)
+    for deal, p in want.items():
+        assert abs(got[deal] / n - p) <= 4 * (p * (1 - p) / n) ** 0.5 + 1e-9, (deal, got[deal] / n, float(p))
+
+
+@pytest.mark.parametrize("seed, blind, kw", [(seed, None, {}) for seed in range(6)] + [
+    (6, "The Mark", {}),
+    (7, "The Hook", {"discards_left": 0, "hands_left": 2}),
+    (8, "Cerulean Bell", {}),
+    (9, None, {"discards_left": 0, "hands_left": 2, "dna_copies": 2}),
+])
+def test_estimates_hold_the_exact_odds(seed, blind, kw):
+    """Each estimate's range holds the exact odds (seeded, so stable), under the bosses and DNA too."""
+    rng = random.Random(100 + seed)
+    while True:  # The Mark only flips face cards
+        case = random_case(rng, ranks=range(9, 14) if blind == "The Mark" else range(7, 12), latent=(2, 3),
+                           down_discarded=seed % 3 == 2, blind=blind, **kw)
+        state = case.state()
+        if not state.mark or all(engine.flipped_by_mark(case.cards[n], state.rules) for n in case.down):
+            break
+    for discard in some_discards(rng, case):
+        for target in TARGETS:
+            found = engine.estimate_discard(state, target, discard)
+            exact = evaluate_discard(state, target, discard).probability
+            assert found is not None and found.samples >= 64
+            assert found.low <= exact <= found.high, (target.name, discard)
+        for query in QUERIES:
+            found = engine.estimate_cards(state, query, discard)
+            assert found is not None
+            assert found.low <= evaluate_cards(state, query, discard).probability <= found.high, query.text
+
+
+def test_no_estimate_without_evidence():
+    """With nothing the sorts say here, there's nothing to estimate: the exact odds are today's."""
+    case = random_case(random.Random(3))
+    state = engine.with_usable_evidence(case.state())
+    assert engine.estimate_discard(replace(state, observations=(), observed=()), TARGETS[0], []) is None

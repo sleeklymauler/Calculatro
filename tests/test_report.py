@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import random
 import threading
 import time
 from dataclasses import replace
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
 from calculatro import report
 from calculatro.cards import parse_query
-from calculatro.engine import Cancelled, DiscardOutcome, evaluate_cards, evaluate_discard
+from calculatro.engine import Cancelled, DiscardOutcome, Estimate, estimate_discard, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.report import BOUNDS, PENDING, SLOW, Approx, build_report
+from calculatro.report import BOUNDS, ESTIMATE, PENDING, SAMPLE, SLOW, Approx, build_report
 from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Limits, TooSlow, Watchdog
 
@@ -212,7 +214,10 @@ def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
     with pytest.raises(Cancelled):
         build_report(selecting(STATE, 0), [get_target("Pair")], cancel=control, known=known,
                      limits=Limits(quick=0.05, exact=5))
-    assert set(known.values()) == {SLOW}  # neither finished: both found slow, nothing more
+    # Neither finished: both found slow, with no estimate (there are no face-down cards), nothing more.
+    values = {k: v for k, v in known.items() if k[0] != ESTIMATE}
+    assert set(values.values()) == {SLOW} and {k: v for k, v in known.items() if k[0] == ESTIMATE} == {
+        (ESTIMATE, k): None for k in values}
 
 
 def test_any_target_shows_bounds_until_its_exact_odds(monkeypatch):
@@ -254,6 +259,74 @@ def test_bounds_that_meet_are_the_exact_odds(monkeypatch):
     monkeypatch.setattr(report, "evaluate_discard", taking({}, calls, {"Pair": Fraction(0), "Flush": Fraction(0)}))
     assert build_report(STATE, [get_target("Pair"), get_target("Flush")]).targets[0].keep == 0
     assert len(calls) == 2
+
+
+def estimating(estimates: dict[str, Estimate | None], calls: list[tuple]):
+    """A stand-in for `estimate_discard`: `estimates` by the target's name."""
+    def estimate(state, target, discard, cancel=None, seconds=1.0):
+        calls.append(("estimate", target.name, len(discard)))
+        return estimates.get(target.name)
+    return estimate
+
+
+def test_a_slow_value_shows_its_estimate_until_its_exact_odds(monkeypatch):
+    """A value found slow is estimated before the exact pass, once, and the estimate shown meanwhile; kept, final, if
+    the exact odds are given up on. Asked again, it shows at once, straight to the exact pass."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight": 10}, calls))
+    monkeypatch.setattr(report, "estimate_discard", estimating(
+        {"Flush": Estimate(0.25, 0.2, 0.3, 1000), "Straight": None}, calls))
+    targets = [get_target("Flush"), get_target("Straight")]
+    control, known, partials = Control(Watchdog(period=0.005)), {}, []
+    limits = Limits(quick=0.1, approx=0.1, exact=0.5)
+    found = build_report(selecting(STATE, 0), targets, cancel=control, known=known, limits=limits,
+                         progress=partials.append)
+    # Each value found slow ("Any target" isn't), in the passes' order: Keep, then Discard; then the exact pass.
+    assert calls[6:11] == [("estimate", t, n) for n in (0, 1) for t in ("Flush", "Straight")] + [("Flush", 0)]
+    estimate = Approx(Fraction(1, 5), Fraction(3, 10), SAMPLE, None, Fraction(1, 4))
+    shown = [p.targets[1].keep for p in partials]
+    assert shown.index(estimate) < shown.index(Fraction(1, 2))  # Flush's estimate, then its exact odds
+    assert found.targets[1].keep == Fraction(1, 2)
+    assert found.targets[2].keep == TooSlow(TIME)  # nothing to estimate
+    calls.clear()
+    partials.clear()
+    known = {k: SLOW if isinstance(v, DiscardOutcome) and k[0].name == "Flush" else v for k, v in known.items()}
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10}, calls))
+    again = build_report(selecting(STATE, 0), targets, cancel=control, known=known, limits=limits,
+                         progress=partials.append)
+    assert partials[0].targets[1].keep == estimate  # at once
+    assert calls == [("Flush", 0), ("Flush", 1)]  # no quick try, no estimate again
+    assert again.targets[1].keep == replace(estimate, limit=TIME)
+
+
+def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
+    """"Any target"'s estimate is shown rather than its bounds, but within them, which are certain."""
+    calls: list[tuple] = []
+    odds = {"Pair": Fraction(3, 10), "Flush": Fraction(1, 10)}
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair / Flush": 10}, calls, odds))
+    monkeypatch.setattr(report, "estimate_discard", estimating({"Pair / Flush": Estimate(0.33, 0.2, 0.45, 50)}, calls))
+    found = build_report(STATE, [get_target("Pair"), get_target("Flush")], cancel=Control(Watchdog(period=0.005)),
+                         limits=Limits(quick=0.05, approx=0.1, exact=0.1))
+    assert found.targets[0].keep == Approx(Fraction(3, 10), Fraction(2, 5), SAMPLE, TIME, Fraction(33, 100))
+
+
+def test_estimates_hold_the_exact_odds():
+    """On the sorted scenarios that finish, each estimate's range holds the exact odds (it's seeded, so this is
+    stable)."""
+    from tests.perf.scenarios import SCENARIOS, Scenario
+    expected = json.loads((Path(__file__).parent / "perf" / "expected.json").read_text())
+    checked = 0
+    for scenario in SCENARIOS:
+        if not isinstance(scenario, Scenario) or not scenario.situation.sorts or scenario.id not in expected:
+            continue
+        if "Four Fingers" in scenario.jokers or "Shortcut" in scenario.jokers:
+            continue  # the slowest to sample: a few are enough below
+        state, discard = scenario.state()
+        found = estimate_discard(state, scenario.target(), discard, seconds=0.2)
+        if found is not None:
+            checked += 1
+            assert found.low <= Fraction(expected[scenario.id]) <= found.high, scenario.id
+    assert checked > 30
 
 
 def test_any_target_bounds_hold_the_exact_odds():

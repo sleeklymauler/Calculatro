@@ -99,7 +99,7 @@ these:
 
 ## Face-down cards in the hand's sorts
 
-With the "Face-down windows" setting on, the snapshot has every sort of the hand seen this round
+The snapshot has every sort of the hand seen this round
 (`GameState.observations`, [architecture.md](architecture.md#shapes)), a mode perhaps several times: a
 draw re-sorts the hand, but an earlier sort is still true of the cards in it, so a card kept face down
 while its neighbours were discarded is still between them. The mod drops only sorts that say nothing
@@ -180,8 +180,7 @@ the cards around it, and says what's left to draw. The design and its reasoning 
 ## Approximations
 
 The panel shows an approximation of a value whose exact odds are slow, until they arrive
-([architecture.md](architecture.md#the-app)). An approximation is a range that's certain
-(`report.Approx`), never shown as exact. So far there's one:
+([architecture.md](architecture.md#the-app)), never shown as exact (`report.Approx`). There are two:
 
 - **"Any target"** (`how: "bounds"`): its odds are at least each tracked hand's on its own and at most
   their sum (or 1), as `best_discards` uses too. `build_report` takes them from the hands' values,
@@ -189,9 +188,24 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   When the bounds meet (a hand is certain, or none can be made) they're the exact odds, and "Any
   target" isn't worked out at all. `test_any_target_bounds_hold_the_exact_odds` checks the bounds on
   random hands under jokers and bosses.
+- **Face-down cards in the hand's sorts** (`how: "sample"`): an estimate, from deals of the latent
+  cards drawn at random, each exactly as likely as its weight in the posterior (`posterior.deals`). It's
+  `summed` telling no deals apart (quick even for The House's first hand, as `usable` is), keeping how
+  it reached each partial state, so a deal is drawn from the last card back. Each deal's odds are then
+  exact and quick, every face-down card turned up, and deals alike in what the odds see of them share
+  an evaluation (`_labels`), so the estimate is off only by which deals were drawn
+  (`engine._estimate`). It draws until its range is within half a point either side, or 4096 deals, or
+  `Limits.approx` passes. The range is 3 standard errors either side, counting a deal at 0 and one at
+  1 besides those drawn, so a few deals all alike can't look certain. It's likely, not certain, so
+  the trend colour never comes from it, and "Any target"'s bounds only from exact values; "Any
+  target"'s own estimate is kept within its bounds. The draws are seeded (`Random(0)`), so the same
+  state gives the same estimate, unless `Limits.approx` runs out first. The windows aren't used:
+  every deal is turned up. `test_deals_are_drawn_by_their_posterior_weight` checks the draws against
+  the oracle, and `test_estimates_hold_the_exact_odds` (in `test_posterior.py` and `test_report.py`)
+  each estimate's range against the exact odds, under the bosses and DNA too.
 
-Approximations for other slow cases (Four Fingers + Shortcut, The Mark, best discard, face-down
-cards) are planned: [progressive-odds.md](plans/progressive-odds.md#approximations).
+Approximations for the other slow cases (Four Fingers + Shortcut, The Mark without sorts, best
+discard) are planned: [progressive-odds.md](plans/progressive-odds.md#approximations).
 
 ## The discard scenario
 

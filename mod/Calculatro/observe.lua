@@ -356,8 +356,8 @@ end
 -- doesn't, and the same for a card in several. A face-down card is given by its place in the
 -- hand now (0-based), where the snapshot sends it as {hidden = true}, and one
 -- discarded face down only as `discarded` (it's one of the discard pile's
--- {hidden = true}, but which isn't said). Empty unless the setting's on. See
--- docs/plans/face-down-windows.md#snapshot.
+-- {hidden = true}, but which isn't said). Sent whether the hint's setting is on
+-- or off: the odds always use them. See docs/plans/face-down-windows.md#snapshot.
 -- The odds take face-down cards under The Mark to be face cards (as
 -- `engine.flipped_by_mark` says), which the challenges' random flips
 -- (flipped_cards) make untrue: then the sorts go unused, and the odds are those
@@ -370,7 +370,7 @@ end
 
 function Calculatro.export_observations()
     local out = array()
-    if not (Calculatro.settings.face_down and G and G.hand) or mark_with_random_flips() then return out end
+    if not (G and G.hand) or mark_with_random_flips() then return out end
     local index = {}
     for i, card in ipairs(G.hand.cards or {}) do index[card] = i - 1 end
     local in_discard = discard_set()

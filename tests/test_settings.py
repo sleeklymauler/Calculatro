@@ -28,7 +28,7 @@ def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     assert mod.settings_open and mod.editor is None
     assert panel_texts(rt) == ["CALCULATRO@light", "Done@light", "Settings@muted",
-                               "Face-down windows@light", "Off@light"]
+                               "Face-down hints@light", "Off@light"]
     assert rt.eval("BOXES[#BOXES].config.can_collide")
     # New odds and snapshots don't rebuild it under the cursor.
     boxes = rt.eval("#BOXES")
@@ -44,7 +44,7 @@ def test_gear_works_with_nothing_tracked(lua):  # noqa: F811
     mod.update(1.0)
     assert panel_texts(rt)[2] == "[settings]"
     assert click(lua, "calculatro_settings")
-    assert "Face-down windows@light" in panel_texts(rt)
+    assert "Face-down hints@light" in panel_texts(rt)
 
 
 def test_settings_close_with_the_panel(lua, tmp_path):  # noqa: F811
@@ -80,7 +80,7 @@ def test_setting_name_explains_it_when_hovered(lua, tmp_path):  # noqa: F811
     mod.hover_popups(cell)
     cell.hover(cell)
     lines = [t.split("@")[0] for t in rt.execute(TEXTS)(cell.config.h_popup).values()]
-    assert lines[0] == "Face-down windows" and len(lines) > 2
+    assert lines[0] == "Face-down hints" and len(lines) > 2
     assert all(line.isascii() for line in lines)  # the game's font has nothing else
 
 

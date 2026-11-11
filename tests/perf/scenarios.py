@@ -200,6 +200,18 @@ HOUSE_SPLIT_MIDDLE = Situation("8 unknown: The House (all face-down), sorted by 
                                kept=0, hidden=8, sorts=("desc",), discard=(2, 1, 0))
 MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by rank", kept=2, hidden=3,
                         blind="The Mark", sorts=("desc",))
+# Face-down cards in the sorts under The Hook (the selection played, then 2 kept cards thrown away at random)
+# and Cerulean Bell (the first card discarded forced, or with HOUSE_AFTER's, a face-down one): neither takes
+# windows (engine._windows_for), so their deals are summed. Measured for face-down stage 5b; with 5 face-down
+# cards kept, the other targets take from 20 s to over a minute, so they're left out.
+SORTED_2_HOOK = Situation("7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played", kept=1, hidden=2,
+                          sorts=("desc",), blind="The Hook", discards=0)
+SORTED_2_BELL = Situation("7 unknown: 2 face-down, draw 5, sorted by rank, Cerulean Bell", kept=1, hidden=2,
+                          sorts=("desc",), blind="Cerulean Bell")
+HOUSE_AFTER_HOOK = Situation("5 unknown: 5 face-down kept, sorted by rank, The Hook, 1 played", kept=3, hidden=5,
+                             sorts=("desc",), blind="The Hook", discards=0, discard=(0,))
+HOUSE_AFTER_BELL = Situation("5 unknown: 5 face-down kept, sorted by rank, Cerulean Bell, 1 discarded", kept=3,
+                             hidden=5, sorts=("desc",), blind="Cerulean Bell", discard=(0,))
 # Cerulean Bell forces a random card of the hand after the draw: one search per kept card and per
 # kind of unseen card.
 BELL_KEEP_3 = Situation("Keep 3, draw 5, Cerulean Bell", kept=3, hidden=0, blind="Cerulean Bell")
@@ -273,6 +285,13 @@ class Scenario:
         if self.situation.cold:
             clear_caches()
         return evaluate_discard(state, self.target(), discard, cancel).probability
+
+    def estimate(self, seconds: float):
+        """The estimate the panel shows while the exact odds are slow (engine.Estimate), or None if
+        there's none: only with face-down cards in the hand's sorts."""
+        from calculatro.engine import estimate_discard
+        state, discard = self.state()
+        return estimate_discard(state, self.target(), discard, seconds=seconds)
 
 
 @dataclass(frozen=True)
@@ -383,6 +402,10 @@ def _scenarios() -> list[Scenario]:
                 for t in (("Pair",), ("Flush",), ("Straight",), ("Full House",), ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)
                 for t in (("Flush",), ("Straight Flush",), ("Full House", "Straight Flush"))]
+    out += [Scenario(s, t, "No jokers") for s in (SORTED_2_HOOK, SORTED_2_BELL)
+            for t in (("Pair",), ("Full House",), ("Straight Flush",))]
+    out += [Scenario(HOUSE_AFTER_HOOK, t, "No jokers") for t in (("Pair",), ("Flush",))]
+    out += [Scenario(HOUSE_AFTER_BELL, ("Pair",), "No jokers")]
     # Crimson Heart: Straight and Straight Flush see both rule sets, Flush only whether Four Fingers is on (one
     # search), and Pair and Full House neither.
     out += [Scenario(CRIMSON_KEEP_3, t, "Shortcut")

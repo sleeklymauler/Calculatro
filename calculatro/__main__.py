@@ -70,11 +70,11 @@ def _value(p: Value) -> str:
 
 def _notes(keep: Value, after: Value | None) -> str:
     """What a line's values that aren't exact odds need saying: each
-    approximation's range (with which it is, when there are two values), and
-    why the exact odds were given up on."""
+    approximation's range (with which it is, when there are two values, and
+    "likely" if it's an estimate's), and why the exact odds were given up on."""
     named = [("keep", keep)] + ([("discard", after)] if after is not None else [])
-    notes = [("*" if after is None else f"* {name}") + f" {_pct(v.low).strip()} to {_pct(v.high).strip()}"
-             for name, v in named if isinstance(v, Approx)]
+    notes = [("*" if after is None else f"* {name}") + ("" if v.certain else " likely")
+             + f" {_pct(v.low).strip()} to {_pct(v.high).strip()}" for name, v in named if isinstance(v, Approx)]
     slow = [v.limit for _, v in named if isinstance(v, TooSlow | Approx) and v.limit]
     if slow:
         notes.append(_too_slow(slow[0]))

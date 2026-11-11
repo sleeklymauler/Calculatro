@@ -30,12 +30,12 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .report import Approx, Pending, Report, Value, interval
+from .report import SAMPLE, Approx, Pending, Report, Value, interval
 from .search import Search
 from .state import GameState
 from .worker import TooSlow
 
-SCHEMA = 7  # `odds_schema` in the mod's core.lua
+SCHEMA = 8  # `odds_schema` in the mod's core.lua
 
 # The panel fits 3 columns (`max_columns` in the mod's tracked.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -78,9 +78,13 @@ TOO_SLOW = "?"  # a value given up on
 
 
 def approximate(value: Approx) -> str:
-    """An approximation in whole percents, which are certain: its lower bound,
-    rounded down, with a "+" ("80%+"), or below 1%, its upper bound with a "<"
-    ("<6%"). The mod adds the asterisk."""
+    """An approximation in whole percents. From bounds, they're certain: its
+    lower bound, rounded down, with a "+" ("80%+"), or below 1%, its upper
+    bound with a "<" ("<6%"). An estimate is rounded ("84%"), but never to a
+    misleading 0% or 100% ("<1%", ">99%"). The mod adds the asterisk."""
+    if value.how == SAMPLE and value.estimate is not None:
+        rounded = math.floor(value.estimate * 100 + Fraction(1, 2))
+        return "<1%" if rounded < 1 else ">99%" if rounded > 99 else f"{rounded}%"
     low = math.floor(value.low * 100)
     if low >= 1 or value.high == 1:
         return f"{low}%+"
@@ -91,7 +95,7 @@ def mark(value: Value) -> dict[str, Any] | None:
     """What a value that isn't exact odds is, for the panel: still to come
     (`{"state": "pending"}`), an approximation (`{"state": "refining"}` while
     the exact odds are still being worked out, `"final"` once given up on,
-    with its `how`, its bounds `low` and `high`, and if final the `limit`),
+    with its `how`, its range `low` to `high`, and if final the `limit`),
     or given up on with no approximation (`{"state": "final", "limit":
     "time"}` or `"memory"`, shown as TOO_SLOW). None for exact odds."""
     if isinstance(value, Pending):

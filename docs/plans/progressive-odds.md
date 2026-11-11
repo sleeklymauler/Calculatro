@@ -1,10 +1,10 @@
 # Plan: quick approximations, then exact odds
 
 Status: drafted 2026-11-10. Stage 1 done and tried in game 2026-11-10 (see
-[What stage 1 settled](#what-stage-1-settled)). Stage 2 done 2026-11-11, not yet tried in game (see
-[What stage 2 settled](#what-stage-2-settled)); face-down stage 5b next. Stage 1 comes before stage 5b of
-[the face-down plan](face-down-windows.md#stages); see
-[Recommended order](#recommended-order).
+[What stage 1 settled](#what-stage-1-settled)). Stage 2 done and tried in game 2026-11-11 (see
+[What stage 2 settled](#what-stage-2-settled)). Face-down stage 5b done and tried in game 2026-11-11
+(see [its notes](face-down-windows.md#what-5b-settled)): it brought the approximation pass and the first
+estimates from sampling. Stage 3 next; see [Recommended order](#recommended-order).
 
 ## Summary
 
@@ -337,9 +337,12 @@ Decided or found while doing stage 2, where it differs from or adds to the desig
 - **A search's marks** (the asterisk on "1/3") wait for stage 3, which is when a search first answers
   from approximations.
 - **`odds_schema` 7**, for the new marks.
-- **Still to check in game:** the asterisk in the game's font at the value's width, the popup's
-  lines, the rebuild as an approximation appears and goes, and whether a slow "Any target" now often
-  shows "80%+*" for long enough to matter.
+- **Tried in game** (2026-11-11), with Four Fingers + Shortcut tracking Full House and Straight Flush:
+  under Cerulean Bell and The Mark (an approximation for a few seconds, narrowing in place when
+  Straight Flush arrives, then exact), and under The House with 4 Wild Cards in the deck (about 25 s
+  of approximation), and with the exact limit lowered to see one given up on. The asterisk reads well
+  at the value's width, the popups' lines fit, and the panel rebuilds cleanly as an approximation
+  appears and goes. Still open: how often players meet a slow "Any target" in real runs.
 
 ## Recommended order
 
@@ -351,7 +354,7 @@ Across this plan and the face-down plan:
 2. **This plan's stage 2** (done). Stage 5b needs somewhere to show its
    approximations. This stage builds that with the simplest approximation, so
    5b is only about face-down cards.
-3. **Face-down stage 5b**: approximations for the face-down cases, then
+3. **Face-down stage 5b** (done): approximations for the face-down cases, then
    "Face-down windows" controlling only the hint. The odds then always use the
    sorts, so every player meets those cases, which is why it waits for the
    limits and the approximations. The plan's details are fresh, and its slow
@@ -366,10 +369,11 @@ Across this plan and the face-down plan:
 
 ## Decisions to make
 
-- **Sampling.** Estimates from sampled deals, seeded and marked, are the
-  general fallback for cases with no cheap bounds. They aren't exact, but
-  neither is any approximation. Recommended: allow it, only for approximations,
-  never in place of the exact pass.
+- ~~**Sampling.**~~ Allowed (decided 2026-11-11), only for approximations,
+  never in place of the exact pass: face-down stage 5b's estimates sample deals
+  of the face-down cards. Their range is only likely, so it's "Likely ... to
+  ..." in the popup and never colours the trend
+  ([5b's notes](face-down-windows.md#what-5b-settled)).
 - ~~**The value shown from bounds alone.**~~ Settled in stage 2: the lower
   bound with a "+" (see [What stage 2 settled](#what-stage-2-settled)).
 - **Whether a search answers before its exact pass.** Recommended: no. The

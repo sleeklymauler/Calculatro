@@ -109,9 +109,10 @@ added and kept with it; queries added before that have none). Mouse only for now
 
 A value the app is still working out exactly, or gave up on (over its time or memory limit, see
 [architecture.md](architecture.md#the-app)), may come with an approximation: the app sends it in whole
-percents that are certain ("80%+", or "<6%"), and the panel adds an asterisk ("80%+*"), which still
-fits `DISCARD_VALUE_W`. Hovering it shows a popup ("Approximate", the range, where it comes from by the
-mark's `how`, then whether the exact odds are still being worked out or why they were given up on;
+percents, certain from bounds ("80%+", or "<6%") and rounded from an estimate ("84%", "<1%"), and the
+panel adds an asterisk ("80%+*"), which still fits `DISCARD_VALUE_W`. Hovering it shows a popup
+("Approximate", the range, "Between ... and ..." from bounds or "Likely ... to ..." from an estimate,
+where it comes from by the mark's `how`, then whether the exact odds are still being worked out or why they were given up on;
 `approximate_popup`, `HOW` and `EXACT` in `odds.lua`). An approximation still being refined isn't
 greyed out: it's this snapshot's. One given up on with no approximation shows "?", and its popup says
 "Too slow", then that the exact odds would take too long or use too much memory, by its mark's
@@ -155,7 +156,7 @@ so the black suits show on the dark inset. Long hand names are shortened in `SHO
 
 Hovering a face-down card in hand while selecting shows a small box above it with what that card can
 be, like "6-8 ♥♦" (`hint.lua`), in the popups' colours. It's off unless the player turns on
-"Face-down windows" in [the settings](#settings) (`Calculatro.settings.face_down`). It goes with the
+"Face-down hints" in [the settings](#settings) (`Calculatro.settings.face_down`). It goes with the
 panel (the `C` hotkey), hides while the card is dragged, and needs no answer from the app.
 `observe.lua` watches the hand's order either way, so turning it on mid-hand shows the box at once.
 
@@ -212,12 +213,13 @@ directory rather than on `G.GAME` (see [architecture.md](architecture.md#snapsho
 and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
 type, keeps the default. There's one so far:
 
-- **Face-down windows** (`face_down`, off by default): the [face-down hint](#face-down-hint), and the
-  snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds and the
-  best-discard search use ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
-  With many face-down cards in wide windows (The House after its first discard, whose first sort is
-  kept), the odds can show "Calculating..." for up to the app's limits (30 s for each value), then
-  "?".
+- **Face-down hints** (`face_down`, off by default): the [face-down hint](#face-down-hint), and
+  only that. The snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the
+  odds and the best-discard search use
+  ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)), are sent either
+  way (before face-down stage 5b, this setting turned them on too, as "Face-down windows"). Where the
+  exact odds are slow (many face-down cards in wide windows, as The House after its first discard),
+  the panel shows an estimate, marked, until they arrive.
 
 ## Target editor
 

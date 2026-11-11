@@ -259,8 +259,7 @@ class GameState:
     # The latest best-discard search asked for in the panel: the row's key (a
     # hand's name or "Any target") and its number, which goes up with each one.
     search: tuple[str, int] | None = None
-    # What the hand's order has shown of its face-down cards, with the mod's
-    # "Face-down windows" setting on: the sorts seen this round, in the order
+    # What the hand's order has shown of its face-down cards: the sorts seen this round, in the order
     # recorded (a mode may repeat), and what each card in them is, by id (the index here). The odds average over
     # what the face-down cards in them are (engine.posterior).
     observations: tuple[Observation, ...] = ()

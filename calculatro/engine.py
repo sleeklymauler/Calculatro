@@ -56,10 +56,11 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cache
 from itertools import combinations, product, repeat
-from math import comb, lcm, prod
+from math import comb, lcm, prod, sqrt
 from operator import gt
 from random import Random
 from threading import Event, Lock
+from time import monotonic
 
 from .cards import CardQuery
 from .hands import (
@@ -74,7 +75,7 @@ from .hands import (
     forced_patterns,
     suit_keys,
 )
-from .posterior import Branch, Label, Posterior, Window, printed, sort_value, summed, windows
+from .posterior import Branch, Label, Posterior, Window, deals, printed, sort_value, summed, windows
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -1625,6 +1626,98 @@ def _split(window: Window, kept: list[bool], state: GameState) -> list[WindowSpl
     ways(0, -1, 1, (), ())
     found = [w for w in found if w[0]]
     return found if len(found) <= SPLITS else None
+
+
+# --- Estimates, while the exact odds are slow (docs/plans/progressive-odds.md) ---
+
+@dataclass(frozen=True)
+class Estimate:
+    """Odds estimated from `samples` deals of the face-down cards (_estimate):
+    `mean`, and the range from `low` to `high` they're likely in. Not certain:
+    the range is MARGIN standard errors either side."""
+    mean: float
+    low: float
+    high: float
+    samples: int
+
+
+MARGIN = 3  # standard errors either side of an estimate
+ESTIMATE_SAMPLES = 4096  # most deals an estimate draws
+ESTIMATE_CLOSE = 0.005  # an estimate stops once its range is this close either side (and it has 64 deals)
+
+
+def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], object],
+              odds: Callable[[GameState, tuple[Marked, ...]], Fraction], cancel: Event | None,
+              seconds: float) -> Estimate | None:
+    """The odds of discarding `discard` estimated from deals of the face-down
+    cards the hand's sorts tell about, drawn at random by their weight in the
+    posterior (posterior.deals); None if there are none, as for _averaged.
+
+    Each deal's odds are exact, and quick, with every face-down card turned
+    up, so the estimate is off only by which deals were drawn. Deals alike in
+    what the odds see of them (`classes`, _labels) share an evaluation. It
+    draws deals until its range is within ESTIMATE_CLOSE either side, or it
+    has ESTIMATE_SAMPLES, or `seconds` have passed. The draws are seeded, so
+    the same state gives the same estimate, unless the time runs out first.
+
+    The range counts a deal at 0 and a deal at 1 besides those drawn, so a
+    few deals all alike can't make it look certain.
+    """
+    if (_says_nothing_here(state, discard) or not any(o.latent for o in state.observed)
+            or not usable(state, cancel)):
+        return None
+    check = _checker(cancel)
+    dna = _dna_branch(state, discard)
+    in_hand = {o.hand for o in state.observed if o.hand is not None}
+    extra = () if dna is None or dna in in_hand else (dna,)
+    found = deals(state.observations, state.observed, state.unseen, _allowed(state), extra, check)
+    if found is None:
+        return None
+    label = _labels(state, discard, dna, classes)
+    resolve = _resolver(state)
+    rng = Random(0)
+    seen: dict[frozenset, float] = {}
+    deadline = monotonic() + seconds
+    n, total, squares = 0, 0.0, 0.0
+
+    def margin() -> float:
+        m, s, q = n + 2, total + 1, squares + 1
+        return MARGIN * sqrt(max(0.0, q - s * s / m) / (m - 1) / m)
+
+    while True:
+        check()
+        branch = found.draw(rng)
+        key = frozenset(Counter(label(i, c) for i, c in [*branch.cards, *((None, c) for c in branch.discarded)])
+                        .items())
+        p = seen.get(key)
+        if p is None:
+            p = seen[key] = float(odds(resolve(branch), ()))
+        n, total, squares = n + 1, total + p, squares + p * p
+        if (n >= ESTIMATE_SAMPLES or (n >= 64 and margin() <= ESTIMATE_CLOSE)) or monotonic() >= deadline:
+            break
+    mean, spread = total / n, margin()
+    return Estimate(mean, max(0.0, mean - spread), min(1.0, mean + spread), n)
+
+
+def estimate_discard(state: GameState, target: Target, discard: list[int], cancel: Event | None = None,
+                     seconds: float = 1.0) -> Estimate | None:
+    """evaluate_discard's odds estimated from deals of the face-down cards
+    (_estimate), in about `seconds`; None if the hand's sorts tell about none.
+    Raises Cancelled soon after `cancel` is set."""
+    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
+        return _evaluate_discard(resolved, target, discard, cancel, None, windows).probability
+
+    classes = _rule_classes(state, discard, _counts_towards(target, state))
+    return _estimate(state, discard, classes, odds, cancel, seconds)
+
+
+def estimate_cards(state: GameState, query: CardQuery, discard: list[int], cancel: Event | None = None,
+                   seconds: float = 1.0) -> Estimate | None:
+    """evaluate_cards's odds estimated as estimate_discard's."""
+    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
+        return _evaluate_cards(resolved, query, discard, windows).probability
+
+    return _estimate(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel, seconds)
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],

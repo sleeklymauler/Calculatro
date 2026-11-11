@@ -65,6 +65,15 @@ time `search.best_discards` instead, a click on a row's search button (see
   times slower. `--save FILE --rerun-noisy` re-measures only the scenarios
   in FILE whose standard deviation is over 25% of the mean, and updates them
   in place.
+- `--estimates [SECONDS]` times the estimate the panel shows while a value's
+  exact odds are slow (`engine.estimate_discard`, with up to SECONDS, 1 by
+  default), for the scenarios that have one (face-down cards in the hand's
+  sorts), and how far each is from the expected result. Its range is only
+  likely, so one outside it is flagged ("OUTSIDE ITS RANGE"), not counted as
+  wrong. Measured on 2026-11-11: 97 estimates, off by 0.26 points on average
+  and 1.73 at most, none outside its range; each in at most 1.06 s. The
+  widest ranges (about ±17 points, from 12-16 deals) are Four Fingers +
+  Shortcut with Straight Flush, whose exact odds are slow for each deal too.
 
 ### Regression tests
 

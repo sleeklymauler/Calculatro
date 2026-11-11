@@ -23,12 +23,13 @@ local title, frame, inset = widgets.title, widgets.frame, widgets.inset
 -- doesn't wrap, so the lines are broken by hand, and are ASCII (its font has
 -- nothing else).
 local SETTINGS = {
-    { key = 'face_down', name = 'Face-down windows', about = {
+    { key = 'face_down', name = 'Face-down hints', about = {
         "Balatro sorts your hand by each card's",
         'true rank and suit, even face down.',
         'Where a face-down card ends up after',
         'a sort narrows down what it can be.',
         "Hover over one to see what's possible.",
+        'The odds use this either way.',
     } },
 }
 

@@ -4,6 +4,7 @@
     .venv\\Scripts\\python tests\\perf\\benchmark.py -k "Four Fingers" -k House
     .venv\\Scripts\\python tests\\perf\\benchmark.py --save tests\\perf\\baseline.json
     .venv\\Scripts\\python tests\\perf\\benchmark.py --compare tests\\perf\\baseline.json --markdown
+    .venv\\Scripts\\python tests\\perf\\benchmark.py --estimates -k sorted
 
 Each scenario runs up to --repeat times, stopping early once its runs add up to
 --budget seconds, so slow scenarios get fewer runs. A run longer than --timeout
@@ -22,6 +23,11 @@ adds a column from such a file. See docs/performance/README.md.
 
 Exits with status 1 if a result was not as expected or had no expected
 result (unless --update-expected wrote it), else 0.
+
+--estimates times, instead, the estimate the panel shows while a value's
+exact odds are slow, for the scenarios that have one (face-down cards in the
+hand's sorts), and how far it is from the expected result: an estimate's
+range is only likely, so one outside it is flagged, not counted as wrong.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ import statistics
 import sys
 import time
 from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 from threading import Event, Timer
 
@@ -83,6 +90,34 @@ def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> d
         "times": [round(t, 6) for t in times],
         "probability": str(result),
     }
+
+
+def estimates(scenarios: list[Scenario], seconds: float) -> None:
+    """Each scenario's estimate, its time, and how far it is from the expected result."""
+    expected = load_expected()
+    width = max((len(s.id) for s in scenarios), default=0)
+    errors = []
+    for s in scenarios:
+        if not isinstance(s, Scenario):
+            continue
+        s.prepare()
+        start = time.perf_counter()
+        found = s.estimate(seconds)
+        elapsed = time.perf_counter() - start
+        if found is None:
+            continue
+        line = (f"{s.id:<{width}}  {fmt(elapsed):>8}  {found.mean * 100:6.2f}% "
+                f"({found.low * 100:.2f} to {found.high * 100:.2f}, {found.samples} deals)")
+        if s.id in expected:
+            exact = float(Fraction(expected[s.id]))
+            errors.append(abs(found.mean - exact))
+            line += f"  off by {(found.mean - exact) * 100:+.2f}"
+            if not found.low <= exact <= found.high:
+                line += "  OUTSIDE ITS RANGE"
+        print(line, flush=True)
+    if errors:
+        print(f"{len(errors)} estimates: off by {statistics.fmean(errors) * 100:.2f} points on average, "
+              f"{max(errors) * 100:.2f} at most.")
 
 
 def noisy(r: dict) -> bool:
@@ -154,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="don't measure: show the results in this JSON file (with --compare/--markdown)")
     parser.add_argument("--compare", type=Path, help="show results from this JSON file alongside")
     parser.add_argument("--markdown", action="store_true", help="print a Markdown table at the end")
+    parser.add_argument("--estimates", type=positive(float), nargs="?", const=1.0, metavar="SECONDS",
+                        help="time the estimates shown while the exact odds are slow instead, each with up to "
+                             "SECONDS (default 1), and how far they are from the expected results")
     parser.add_argument("--update-expected", action="store_true",
                         help="write the results (measured, or from --from) to tests/perf/expected.json")
     args = parser.parse_args(argv)
@@ -163,6 +201,9 @@ def main(argv: list[str] | None = None) -> int:
     before = json.loads(args.compare.read_text())["results"] if args.compare else None
     results: dict[str, dict] = {}
     scenarios = [s for s in SCENARIOS if all(k in s.id for k in args.k)]
+    if args.estimates:
+        estimates(scenarios, args.estimates)
+        return 0
     if args.source:
         results = json.loads(args.source.read_text())["results"]
         scenarios = []

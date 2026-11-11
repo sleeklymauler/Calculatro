@@ -60,10 +60,13 @@ local function too_slow_popup(mark, lines)
     return { name = 'Too slow', text = lines[mark.limit] or lines.time }
 end
 
--- What an approximation is, by its mark's `how`, and what's become of its
--- exact odds: still being worked out, or given up on (by the mark's limit).
+-- What an approximation is, by its mark's `how`: its range (certain from
+-- bounds, only likely from a sample) and where it comes from. And what's
+-- become of its exact odds: still being worked out, or given up on (by the
+-- mark's limit).
 local HOW = {
-    bounds = { "From each hand's own odds." },
+    bounds = { range = 'Between %s and %s.', text = { "From each hand's own odds." } },
+    sample = { range = 'Likely %s to %s.', text = { 'Estimated from a sample of the', "deals the hand's sorts allow." } },
 }
 local EXACT = {
     refining = { 'Still working out the exact', 'odds.' },
@@ -75,8 +78,9 @@ local EXACT = {
 -- it comes from, and whether the exact odds are still to come.
 local function approximate_popup(mark)
     local text = {}
-    if mark.low and mark.high then text[1] = 'Between ' .. mark.low .. ' and ' .. mark.high .. '.' end
-    for _, line in ipairs(HOW[mark.how] or {}) do text[#text + 1] = line end
+    local how = HOW[mark.how] or HOW.bounds
+    if mark.low and mark.high then text[1] = string.format(how.range, mark.low, mark.high) end
+    for _, line in ipairs(how.text) do text[#text + 1] = line end
     local exact = mark.state == 'refining' and EXACT.refining or EXACT[mark.limit] or EXACT.time
     for _, line in ipairs(exact) do text[#text + 1] = line end
     return { name = 'Approximate', text = text }

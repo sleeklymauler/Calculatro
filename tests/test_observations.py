@@ -59,15 +59,16 @@ def test_a_stone(game):  # noqa: F811
     assert parsed(game).observed[2] == ObservedCard(stone=True)
 
 
-def test_nothing_without_the_setting(two_sorts):
+def test_sent_whether_the_hint_is_on_or_off(two_sorts):
+    """The setting is only the hint's: the odds always use the sorts."""
     g, *_ = two_sorts
+    on = snapshot_json((g.rt, g.mod))["observations"]
     g.mod.settings.face_down = False
-    raw = snapshot_json((g.rt, g.mod))
-    assert raw["observations"] == []  # an array, even empty
-    assert parsed(g).observations == () and parsed(g).observed == ()
-    # The mod watches the hand either way, so turning it on sends what it saw at once.
-    g.mod.settings.face_down = True
-    assert len(exported(g)) == 2
+    assert len(on) == 2 and snapshot_json((g.rt, g.mod))["observations"] == on
+
+
+def test_an_empty_array_without_sorts(game):  # noqa: F811
+    assert snapshot_json((game.rt, game.mod))["observations"] == []  # an array, even empty
 
 
 @pytest.mark.parametrize("flips, disabled, sent", [(False, False, True), (True, False, False), (True, True, True)])

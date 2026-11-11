@@ -9,7 +9,15 @@ from fractions import Fraction
 from threading import Event
 
 from .cards import CardQuery
-from .engine import DiscardOutcome, discard_draws, evaluate_cards, evaluate_discard
+from .engine import (
+    DiscardOutcome,
+    Estimate,
+    discard_draws,
+    estimate_cards,
+    estimate_discard,
+    evaluate_cards,
+    evaluate_discard,
+)
 from .hands import Target, combine
 from .search import can_redraw
 from .state import Card, GameState
@@ -25,19 +33,29 @@ class Pending:
 
 PENDING = Pending()
 
-BOUNDS = "bounds"  # an approximation from the odds of other values (`Approx.how`)
+# Where an approximation comes from (`Approx.how`):
+BOUNDS = "bounds"  # the odds of other values
+SAMPLE = "sample"  # deals of the face-down cards drawn at random (engine.estimate_discard)
 
 
 @dataclass(frozen=True)
 class Approx:
-    """An approximation of odds not (yet) worked out exactly: they're between
-    `low` and `high`, which are certain. `how` says where they come from
-    (BOUNDS). `limit` is None while the exact odds are still being worked out,
-    else what made the app give up on them (worker.TIME or MEMORY)."""
+    """An approximation of odds not (yet) worked out exactly. `how` says where
+    it comes from: from BOUNDS, the odds are between `low` and `high`, which
+    is certain; from a SAMPLE, they're about `estimate`, and likely (not
+    certainly) between `low` and `high`. `limit` is None while the exact odds
+    are still being worked out, else what made the app give up on them
+    (worker.TIME or MEMORY)."""
     low: Fraction
     high: Fraction
     how: str = BOUNDS
     limit: str | None = None
+    estimate: Fraction | None = None  # a SAMPLE's
+
+    @property
+    def certain(self) -> bool:
+        """Whether the odds are certain to be between `low` and `high`."""
+        return self.how == BOUNDS
 
 
 # A value in a report: the odds, an approximation of them, given up on, or (in
@@ -56,15 +74,33 @@ class Slow:
 
 SLOW = Slow()
 
+# In `known`, (ESTIMATE, a value's key) holds its estimate (engine.Estimate), or
+# None if it has none: it's made once, after the value's quick try.
+ESTIMATE = "estimate"
+
 
 def interval(value: Value | None) -> tuple[Fraction, Fraction] | None:
     """The range a value's odds are certain to be in: its odds both ways if
-    exact, an approximation's bounds, or None if nothing is known."""
+    exact, an approximation's bounds, or None if nothing certain is known (an
+    estimate's range is only likely)."""
     if isinstance(value, Fraction):
         return value, value
-    if isinstance(value, Approx):
+    if isinstance(value, Approx) and value.certain:
         return value.low, value.high
     return None
+
+
+def _fraction(x: float) -> Fraction:
+    return Fraction(x).limit_denominator(10 ** 6)
+
+
+def _sampled(found: Estimate, near: tuple[Fraction, Fraction] | None, limit: str | None) -> Approx:
+    """An estimate as an Approx, within the bounds `near` (certain) if there are any."""
+    low, high = near or (Fraction(0), Fraction(1))
+
+    def within(x: float) -> Fraction:
+        return min(max(_fraction(x), low), high)
+    return Approx(within(found.low), within(found.high), SAMPLE, limit, within(found.mean))
 
 
 @dataclass(frozen=True)
@@ -108,25 +144,29 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     discard odds.
 
     With a job's Control as `cancel`, each value (a row's Keep or Discard) is
-    worked out in two passes, so a quick one is never held up by a slow one:
-    first each with `limits.quick` seconds, then those that didn't finish,
-    from the start, with `limits.exact` seconds each. One that doesn't finish
-    then, or uses too much memory (`worker.Watchdog`), is TooSlow. The order
-    in each pass is the panel's: Keep, then Discard. `progress` is given a
-    partial report as each value is found.
+    worked out in three passes, so a quick one is never held up by a slow one:
+    first each with `limits.quick` seconds; then an estimate of each that
+    didn't finish, in about `limits.approx` seconds; then those, from the
+    start, with `limits.exact` seconds each. One that doesn't finish then, or
+    uses too much memory (`worker.Watchdog`), is TooSlow. The order in each
+    pass is the panel's: Keep, then Discard. `progress` is given a partial
+    report as each value is found.
 
     A value that doesn't finish its quick try shows an approximation (Approx)
-    meanwhile, if it has one, and keeps it if the exact odds are given up on.
-    Only "Any target" has one so far: its odds are at least each hand's on its
-    own and at most their sum (or 1), so it comes from their values, and is
-    narrowed as they're found. When the bounds meet, they're its exact odds,
-    and it isn't worked out at all. For both, "Any target" comes after the
-    hands in each pass.
+    meanwhile, if it has one, and keeps it if the exact odds are given up on:
+
+      * "Any target"'s odds are at least each hand's on its own and at most
+        their sum (or 1), so its BOUNDS come from their values, and narrow as
+        they're found. When they meet, they're its exact odds, and it isn't
+        worked out at all. So "Any target" comes after the hands in each pass.
+      * A value whose face-down cards the hand's sorts tell about is estimated
+        from a SAMPLE of their deals (engine.estimate_discard), within those
+        bounds for "Any target".
 
     `known` holds each value as soon as it's worked out, or given up on, or
-    found slow (SLOW), so it outlives a cancelled report and comes straight
-    back when the same cards are selected again. Share it only between states
-    with the same `__main__.odds_basis`.
+    found slow (SLOW), and its estimate (under ESTIMATE), so they outlive a
+    cancelled report and come straight back when the same cards are selected
+    again. Share it only between states with the same `__main__.odds_basis`.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
@@ -142,6 +182,10 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     def evaluate(row: Target | CardQuery, discard: list[int], cancel) -> DiscardOutcome:
         return (evaluate_cards(state, row, discard, cancel) if isinstance(row, CardQuery)
                 else evaluate_discard(state, row, discard, cancel))
+
+    def estimate(row: Target | CardQuery, discard: list[int], cancel, seconds: float) -> Estimate | None:
+        return (estimate_cards(state, row, discard, cancel, seconds) if isinstance(row, CardQuery)
+                else estimate_discard(state, row, discard, cancel, seconds))
 
     named = [(t.name, t) for t in targets]
     combined: Target | None = None  # "Any target", bounded by `targets`
@@ -164,14 +208,19 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         return (low, high) if (low, high) != (0, 1) else None
 
     def value(row: Target | CardQuery, discard: list[int]) -> Value:
-        found = known.get(key(row, discard))
+        k = key(row, discard)
+        found = known.get(k)
         if isinstance(found, DiscardOutcome):
             return found.probability
         near = bounds(row, discard)
         if near is not None and near[0] == near[1]:
             return near[0]
-        if near is not None and (found is SLOW or isinstance(found, TooSlow)):
-            return Approx(*near, limit=found.limit if isinstance(found, TooSlow) else None)
+        if found is SLOW or isinstance(found, TooSlow):
+            limit = found.limit if isinstance(found, TooSlow) else None
+            if isinstance(estimated := known.get((ESTIMATE, k)), Estimate):
+                return _sampled(estimated, near, limit)
+            if near is not None:
+                return Approx(*near, limit=limit)
         return PENDING if found is None or found is SLOW else found
 
     def report() -> Report:
@@ -204,13 +253,26 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
                    if known.get(key(row, discard), SLOW) is SLOW}.items(), key=lambda item: item[1][0] is combined)
     if todo:
         found_more()  # what's known already, as when the same cards are selected again
-    # The quick pass tries what hasn't been tried (a value found slow before
-    # goes straight to the exact pass), the exact pass what it found slow.
-    for seconds, before in ((limits.quick, None), (limits.exact, SLOW)):
+
+    def attempt(seconds: float, before: Slow | None) -> None:
         for k, (row, discard) in todo:
             if known.get(k) is not before or isinstance(value(row, discard), Fraction):
                 continue  # done, or its bounds met
             found = limited(cancel, seconds, lambda c, row=row, discard=discard: evaluate(row, discard, c))
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
             found_more()
+
+    # The quick pass tries what hasn't been tried (a value found slow before
+    # goes straight to its estimate, or the exact pass), the exact pass what
+    # it found slow. Between them, each value found slow is estimated once.
+    attempt(limits.quick, None)
+    for k, (row, discard) in todo:
+        if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(value(row, discard), Fraction):
+            continue
+        # The estimate stops itself after `limits.approx`; the limit is for one that can't start.
+        found = limited(cancel, 2 * limits.approx,
+                        lambda c, row=row, discard=discard: estimate(row, discard, c, limits.approx))
+        known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
+        found_more()
+    attempt(limits.exact, SLOW)
     return report()

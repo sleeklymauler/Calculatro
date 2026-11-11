@@ -30,6 +30,9 @@ over all of them (engine._averaged). `windows` finds latent cards that are a
 uniformly random set of some cards, which the engine weighs the draw by
 instead of going through them.
 
+Where that's too slow, `deals` draws deals at random by their weight, for
+an estimate shown, marked, until the exact odds come (engine._estimate).
+
 `reference` merges nothing, enumerating the unseen cards one by one, and is
 what the tests check `summed` against.
 
@@ -39,12 +42,14 @@ engine can import it. Cancelling is the caller's `check`, which raises.
 
 from __future__ import annotations
 
+from bisect import bisect
 from collections.abc import Callable, Collection, Hashable, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cache
 from itertools import combinations_with_replacement, pairwise, permutations
 from math import comb, factorial, prod
+from random import Random
 
 from .state import Card, Observation, ObservedCard
 
@@ -225,9 +230,21 @@ def _setup(observations: Sequence[Observation], observed: Sequence[ObservedCard]
 Label = Callable[[int | None, Card], Hashable]
 
 
+@dataclass
+class _Trace:
+    """How `summed` got to its sums, for `deals` to draw from: for each slot, each
+    partial state's ways from the one before, as (state before, card, weight
+    through it); and each last state's weight, its tie factors applied."""
+    cards: list[Card]
+    hand_of: list[int | None]
+    layers: list[dict[tuple, list[tuple[tuple, int, Fraction]]]]
+    last: dict[tuple, Fraction]
+
+
 def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
            allowed: Callable[[Card], bool], extra: Sequence[int] = (), label: Label | None = None,
-           check: Callable[[], None] = lambda: None, skip: Collection[int] = ()) -> Posterior:
+           check: Callable[[], None] = lambda: None, skip: Collection[int] = (),
+           trace: list[_Trace] | None = None) -> Posterior:
     """Every assignment of the latent cards in `observations` to cards of `unseen`
     that `allowed` lets them be, with its weight, the assignments that `label`
     can't tell apart summed into one branch.
@@ -257,10 +274,14 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
     costs about its length times the number of cards and labels, not the
     number of its deals. That's exact: the merged assignments have the same
     completions, with the same weights.
+
+    With a list as `trace`, a _Trace of the sum is added to it (see `deals`).
     """
     s = _setup(observations, observed, unseen, allowed, extra, skip)
     if s is None:
         return Posterior((), Fraction(0))
+    if trace is not None:
+        trace.append(_Trace(s.cards, s.hand_of, [], {}))
     observations, ids, hand_of, cards, counts, keys = s.observations, s.ids, s.hand_of, s.cards, s.counts, s.keys
     value_at, candidates, position = s.value_at, s.candidates, s.position
     face_up_groups, face_up_factor = s.face_up_groups, s.face_up_factor
@@ -339,8 +360,10 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
     for k in range(n):
         check()
         following: dict[tuple, list] = {}
+        ways: dict[tuple, list[tuple[tuple, int, Fraction]]] | None = None if trace is None else {}
         observed_slot = k < len(ids)
-        for (_, used_items, ties_items, signature), (weight, assigned) in layer.items():
+        for before, (weight, assigned) in layer.items():
+            _, used_items, ties_items, signature = before
             used = dict(used_items)
             ties = dict(ties_items)
             for v in candidates[k]:
@@ -375,14 +398,21 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
                     following[state] = [w, now]
                 else:
                     entry[0] += w
+                if ways is not None:
+                    ways.setdefault(state, []).append((before, v, w))
         layer = following
+        if trace is not None:
+            trace[-1].layers.append(ways)
 
     found: dict[tuple, list] = {}
-    for (_, _, ties_items, signature), (weight, assigned) in layer.items():
+    for state, (weight, assigned) in layer.items():
+        _, _, ties_items, signature = state
         for tie_key, latent in ties_items:
             weight *= factor(tie_key, latent)
         if not weight:
             continue
+        if trace is not None:
+            trace[-1].last[state] = weight
         entry = found.get(signature)
         if entry is None:
             found[signature] = [weight, assigned]
@@ -394,6 +424,65 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
 
 def _sortable_key(key: Printed) -> tuple:
     return (0, 0, "") if key is None else (1, *key)
+
+
+def _none(hand: int | None, card: Card) -> None:
+    return None
+
+
+class Deals:
+    """Draws deals of the latent cards at random, each as likely as its weight in
+    the posterior: exactly, not approximately (see `deals`)."""
+
+    def __init__(self, trace: _Trace):
+        self.cards, self.hand_of = trace.cards, trace.hand_of
+        self._last = self._table(list(trace.last.items()))
+        # For each slot, from the last: each state's ways back, by their weight.
+        self._back = [{state: self._table([((before, v), w) for before, v, w in ways])
+                       for state, ways in layer.items()} for layer in reversed(trace.layers)]
+
+    @staticmethod
+    def _table(weighted: list[tuple[object, Fraction]]) -> tuple[list, list[float]]:
+        """The items, and their cumulative weights as a share of the total, for bisect."""
+        total = sum((w for _, w in weighted), Fraction(0))
+        running, cumulative = Fraction(0), []
+        for _, w in weighted:
+            running += w
+            cumulative.append(float(running / total))
+        return [item for item, _ in weighted], cumulative
+
+    @staticmethod
+    def _pick(table: tuple[list, list[float]], rng: Random) -> object:
+        items, cumulative = table
+        return items[min(bisect(cumulative, rng.random()), len(items) - 1)]
+
+    def draw(self, rng: Random) -> Branch:
+        """A deal, as a Branch of weight 1."""
+        state = self._pick(self._last, rng)
+        picked: list[Card] = []
+        for back in self._back:
+            state, v = self._pick(back[state], rng)
+            picked.append(self.cards[v])
+        picked.reverse()
+        return _branch(self.hand_of, picked, Fraction(1))
+
+
+def deals(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
+          allowed: Callable[[Card], bool], extra: Sequence[int] = (),
+          check: Callable[[], None] = lambda: None) -> Deals | None:
+    """A way to draw deals of the latent cards (as `summed`'s, with `extra`) in
+    proportion to their posterior weight; None if none fits the observations.
+
+    It's `summed` telling no deals apart, which is quick even for The House's
+    first hand, with how it got to each partial state kept: a deal is drawn
+    from the last card back, each card picked in proportion to the weight of
+    the partial deals through it. That gives each deal its weight's share
+    exactly, as the merged partial deals have the same completions.
+    """
+    trace: list[_Trace] = []
+    if not summed(observations, observed, unseen, allowed, extra, _none, check, trace=trace).total:
+        return None
+    return Deals(trace[0])
 
 
 @dataclass(frozen=True)

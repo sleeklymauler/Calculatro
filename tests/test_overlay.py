@@ -14,7 +14,7 @@ import calculatro.__main__ as cli
 from calculatro import overlay
 from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
-from calculatro.report import PENDING, Approx, CardOdds, Report, TargetOdds, build_report
+from calculatro.report import PENDING, SAMPLE, Approx, CardOdds, Report, TargetOdds, build_report
 from calculatro.rules import Rules
 from calculatro.search import Search
 from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
@@ -167,6 +167,34 @@ def test_approximations_show_whole_percents_that_are_certain():
     assert overlay.approximate(Approx(Fraction(0), Fraction(1, 2))) == "<51%"  # 50% itself is possible
     assert overlay.approximate(Approx(Fraction(1, 1000), Fraction(1, 200))) == "<1%"
     assert overlay.approximate(Approx(Fraction(1, 1000), Fraction(1))) == "0%+"
+
+
+def sample(estimate: Fraction, low: Fraction, high: Fraction, limit: str | None = None) -> Approx:
+    return Approx(low, high, SAMPLE, limit, estimate)
+
+
+def test_estimates_show_rounded_whole_percents():
+    """An estimate isn't certain anyway, so it's rounded, not bounded, but never to 0% or 100%."""
+    assert overlay.approximate(sample(Fraction(845, 1000), Fraction(8, 10), Fraction(9, 10))) == "85%"
+    assert overlay.approximate(sample(Fraction(844, 1000), Fraction(8, 10), Fraction(9, 10))) == "84%"
+    assert overlay.approximate(sample(Fraction(4, 1000), Fraction(0), Fraction(1, 100))) == "<1%"
+    assert overlay.approximate(sample(Fraction(0), Fraction(0), Fraction(1, 100))) == "<1%"
+    assert overlay.approximate(sample(Fraction(996, 1000), Fraction(99, 100), Fraction(1))) == ">99%"
+
+
+def test_estimates_are_marked_and_never_compared():
+    """An estimate's range is only likely, so discarding isn't called better or worse from it, even when the ranges
+    are far apart."""
+    keep, discard = sample(Fraction(1, 10), Fraction(1, 20), Fraction(3, 20)), sample(
+        Fraction(9, 10), Fraction(17, 20), Fraction(19, 20), TIME)
+    rows = [TargetOdds("Pair", keep, discard), TargetOdds("Flush", Fraction(0), keep)]
+    payload = overlay.odds(GameState(id="s:1", in_run=True), Report(rows, [], [], 0, 1, partial=True))
+    assert payload["targets"][0] == {
+        "key": "Pair", "keep": "10%",
+        "keep_mark": {"state": "refining", "how": "sample", "low": "5.0%", "high": "15.0%"},
+        "discard": "90%",
+        "discard_mark": {"state": "final", "how": "sample", "low": "85.0%", "high": "95.0%", "limit": "time"}}
+    assert "trend" not in payload["targets"][1]
 
 
 def test_approximations_are_marked_and_compared_only_when_certain():
@@ -1099,6 +1127,25 @@ def test_approximations_have_an_asterisk_and_a_popup(lua, tmp_path):
     assert rt.eval("#BOXES") > boxes  # the popups have gone: rebuilt
     assert find(rt, "calculatro_keep:Any target") is None
     assert not any("*" in t for t in panel_texts(rt))
+
+
+def test_estimates_say_their_range_is_only_likely(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=())
+    mod.update(0.1)
+    payload = json.loads(json.dumps(app_payload(tmp_path)))
+    pair = rows_of(payload)["Pair"]
+    pair.update(keep="84%", keep_mark={"state": "refining", "how": "sample", "low": "83.4%", "high": "84.8%"})
+    payload["partial"] = True
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert texts[texts.index("Pair@light") + 1] == "84%*@light"
+    lines = popup_lines(rt, mod, "calculatro_keep:Pair")
+    assert lines == ["Approximate", "Likely 83.4% to 84.8%.", "Estimated from a sample of the",
+                     "deals the hand's sorts allow.", "Still working out the exact", "odds."]
+    assert all(len(line) <= 31 for line in lines)
 
 
 def test_search_given_up_says_so_on_the_title_row(lua, tmp_path):

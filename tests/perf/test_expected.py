@@ -74,6 +74,11 @@ SLOW = {
       for s in ("by rank", "both ways") for t in ("Straight Flush", "Flush + Straight + Full House (any)")),
     "standard | Best discard: 11 cards, holding a Full House | Flush + Straight + Full House (any) | No jokers",
     "standard | Best discard: 11 cards, holding no target | Flush + Straight + Full House (any) | No jokers",
+    "standard | 7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played | Straight Flush | No jokers",
+    *(f"standard | 7 unknown: 2 face-down, draw 5, sorted by rank, Cerulean Bell | {t} | No jokers"
+      for t in ("Full House", "Straight Flush")),
+    *(f"standard | 5 unknown: 5 face-down kept, sorted by rank, The Hook, 1 played | {t} | No jokers"
+      for t in ("Pair", "Flush")),
 }
 
 

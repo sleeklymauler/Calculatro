@@ -8,8 +8,8 @@ the observations) is done, tested against dealing every way, and checked in game
 tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept, schema
 14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is in two parts: 5a,
 exact optimizations, is done, tested against dealing every way (2026-11-09) and checked in game (2026-11-10);
-5b, approximations for the cases [still slow](#still-slow), is planned (2026-11-10), and stages 1 and
-2 of [the progressive-odds plan](progressive-odds.md#recommended-order) that it waited on are done (2026-11-11). Revised
+5b, approximations for the cases [still slow](#still-slow) (estimates from sampled deals) and the setting
+controlling only the hint, is done and checked in game (2026-11-11). Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -751,9 +751,14 @@ Times are for one odds row (or one best-discard search), measured as above.
    (case 1). There's no limit: a calculation that would need more memory than
    there is fails instead of finishing slowly.
 
-Not measured, and likely slow: face-down cards in sorts under The Hook and
-Cerulean Bell (no windows there either; the deals are summed), and DNA's
-copies of a face-down card (branched on with every unseen card).
+Measured in stage 5b (2026-11-11), face-down cards in sorts under The Hook and
+Cerulean Bell, which take no windows (their deals are summed): with two
+face-down cards, at most 1.2 s (Cerulean Bell's Full House); with five kept
+(`HOUSE_AFTER`), The Hook's Pair 3.5 s, Full House 22 s and Straight Flush
+over a minute, and Cerulean Bell's Flush, Full House and Straight Flush over
+a minute. The estimate covers them all in about 1 s. Not measured: DNA's
+copies of a face-down card (branched on with every unseen card), which the
+estimate covers too (`test_estimates_hold_the_exact_odds`).
 
 ## Tests
 
@@ -1011,7 +1016,8 @@ copies of a face-down card (branched on with every unseen card).
        House's first discard, `HOUSE_EARLIER`, The House's first hand split
        at the top and in the middle, and the Four Fingers + Shortcut
        searches.
-   - **5b, approximations**, planned (2026-11-10), for the cases
+   - **5b, approximations**, done and checked in game (2026-11-11); see
+     [what it settled](#what-5b-settled) below. Planned (2026-11-10) for the cases
      [still slow](#still-slow). It plugs into
      [the progressive-odds plan](progressive-odds.md), whose stages 1 and 2
      come first ([Recommended order](progressive-odds.md#recommended-order)).
@@ -1062,6 +1068,50 @@ copies of a face-down card (branched on with every unseen card).
        cases); the snapshot with the setting off still carries the
        observations; the benchmark scenarios record each approximation's time
        and error.
+
+#### What 5b settled
+
+Decided or found while doing it, where it differs from or adds to the plan above:
+
+- **Sampling deals from the exact posterior** (decided 2026-11-11, after measuring the candidates).
+  Ignoring the sorts was quick but off by up to 25 points on the scenarios (Pair 86% against an
+  exact 61% with five face-down cards kept); sampling was within 2 standard errors on every
+  scenario. `posterior.deals` is `summed` telling no deals apart, keeping how it reached each partial
+  state: its layers stayed small (at most about 600 states, 22,000 ways between them, built in 0.1 s),
+  so the counts the plan asked to check first are no problem. Leaving out observations wasn't tried:
+  it's not a bound, and sampling was already good.
+- **Every value with face-down cards in the sorts** gets an estimate when its quick try is slow, not
+  only cases 1-3: Keep, Discard, card queries and "Any target" (within its bounds), under any boss
+  and with DNA's copies (`engine.estimate_discard`, `estimate_cards`). Each deal is turned up and
+  evaluated exactly, so the windows aren't used; deals alike in what the odds see share an
+  evaluation. On the 97 scenarios it applies to (`benchmark.py --estimates`): off by 0.26 points
+  on average, 1.73 at most, none outside its range, each in at most about 1 s.
+- **Its range is likely, not certain** (3 standard errors, counting one deal at 0 and one at 1 too):
+  the panel shows the estimate rounded ("84%*"), the popup "Likely 83.4% to 84.8%.", and the trend
+  colour never comes from it (decided 2026-11-11). `report.interval` gives only certain ranges, so
+  "Any target"'s bounds don't use estimates either. `odds_schema` 8, for `how: "sample"`.
+- **The approximation pass** between the quick and exact passes, which the progressive-odds plan's
+  stage 2 left for the first approximation that takes time: each value found slow is estimated
+  once, with `Limits.approx` (1 s), and the estimate is kept in `known` (`report.ESTIMATE`).
+- **Still slow, with an estimate:** the values of cases 1 and 3, and the slow ones under The Hook
+  and Cerulean Bell. Measured end to end with the app's limits on case 1 (every other card of The
+  House's sorted hand thrown away): the estimates arrive within 5.5 s, then the exact pass gives up
+  on most values by time or memory, and the memory is back to 43 MB after.
+- **Not covered:** a best-discard search (case 2, and case 4) still waits for its exact answer, and
+  says "Too slow" past its limit. Answering from approximations is
+  [the progressive-odds plan's stage 3](progressive-odds.md#stages). Neither is The Mark without
+  sorts, nor Four Fingers + Shortcut, whose estimates are wide when each deal's exact odds are slow
+  (about 17 points either side with Straight Flush, 12-16 deals in 1 s).
+- **The setting**, renamed "Face-down hints" (decided 2026-11-11), off by default as before, and
+  only the hint's: `export_observations` sends the sorts whether it's on or off (still none under
+  The Mark with `flipped_cards`). The saved key stays `face_down`, so players keep their choice. Its
+  popup adds "The odds use this either way."
+- **Benchmarks:** `benchmark.py --estimates` times each scenario's estimate and how far off it is;
+  new scenarios for The Hook and Cerulean Bell with face-down cards in a sort (`SORTED_2_HOOK`,
+  `SORTED_2_BELL`, `HOUSE_AFTER_HOOK`, `HOUSE_AFTER_BELL`), with their slow targets left out.
+- **Checked in game** (2026-11-11): an estimate's asterisk and its popup's lines under The House
+  after a discard that splits its first hand, the panel as estimates give way to exact odds, and the
+  setting's new name and popup.
 
 Update `docs/architecture.md` (information hiding, the snapshot contract),
 `docs/probability-model.md`, `docs/panel.md` (the hint and the setting),

@@ -85,19 +85,21 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready.
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
   when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
-- **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in two
-  passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s), then
-  those that didn't finish, from the start, with `Limits.exact` (30 s) each. The order in each pass is
+- **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in three
+  passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s); then
+  an estimate of each that didn't finish, if it has one, in about `Limits.approx` (1 s); then those,
+  from the start, with `Limits.exact` (30 s) each. The order in each pass is
   the panel's, Keep then Discard, but with "Any target" after the hands. The job reports each partial
   `Report` that shows something new (`Control.progress`), and `run_watch` sends it to the panel as a
   `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s), none if every value is found sooner.
   The console prints only the finished report.
 - **Approximations.** A value that doesn't finish its quick try shows an approximation
-  (`report.Approx`: certain bounds `low` and `high`, `how` they were found, and the `limit` once the
-  exact odds are given up on) until its exact odds arrive, and keeps it if they're given up on. Only
-  "Any target" has one so far, from its hands' values ([probability-model.md](probability-model.md#approximations)),
-  so it needs no pass of its own: `build_report` derives it whenever it makes a report. Approximations
-  that take time to work out (plan stage 3) will be a pass between the two.
+  (`report.Approx`: its range `low` to `high`, `how` it was found, an `estimate` if it's one, and the
+  `limit` once the exact odds are given up on) until its exact odds arrive, and keeps it if they're
+  given up on ([probability-model.md](probability-model.md#approximations)). "Any target"'s bounds
+  come from its hands' values, so they need no pass of their own: `build_report` derives them whenever
+  it makes a report. An estimate from a sample of the face-down cards' deals (`engine.estimate_discard`)
+  is made once, in the pass between, and kept in `known`.
 - **Limits.** A job's function gets a `worker.Control`, which is the engine's `cancel` (an Event's
   `is_set` and `wait`) and runs parts with limits (`Control.limited`, `worker.limited`): each part is an
   `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
@@ -116,7 +118,8 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   let memory grow.
 - **Odds already worked out.** `build_report` stores each value in `known` as soon as it's
   done, given up on (`TooSlow`), or found slow by the quick pass (`SLOW`: a repeat goes straight to the
-  exact pass, showing its approximation at once), by the row and the cards selected, so going back to an earlier
+  exact pass, showing its approximation at once), and its estimate (under `report.ESTIMATE`, or None if
+  it has none), by the row and the cards selected, so going back to an earlier
   selection calculates nothing, and values finished before a job was cancelled aren't lost. A value
   given up on isn't tried again until `known` starts afresh, nor a search given up on until its
   `search_basis` changes: asked for again, it's answered at once. `run_watch` starts a new `known` whenever
@@ -200,24 +203,26 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
 ### Shapes
 
 - The odds file never contains `null` (the Lua decoder doesn't support it).
-- The odds file (`odds_schema` 7) answers a snapshot with `{id, pending: true}`, then with its odds as
+- The odds file (`odds_schema` 8) answers a snapshot with `{id, pending: true}`, then with its odds as
   they're found: `partial: true` until the last (an approximation still being refined counts as to
   come). Each row is `{key, keep, discard, trend}`, card rows without `keep`. A value that isn't exact
   odds has a mark beside it, `keep_mark` or `discard_mark` (`overlay.mark`): `{state: "pending"}` with
-  no value for one still to come; for an approximation, `{state: "refining", how: "bounds", low,
-  high}` (the range, as percents), or `state: "final"` with its `limit` once the exact odds are given
-  up on, with the value in whole percents that are certain (`overlay.approximate`: "80%+", or "<6%"
-  below 1%); or `{state: "final", limit: "time"}` (or `"memory"`) with the value `"?"` for one given
+  no value for one still to come; for an approximation, `{state: "refining", how, low, high}` (the
+  range, as percents), or `state: "final"` with its `limit` once the exact odds are given up on, with
+  the value in whole percents (`overlay.approximate`). From `how: "bounds"` they're certain ("80%+", or
+  "<6%" below 1%); from `how: "sample"`, an estimate whose range is only likely, they're rounded ("84%",
+  never "0%" or "100%": "<1%", ">99%"). Or `{state: "final", limit: "time"}` (or `"memory"`) with the value `"?"` for one given
   up on with no approximation. A row has no such value (nothing selected) when it has neither.
-  `trend` is there only when the comparison is certain: both values exact, or their ranges don't
-  overlap. A search given up on is answered with `options: []` and the same `mark` (`overlay.search`).
+  `trend` is there only when the comparison is certain: both values exact, or their ranges certain
+  and not overlapping (never from an estimate). A search given up on is answered with `options: []` and the same `mark` (`overlay.search`).
 - The snapshot also sends `select_limit` (`G.hand.config.highlighted_limit`) and the latest `search`
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`
   metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key
   (`m_stone`, `m_wild`, `c_base`, ...).
-- `observations` (with the "Face-down windows" setting on, `[]` otherwise) is every sort of the hand
+- `observations` (whatever the "Face-down hints" setting, which is only the hint's; `[]` under The
+  Mark with the `flipped_cards` modifier) is every sort of the hand
   seen this round, in the order recorded, where a mode may repeat (a draw re-sorts the hand, but an
   earlier sort is still true of the cards in it), less those `observe.lua`'s `prune` drops as saying
   nothing more, from `Calculatro.export_observations`: each card an `id` and one of
