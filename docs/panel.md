@@ -70,9 +70,12 @@ from the label's own UIBox, `G.consumeables.children.area_uibox`, once it exists
 ## Building it without slowing the game
 
 - **Rebuilds.** The box is rebuilt only when its layout changes (`layout_key`: the model without the
-  odds values, their staleness and the title row's message; popups are on cells, so they're layout),
-  since a rebuild costs the game tens of milliseconds. Otherwise the value text nodes (tagged `config.calculatro_value`) get the new text and
-  colour in place and the box is laid out again (`update_values`, the game's `recalculate`). The new
+  odds values, their staleness and the title row's message; popups are on cells, so whether a value
+  has one is layout, but not what it says), since a rebuild costs the game tens of milliseconds.
+  Otherwise the value text nodes (tagged `config.calculatro_value`) get the new text and colour in
+  place and the box is laid out again (`update_values`, the game's `recalculate`), and the cells with
+  a popup (tagged `config.calculatro_popup_of`, with the same id) get the new popup, which
+  `hover_popups` reads when hovered: an approximation narrowing doesn't rebuild the panel. The new
   values come from a definition built without the suit icons' sprites (`widgets.without_sprites`),
   since the game keeps every `Sprite` made until it's removed.
 - **Fitting.** A rebuild reuses the rows per column fitted before for that layout and room
@@ -102,14 +105,20 @@ and the editor's list, shows a popup while hovered (`card_name_cell`, `hover_pop
 shadows) with the full label and what it means (`about`, written by `builder_about` when the query is
 added and kept with it; queries added before that have none). Mouse only for now.
 
-### Values given up on
+### Approximations and values given up on
 
-A value the app gave up on (over its time or memory limit, see
-[architecture.md](architecture.md#the-app)) shows "?", and hovering its cell shows a popup ("Too slow",
-then lines saying the exact odds would take too long or use too much memory, by its mark's `limit`;
-`TOO_SLOW` in `odds.lua`). The popup is on the whole value cell (`calculatro_keep:<key>`,
-`calculatro_discard:<key>`, `calculatro_card:<key>`), since a "?" alone is hard to hover. A Discard
-value is green or red only when both it and Keep are exact (the app sends no `trend` otherwise).
+A value the app is still working out exactly, or gave up on (over its time or memory limit, see
+[architecture.md](architecture.md#the-app)), may come with an approximation: the app sends it in whole
+percents that are certain ("80%+", or "<6%"), and the panel adds an asterisk ("80%+*"), which still
+fits `DISCARD_VALUE_W`. Hovering it shows a popup ("Approximate", the range, where it comes from by the
+mark's `how`, then whether the exact odds are still being worked out or why they were given up on;
+`approximate_popup`, `HOW` and `EXACT` in `odds.lua`). An approximation still being refined isn't
+greyed out: it's this snapshot's. One given up on with no approximation shows "?", and its popup says
+"Too slow", then that the exact odds would take too long or use too much memory, by its mark's
+`limit` (`TOO_SLOW`). The popup is on the whole value cell (`calculatro_keep:<key>`,
+`calculatro_discard:<key>`, `calculatro_card:<key>`), since a "*" or "?" alone is hard to hover. A
+Discard value is green or red only when the comparison with Keep is certain: both exact, or their
+ranges apart (the app sends no `trend` otherwise).
 
 ### The arrow
 

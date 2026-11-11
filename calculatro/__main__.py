@@ -19,7 +19,7 @@ from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
 from .log import header, open_log
-from .report import Report, Value, build_report, row_key
+from .report import Approx, Report, Value, build_report, row_key
 from .search import Search, best_card_discards, best_discards
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
@@ -59,8 +59,26 @@ def _too_slow(limit: str) -> str:
 
 
 def _value(p: Value) -> str:
-    """A value as `_pct` puts it, or "?" (as wide) for one given up on."""
-    return f"{'?':>7}" if isinstance(p, TooSlow) else _pct(p)
+    """A value as `_pct` puts it, or as wide: "?" for one given up on, and an
+    approximation as the panel shows it ("80%+*")."""
+    if isinstance(p, TooSlow):
+        return f"{overlay.TOO_SLOW:>7}"
+    if isinstance(p, Approx):
+        return f"{overlay.approximate(p) + '*':>7}"
+    return _pct(p)
+
+
+def _notes(keep: Value, after: Value | None) -> str:
+    """What a line's values that aren't exact odds need saying: each
+    approximation's range (with which it is, when there are two values), and
+    why the exact odds were given up on."""
+    named = [("keep", keep)] + ([("discard", after)] if after is not None else [])
+    notes = [("*" if after is None else f"* {name}") + f" {_pct(v.low).strip()} to {_pct(v.high).strip()}"
+             for name, v in named if isinstance(v, Approx)]
+    slow = [v.limit for _, v in named if isinstance(v, TooSlow | Approx) and v.limit]
+    if slow:
+        notes.append(_too_slow(slow[0]))
+    return f"  ({'; '.join(notes)})" if notes else ""
 
 
 def format_report(report: Report) -> str:
@@ -73,9 +91,8 @@ def format_report(report: Report) -> str:
 
     def lines_of(odds: list[tuple[str, Value, Value | None]]) -> list[str]:
         def line(name: str, keep: Value, after: Value | None) -> str:
-            slow = [v.limit for v in (keep, after) if isinstance(v, TooSlow)]
             return (f"  {name:<{width}}  {_value(keep)}" + (f"  ->  {_value(after)}" if after is not None else "")
-                    + (f"  ({_too_slow(slow[0])})" if slow else ""))
+                    + _notes(keep, after))
         return [line(*odds_row) for odds_row in odds]
 
     # Card queries count the final hand like targets, but are labelled apart.

@@ -138,9 +138,10 @@ end
 Calculatro.register_once = register_once
 
 local function hover_popups(e)
-    local popup = e.config and e.config.calculatro_popup
-    if popup then
+    if e.config and e.config.calculatro_popup then
         function e:hover()
+            -- Read now: the panel may have updated it in place since (update_values).
+            local popup = self.config.calculatro_popup
             self.config.h_popup = Calculatro.popup_definition(popup.name, popup.about, popup.text)
             self.config.h_popup_config = { align = 'tm', offset = { x = 0, y = -0.1 }, parent = self }
             UIElement.hover(self)

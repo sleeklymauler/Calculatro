@@ -1,7 +1,8 @@
 # Plan: quick approximations, then exact odds
 
 Status: drafted 2026-11-10. Stage 1 done and tried in game 2026-11-10 (see
-[What stage 1 settled](#what-stage-1-settled)); stage 2 next. Stage 1 comes before stage 5b of
+[What stage 1 settled](#what-stage-1-settled)). Stage 2 done 2026-11-11, not yet tried in game (see
+[What stage 2 settled](#what-stage-2-settled)); face-down stage 5b next. Stage 1 comes before stage 5b of
 [the face-down plan](face-down-windows.md#stages); see
 [Recommended order](#recommended-order).
 
@@ -309,6 +310,37 @@ Decided or found while doing stage 1, where it differs from or adds to the desig
   slow" and its popup. Still open: the limits' values on a slower computer (see
   [Decisions to make](#decisions-to-make)).
 
+## What stage 2 settled
+
+Decided or found while doing stage 2, where it differs from or adds to the design above:
+
+- **The value shown from bounds** is the recommended one: the lower bound with a "+", in whole
+  percents rounded down so it stays certain ("80%+*"). Below 1% it's the upper bound instead, with a
+  "<" ("<6%*"), which says more than "0%+". The app sends it without the asterisk
+  (`overlay.approximate`); the mod adds it.
+- **No approximation pass yet.** "Any target"'s bounds come from the hands' values, so `build_report`
+  derives them whenever it makes a report, rather than storing them: they narrow as each hand is
+  found, and come back at once with the same cards. The pass between the quick and exact passes
+  arrives with the first approximation that takes time to work out (face-down stage 5b, or stage 3),
+  and with it a place in `known` for approximations.
+- **"Any target" goes after the hands** in both passes, not first as in the panel: its bounds need
+  theirs. When they meet (a hand is certain, or none can be made, which is common: holding a pair
+  makes "Any target" with Pair certain) they're the exact odds, and it isn't worked out at all.
+- **Only a value its quick pass found slow shows an approximation**, so a quick "Any target" never
+  flickers through one. `known` remembers it as found slow (`report.SLOW`): with the same cards again
+  it shows its approximation at once and skips the quick try.
+- **A popup's text is updated in place.** Whether a value has a popup is layout, but what it says
+  isn't, so the range narrowing doesn't rebuild the panel (`calculatro_popup_of`; `hover_popups`
+  reads the popup when hovered). An approximation appearing or going still rebuilds it once.
+- **The console** shows the value as the panel does, with the range in the line's note, naming Keep
+  and Discard when both are approximate.
+- **A search's marks** (the asterisk on "1/3") wait for stage 3, which is when a search first answers
+  from approximations.
+- **`odds_schema` 7**, for the new marks.
+- **Still to check in game:** the asterisk in the game's font at the value's width, the popup's
+  lines, the rebuild as an approximation appears and goes, and whether a slow "Any target" now often
+  shows "80%+*" for long enough to matter.
+
 ## Recommended order
 
 Across this plan and the face-down plan:
@@ -316,7 +348,7 @@ Across this plan and the face-down plan:
 1. **This plan's stage 1.** It makes the face-down slow cases safe (they
    stop instead of running for minutes or exhausting memory), and it helps
    everyone.
-2. **This plan's stage 2.** Stage 5b needs somewhere to show its
+2. **This plan's stage 2** (done). Stage 5b needs somewhere to show its
    approximations. This stage builds that with the simplest approximation, so
    5b is only about face-down cards.
 3. **Face-down stage 5b**: approximations for the face-down cases, then
@@ -338,9 +370,8 @@ Across this plan and the face-down plan:
   general fallback for cases with no cheap bounds. They aren't exact, but
   neither is any approximation. Recommended: allow it, only for approximations,
   never in place of the exact pass.
-- **The value shown from bounds alone.** The lower bound with a "+"
-  ("80%+*"), or the midpoint. Recommended: the lower bound, since it's
-  certain, and the midpoint of a wide range means little.
+- ~~**The value shown from bounds alone.**~~ Settled in stage 2: the lower
+  bound with a "+" (see [What stage 2 settled](#what-stage-2-settled)).
 - **Whether a search answers before its exact pass.** Recommended: no. The
   mod selects cards when a reply arrives, and changing the selection under
   the player when the exact answer differs is worse than waiting. A search

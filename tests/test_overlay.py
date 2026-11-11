@@ -14,11 +14,11 @@ import calculatro.__main__ as cli
 from calculatro import overlay
 from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
-from calculatro.report import build_report
+from calculatro.report import PENDING, Approx, CardOdds, Report, TargetOdds, build_report
 from calculatro.rules import Rules
 from calculatro.search import Search
 from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
-from calculatro.worker import TIME, TooSlow
+from calculatro.worker import MEMORY, TIME, TooSlow
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
 
@@ -159,6 +159,34 @@ def test_percent_never_rounds_to_certainty():
     assert overlay.percent(Fraction(1, 3)) == "33.3%"
     assert overlay.percent(Fraction(1, 10**6)) == "<0.1%"
     assert overlay.percent(1 - Fraction(1, 10**6)) == ">99.9%"
+
+
+def test_approximations_show_whole_percents_that_are_certain():
+    assert overlay.approximate(Approx(Fraction(4, 5), Fraction(1))) == "80%+"
+    assert overlay.approximate(Approx(Fraction(7999, 10000), Fraction(9, 10))) == "79%+"  # never rounded up
+    assert overlay.approximate(Approx(Fraction(0), Fraction(1, 2))) == "<51%"  # 50% itself is possible
+    assert overlay.approximate(Approx(Fraction(1, 1000), Fraction(1, 200))) == "<1%"
+    assert overlay.approximate(Approx(Fraction(1, 1000), Fraction(1))) == "0%+"
+
+
+def test_approximations_are_marked_and_compared_only_when_certain():
+    """An approximation's mark has its range, and whether the exact odds are still to come; discarding is better or
+    worse than keeping only when their ranges don't overlap."""
+    approx, final = Approx(Fraction(1, 5), Fraction(3, 10)), Approx(Fraction(1, 2), Fraction(3, 5), limit=MEMORY)
+    rows = [TargetOdds("Any target", approx, final), TargetOdds("Pair", approx, Fraction(1, 4)),
+            TargetOdds("Flush", Fraction(1, 10), approx), TargetOdds("Straight", Fraction(1, 4), Fraction(1, 4))]
+    report = Report(rows, [CardOdds(parse_query("no face"), PENDING, approx)], [], 0, 1, partial=True)
+    payload = overlay.odds(GameState(id="s:1", in_run=True), report)
+    assert payload["partial"] is True
+    assert payload["targets"][0] == {
+        "key": "Any target", "keep": "20%+",
+        "keep_mark": {"state": "refining", "how": "bounds", "low": "20.0%", "high": "30.0%"},
+        "discard": "50%+",
+        "discard_mark": {"state": "final", "how": "bounds", "low": "50.0%", "high": "60.0%", "limit": "memory"},
+        "trend": 1}
+    assert "trend" not in payload["targets"][1]  # 25% is in the range
+    assert payload["targets"][2]["trend"] == 1 and payload["targets"][3]["trend"] == 0
+    assert payload["cards"][0] == {"key": "no face", "discard": "20%+", "discard_mark": overlay.mark(approx)}
 
 
 def test_card_labels_are_short_and_ascii_but_for_suits():
@@ -1027,6 +1055,50 @@ def test_values_given_up_on_show_a_question_mark_with_a_popup(lua, tmp_path):
         "Working these odds out exactly", "would use too much memory, so"]
     assert find(rt, "calculatro_discard:Three of a Kind") is None  # exact values have none
     assert all(len(t.split("@")[0]) <= 31 for t in rt.execute(TEXTS)(popup).values())
+
+
+def popup_lines(rt, mod, id: str) -> list[str]:
+    popup = rt.execute(TOO_SLOW_POPUP)(mod, find(rt, id).config.calculatro_popup)
+    return [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()]
+
+
+def test_approximations_have_an_asterisk_and_a_popup(lua, tmp_path):
+    """An approximation shows with an asterisk, in the neutral colour unless the comparison is certain, and a popup with
+    its range. As it narrows, it's updated in place, popup and all; once the exact odds arrive, its popup goes."""
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=())
+    mod.update(0.1)
+    exact = app_payload(tmp_path)
+    payload = json.loads(json.dumps(exact))
+    any_target = rows_of(payload)["Any target"]
+    any_target.update(keep="20%+", keep_mark={"state": "refining", "how": "bounds", "low": "20.0%", "high": "100%"},
+                      discard="<51%", discard_mark={"state": "refining", "how": "bounds", "low": "0%", "high": "50.0%"})
+    any_target.pop("trend", None)
+    payload["partial"] = True
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    at = texts.index("Any target@light")
+    assert texts[at:at + 4] == ["Any target@light", "20%+*@light", "->@muted", "<51%*@light"]
+    assert popup_lines(rt, mod, "calculatro_keep:Any target") == [
+        "Approximate", "Between 20.0% and 100%.", "From each hand's own odds.", "Still working out the exact",
+        "odds."]
+    boxes = rt.eval("#BOXES")
+    any_target["keep_mark"] = {**any_target["keep_mark"], "high": "40.0%"}
+    any_target["discard_mark"] = {"state": "final", "how": "bounds", "low": "0%", "high": "50.0%", "limit": "time"}
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    assert rt.eval("#BOXES") == boxes  # in place
+    assert popup_lines(rt, mod, "calculatro_keep:Any target")[1] == "Between 20.0% and 40.0%."
+    lines = popup_lines(rt, mod, "calculatro_discard:Any target")
+    assert lines[3:] == ["Working them out exactly would", "take too long, so the app has", "given up on them."]
+    assert all(len(line) <= 31 for line in lines)
+    write_payload(tmp_path, exact)
+    mod.update(0.1)
+    assert rt.eval("#BOXES") > boxes  # the popups have gone: rebuilt
+    assert find(rt, "calculatro_keep:Any target") is None
+    assert not any("*" in t for t in panel_texts(rt))
 
 
 def test_search_given_up_says_so_on_the_title_row(lua, tmp_path):

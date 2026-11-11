@@ -82,19 +82,25 @@ local function build_panel(definition)
 end
 
 -- What of the odds panel's model changes its layout: everything but the
--- odds values (their text and colour), whether they're stale, and the title
--- row's message, which refresh_panel updates in place. Whether a target hand
--- has a Discard value (`has_discard`) is layout: its arrow comes and goes
--- with it. So are popups (a value given up on, a search given up on), which
--- are on the cells.
+-- odds values (their text and colour), whether they're stale, the title
+-- row's message, and what a value's popup says, which refresh_panel updates
+-- in place. Whether a target hand has a Discard value (`has_discard`) is
+-- layout: its arrow comes and goes with it. So is whether a value has a
+-- popup (an approximation, a value given up on), and the search's popup,
+-- which are on the cells.
 local VALUE_FIELDS = { keep = true, discard = true, trend = true, keep_stale = true, discard_stale = true }
+local POPUP_FIELDS = { keep_popup = true, discard_popup = true }
 local function layout_key(model)
     local function rows(list)
         local out = array()
         for i, r in ipairs(list) do
             local copy = {}
             for k, v in pairs(r) do
-                if not VALUE_FIELDS[k] then copy[k] = v end
+                if POPUP_FIELDS[k] then
+                    copy[k] = true
+                elseif not VALUE_FIELDS[k] then
+                    copy[k] = v
+                end
             end
             out[i] = copy
         end
@@ -106,23 +112,27 @@ local function layout_key(model)
 end
 Calculatro.layout_key = layout_key
 
--- The value nodes' configs in a definition, by id (config.calculatro_value).
--- A box's elements share their definition's configs.
-local function values_of(node, out)
-    out = out or {}
-    local id = node.config and node.config.calculatro_value
-    if id then out[id] = node.config end
-    for _, child in ipairs(node.nodes or {}) do values_of(child, out) end
-    return out
+-- The value nodes' configs in a definition, by id (config.calculatro_value),
+-- and in `cells` those of their cells with a popup (config.calculatro_popup_of),
+-- by the same id. A box's elements share their definition's configs.
+local function values_of(node, out, cells)
+    out, cells = out or {}, cells or {}
+    local config = node.config
+    if config and config.calculatro_value then out[config.calculatro_value] = config end
+    if config and config.calculatro_popup_of then cells[config.calculatro_popup_of] = config end
+    for _, child in ipairs(node.nodes or {}) do values_of(child, out, cells) end
+    return out, cells
 end
 
 -- Puts the values of `definition` (the panel's layout) into the panel:
--- their text and colour, laying the box out again if any text changed.
--- Laying it out again doesn't register its elements again (see
--- register_once), unlike building it.
+-- their text and colour, laying the box out again if any text changed, and
+-- their popups (hover_popups reads a cell's when it's hovered). Laying it
+-- out again doesn't register its elements again (see register_once), unlike
+-- building it.
 local function update_values(panel, definition)
     local live, changed = panel.calculatro_values, false
-    for id, config in pairs(values_of(definition)) do
+    local values, cells = values_of(definition)
+    for id, config in pairs(values) do
         local now = live[id]
         if now then
             if now.text ~= config.text then
@@ -130,6 +140,10 @@ local function update_values(panel, definition)
             end
             now.colour = config.colour
         end
+    end
+    for id, config in pairs(cells) do
+        local now = panel.calculatro_cells[id]
+        if now then now.calculatro_popup = config.calculatro_popup end
     end
     if changed and panel.recalculate then panel:recalculate() end
 end
@@ -155,7 +169,8 @@ local function build_odds(model, layout, max_h)
         if Calculatro.fit_count >= MAX_FITS then Calculatro.fits, Calculatro.fit_count = {}, 0 end
         Calculatro.fits[fit_key], Calculatro.fit_count = per, Calculatro.fit_count + 1
     end
-    panel.calculatro_values, panel.calculatro_per = values_of(definition), per
+    panel.calculatro_values, panel.calculatro_cells = values_of(definition)
+    panel.calculatro_per = per
     return panel
 end
 

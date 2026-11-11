@@ -65,7 +65,9 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
   `odds_schema`. Bump both sides when changing either JSON shape. The odds file never contains `null`
   (the Lua decoder doesn't support it).
 - **Cancellable.** Slow code paths must check the `cancel` Event and raise `engine.Cancelled`.
-- **Exact odds.** The engine counts exactly (`Fraction`); it isn't Monte Carlo.
+- **Exact odds.** The engine counts exactly (`Fraction`); it isn't Monte Carlo. The panel may show an
+  approximation while the exact odds are worked out, or once they're given up on, but a value that isn't
+  exact is always marked as such (`report.Approx`: an asterisk, on the panel and in the console).
 - **Lua 5.1.** The game runs LuaJIT, so no Lua 5.2+ features. The mod may not assign globals, and may
   read only LuaJIT's and the game's. Register every new Lua file in `lovely.toml`.
 - **File access in the mod.** Use `love.filesystem` or Windows' wide functions through the FFI, never

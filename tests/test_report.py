@@ -14,7 +14,7 @@ from calculatro import report
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, DiscardOutcome, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.report import PENDING, build_report
+from calculatro.report import BOUNDS, PENDING, SLOW, Approx, build_report
 from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Limits, TooSlow, Watchdog
 
@@ -57,9 +57,11 @@ def test_selecting_the_same_cards_again_calculates_nothing(calls):
         return found.targets, [(c.keep, c.discard) for c in found.cards], found.discarded, found.discard_draws
 
     first = run(0, 1)
-    assert len(calls) == 8  # keep and discard, for 2 targets, "Any target" and the query
+    # Keep and discard, for 2 targets and the query. Not "Any target": its bounds meet (the Pair is certain, then
+    # neither can be made).
+    assert len(calls) == 6
     second = run(2)
-    assert len(calls) == 12  # only the new selection's rows: keep is the same
+    assert len(calls) == 9  # only the new selection's rows: keep is the same
     calls.clear()
     assert run(0, 1) == first
     assert run(2) == second
@@ -130,10 +132,10 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
     assert build_report(selecting(STATE, 0), [get_target("Pair")], known=known).targets[0].discard is not None
 
 
-def taking(seconds: dict[str, float], calls: list[tuple] | None = None):
+def taking(seconds: dict[str, float], calls: list[tuple] | None = None, odds: dict[str, Fraction] | None = None):
     """A stand-in for `evaluate_discard` whose rows take set times, by the target's
     name (none for others), and stop when cancelled, as the engine does. The odds
-    are 1/(number of cards discarded + 2)."""
+    are `odds` by the target's name, else 1/(number of cards discarded + 2)."""
     def evaluate(state, target, discard, cancel=None):
         if calls is not None:
             calls.append((target.name, len(discard)))
@@ -142,7 +144,8 @@ def taking(seconds: dict[str, float], calls: list[tuple] | None = None):
             if cancel is not None and cancel.is_set():
                 raise Cancelled
             time.sleep(0.002)
-        return DiscardOutcome([state.hand[i] for i in discard], 1, Fraction(1, len(discard) + 2))
+        p = (odds or {}).get(target.name, Fraction(1, len(discard) + 2))
+        return DiscardOutcome([state.hand[i] for i in discard], 1, p)
     return evaluate
 
 
@@ -155,18 +158,21 @@ def test_quick_values_first_then_the_slow_ones_then_given_up(monkeypatch):
     control, known, partials = Control(Watchdog(period=0.005)), {}, []
     found = build_report(selecting(STATE, 0), targets, cancel=control, known=known,
                          limits=Limits(quick=0.1, exact=0.5), progress=partials.append)
-    # Keep, then Discard, in the panel's order ("Any target" is the combined target), in each pass.
-    rows = ("Pair / Flush / Straight Flush", "Pair", "Flush", "Straight Flush")
-    assert calls == [(t, n) for n in (0, 1) for t in rows] + [(t, n) for n in (0, 1) for t in rows[2:]]
+    # Keep, then Discard, in the panel's order, in each pass, but "Any target" (the combined target) after the hands
+    # whose odds bound it.
+    rows = ("Pair", "Flush", "Straight Flush")
+    assert calls == ([(t, n) for n in (0, 1) for t in rows] + [("Pair / Flush / Straight Flush", n) for n in (0, 1)]
+                     + [(t, n) for n in (0, 1) for t in rows[1:]])
     assert [(t.name, t.keep, t.discard) for t in found.targets] == [
         ("Any target", Fraction(1, 2), Fraction(1, 3)), ("Pair", Fraction(1, 2), Fraction(1, 3)),
         ("Flush", Fraction(1, 2), Fraction(1, 3)), ("Straight Flush", TooSlow(TIME), TooSlow(TIME))]
     assert not found.partial and found.discard_draws == 1
-    # Each value as it's found: the quick ones, then Flush's and Straight Flush's in turn.
+    # Each value as it's found: the quick ones, then Flush's and Straight Flush's in turn. A value found slow changes
+    # nothing shown (it has no approximation), so it sends nothing.
     shown = [[(t.keep, t.discard) for t in p.targets] for p in partials]
     assert len(partials) == 8 and all(p.partial for p in partials[:-1]) and partials[-1] == found
-    assert shown[0][0] == (Fraction(1, 2), PENDING)
-    assert shown[3][1] == (Fraction(1, 2), Fraction(1, 3)) and shown[3][2:] == [(PENDING, PENDING)] * 2
+    assert shown[0][1] == (Fraction(1, 2), PENDING)
+    assert shown[3][0] == (Fraction(1, 2), Fraction(1, 3)) and shown[3][2:] == [(PENDING, PENDING)] * 2
     assert shown[4][2] == (Fraction(1, 2), PENDING) and shown[5][3] == (TooSlow(TIME), PENDING)
     assert shown[6][2] == (Fraction(1, 2), Fraction(1, 3)) and shown[6][3] == (TooSlow(TIME), PENDING)
     calls.clear()
@@ -206,7 +212,60 @@ def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
     with pytest.raises(Cancelled):
         build_report(selecting(STATE, 0), [get_target("Pair")], cancel=control, known=known,
                      limits=Limits(quick=0.05, exact=5))
-    assert known == {}
+    assert set(known.values()) == {SLOW}  # neither finished: both found slow, nothing more
+
+
+def test_any_target_shows_bounds_until_its_exact_odds(monkeypatch):
+    """A slow "Any target" shows its bounds from the hands' odds, narrowed as they're found, and keeps them, final, if
+    its exact odds are given up on. Asked again, it shows them at once and skips the quick try."""
+    calls: list[tuple] = []
+    any_name = "Pair / Flush"
+    odds = {"Pair": Fraction(1, 5), "Flush": Fraction(1, 10), any_name: Fraction(1, 4)}
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, any_name: 0.8}, calls, odds))
+    targets = [get_target("Pair"), get_target("Flush")]
+    control, known, partials = Control(Watchdog(period=0.005)), {}, []
+    limits = Limits(quick=0.1, exact=0.5)
+    found = build_report(STATE, targets, cancel=control, known=known, limits=limits, progress=partials.append)
+    shown = [p.targets[0].keep for p in partials]
+    assert shown == [PENDING,  # Pair
+                     Approx(Fraction(1, 5), Fraction(1), BOUNDS),  # "Any target" found slow: at least Pair's odds
+                     Approx(Fraction(1, 5), Fraction(3, 10), BOUNDS),  # Flush: at most their sum
+                     Approx(Fraction(1, 5), Fraction(3, 10), BOUNDS, TIME)]  # given up on
+    assert [p.partial for p in partials] == [True, True, True, False] and partials[-1] == found
+    calls.clear()
+    monkeypatch.setattr(report, "evaluate_discard", taking({any_name: 0.3}, calls, odds))
+    partials.clear()
+    # As if cancelled during its exact pass, before giving up.
+    known = {k: SLOW if isinstance(v, TooSlow) else v for k, v in known.items()}
+    again = build_report(STATE, targets, cancel=control, known=known, limits=limits, progress=partials.append)
+    assert calls == [(any_name, 0)]  # straight to the exact pass
+    assert partials[0].targets[0].keep == Approx(Fraction(1, 5), Fraction(3, 10), BOUNDS)  # at once
+    assert again.targets[0].keep == Fraction(1, 4) and not again.partial
+
+
+def test_bounds_that_meet_are_the_exact_odds(monkeypatch):
+    """When a hand is certain, or none can be made, "Any target"'s bounds meet: it isn't worked out at all."""
+    calls: list[tuple] = []
+    odds = {"Pair": Fraction(1), "Flush": Fraction(0)}
+    monkeypatch.setattr(report, "evaluate_discard", taking({}, calls, odds))
+    found = build_report(STATE, [get_target("Pair"), get_target("Flush")])
+    assert found.targets[0].keep == 1 and calls == [("Pair", 0), ("Flush", 0)]
+    calls.clear()
+    monkeypatch.setattr(report, "evaluate_discard", taking({}, calls, {"Pair": Fraction(0), "Flush": Fraction(0)}))
+    assert build_report(STATE, [get_target("Pair"), get_target("Flush")]).targets[0].keep == 0
+    assert len(calls) == 2
+
+
+def test_any_target_bounds_hold_the_exact_odds():
+    """Each hand's odds bound those of any of them, on random hands, rules and discards."""
+    rng = random.Random(20261111)
+    names = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House"]
+    for _ in range(60):
+        state, discard = _random_setup(rng)
+        targets = [get_target(n) for n in rng.sample(names, rng.randint(2, 3))]
+        each = [evaluate_discard(state, t, discard).probability for t in targets]
+        p = evaluate_discard(state, combine(targets), discard).probability
+        assert max(each) <= p <= min(1, sum(each)), (state, discard, [t.name for t in targets])
 
 
 def test_no_limits_without_a_job(monkeypatch):

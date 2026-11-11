@@ -88,9 +88,16 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
 - **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in two
   passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s), then
   those that didn't finish, from the start, with `Limits.exact` (30 s) each. The order in each pass is
-  the panel's, Keep then Discard. The job reports each partial `Report` (`Control.progress`), and
-  `run_watch` sends it to the panel as a `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s),
-  none if every value is found sooner. The console prints only the finished report.
+  the panel's, Keep then Discard, but with "Any target" after the hands. The job reports each partial
+  `Report` that shows something new (`Control.progress`), and `run_watch` sends it to the panel as a
+  `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s), none if every value is found sooner.
+  The console prints only the finished report.
+- **Approximations.** A value that doesn't finish its quick try shows an approximation
+  (`report.Approx`: certain bounds `low` and `high`, `how` they were found, and the `limit` once the
+  exact odds are given up on) until its exact odds arrive, and keeps it if they're given up on. Only
+  "Any target" has one so far, from its hands' values ([probability-model.md](probability-model.md#approximations)),
+  so it needs no pass of its own: `build_report` derives it whenever it makes a report. Approximations
+  that take time to work out (plan stage 3) will be a pass between the two.
 - **Limits.** A job's function gets a `worker.Control`, which is the engine's `cancel` (an Event's
   `is_set` and `wait`) and runs parts with limits (`Control.limited`, `worker.limited`): each part is an
   `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
@@ -108,7 +115,8 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   at 2 GB after 18 s) left 6 MB of cycles for the collector once it was back on, so pausing it doesn't
   let memory grow.
 - **Odds already worked out.** `build_report` stores each value in `known` as soon as it's
-  done, or given up on (`TooSlow`), by the row and the cards selected, so going back to an earlier
+  done, given up on (`TooSlow`), or found slow by the quick pass (`SLOW`: a repeat goes straight to the
+  exact pass, showing its approximation at once), by the row and the cards selected, so going back to an earlier
   selection calculates nothing, and values finished before a job was cancelled aren't lost. A value
   given up on isn't tried again until `known` starts afresh, nor a search given up on until its
   `search_basis` changes: asked for again, it's answered at once. `run_watch` starts a new `known` whenever
@@ -192,13 +200,17 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
 ### Shapes
 
 - The odds file never contains `null` (the Lua decoder doesn't support it).
-- The odds file (`odds_schema` 6) answers a snapshot with `{id, pending: true}`, then with its odds as
-  they're found: `partial: true` until the last. Each row is `{key, keep, discard, trend}`, card rows
-  without `keep`. A value that isn't exact odds has a mark beside it, `keep_mark` or `discard_mark`:
-  `{state: "pending"}` with no value for one still to come, or `{state: "final", limit: "time"}` (or
-  `"memory"`) with the value `"?"` for one given up on (`overlay.mark`). A row has no such value
-  (nothing selected) when it has neither. `trend` is there only when both values are exact. A search
-  given up on is answered with `options: []` and the same `mark` (`overlay.search`).
+- The odds file (`odds_schema` 7) answers a snapshot with `{id, pending: true}`, then with its odds as
+  they're found: `partial: true` until the last (an approximation still being refined counts as to
+  come). Each row is `{key, keep, discard, trend}`, card rows without `keep`. A value that isn't exact
+  odds has a mark beside it, `keep_mark` or `discard_mark` (`overlay.mark`): `{state: "pending"}` with
+  no value for one still to come; for an approximation, `{state: "refining", how: "bounds", low,
+  high}` (the range, as percents), or `state: "final"` with its `limit` once the exact odds are given
+  up on, with the value in whole percents that are certain (`overlay.approximate`: "80%+", or "<6%"
+  below 1%); or `{state: "final", limit: "time"}` (or `"memory"`) with the value `"?"` for one given
+  up on with no approximation. A row has no such value (nothing selected) when it has neither.
+  `trend` is there only when the comparison is certain: both values exact, or their ranges don't
+  overlap. A search given up on is answered with `options: []` and the same `mark` (`overlay.search`).
 - The snapshot also sends `select_limit` (`G.hand.config.highlighted_limit`) and the latest `search`
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`

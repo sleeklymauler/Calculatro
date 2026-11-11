@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from dataclasses import replace
+from fractions import Fraction
 
 import pytest
 
@@ -351,7 +352,6 @@ def test_tracked_skips_unknown_repeated_and_overflowing():
 
 # --- Best-discard searches ----------------------------------------------------
 
-from fractions import Fraction  # noqa: E402
 
 from calculatro.search import Search  # noqa: E402
 
@@ -780,6 +780,33 @@ def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch
         wait_for(lambda: sent[-1]["id"] == "s:2" and "targets" in sent[-1])
         assert sent[-1]["targets"] == final["targets"]
         assert calls == [] and not any(p.get("partial") for p in sent if p["id"] == "s:2")
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_a_slow_any_target_is_approximated(monkeypatch):
+    """A slow "Any target" is sent as its bounds from the hands' odds while its exact odds are worked out, and keeps
+    them once those are given up on, in the console too."""
+    any_name = "Pair / Flush"
+    odds = {"Pair": Fraction(1, 5), "Flush": Fraction(1, 10)}
+    monkeypatch.setattr(report, "evaluate_discard", taking({any_name: 10}, odds=odds))
+    first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=["Pair", "Flush"])
+    source, sent, writes = FakeSource(first), [], []
+    stopped, t = watch_thread(source, sent, writes, limits=Limits(quick=0.05, exact=0.4))
+    try:
+        wait_for(lambda: sent and "targets" in sent[-1] and not sent[-1].get("partial"))
+        refining = {"state": "refining", "how": "bounds", "low": "20.0%", "high": "30.0%"}
+        assert any(p.get("partial") and p["targets"][0] == {
+            "key": "Any target", "keep": "20%+", "keep_mark": refining, "discard": "20%+", "discard_mark": refining}
+            for p in sent)
+        final = {**refining, "state": "final", "limit": "time"}
+        assert sent[-1]["targets"][0] == {"key": "Any target", "keep": "20%+", "keep_mark": final,
+                                          "discard": "20%+", "discard_mark": final}  # no trend: they overlap
+        assert all(no_nulls(p) for p in sent)
+        line = "Any target    20%+*  ->    20%+*  (* keep 20.00% to 30.00%; * discard 20.00% to 30.00%; too slow)"
+        assert any(line in w
+                   for w in writes)
     finally:
         stopped.set()
         t.join(5)

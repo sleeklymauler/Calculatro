@@ -60,13 +60,36 @@ local function too_slow_popup(mark, lines)
     return { name = 'Too slow', text = lines[mark.limit] or lines.time }
 end
 
+-- What an approximation is, by its mark's `how`, and what's become of its
+-- exact odds: still being worked out, or given up on (by the mark's limit).
+local HOW = {
+    bounds = { "From each hand's own odds." },
+}
+local EXACT = {
+    refining = { 'Still working out the exact', 'odds.' },
+    time = { 'Working them out exactly would', 'take too long, so the app has', 'given up on them.' },
+    memory = { 'Working them out exactly would', 'use too much memory, so the app', 'has given up on them.' },
+}
+
+-- The popup of an approximation (a `mark` with a `how`): its range, where
+-- it comes from, and whether the exact odds are still to come.
+local function approximate_popup(mark)
+    local text = {}
+    if mark.low and mark.high then text[1] = 'Between ' .. mark.low .. ' and ' .. mark.high .. '.' end
+    for _, line in ipairs(HOW[mark.how] or {}) do text[#text + 1] = line end
+    local exact = mark.state == 'refining' and EXACT.refining or EXACT[mark.limit] or EXACT.time
+    for _, line in ipairs(exact) do text[#text + 1] = line end
+    return { name = 'Approximate', text = text }
+end
+
 -- What the odds panel shows: a row for each tracked target hand ("Any
 -- target" first when there are several) and card query, with the odds the
 -- app keyed by them ('-' until it has). Odds for an older state stay up until
 -- the new ones arrive, greyed out if that takes longer than `patience`. So do
 -- the values a partial answer doesn't have yet (`keep_stale`,
--- `discard_stale`), each on its own. A value given up on ("?") has its mark
--- (`keep_mark`, `discard_mark`), for its popup.
+-- `discard_stale`), each on its own. An approximation has an asterisk; it and
+-- a value given up on ("?") have a popup from their mark (`keep_mark`,
+-- `discard_mark`).
 -- Hands the boss won't let score are `banned` (struck out, odds still shown);
 -- "Any target" is too when all of them are.
 function Calculatro.panel_model()
@@ -102,8 +125,15 @@ function Calculatro.panel_model()
         return late and mark_state(o, field) == 'pending' or nil
     end
     local function popup(o, field)
+        local mark, state = o[field .. '_mark'], mark_state(o, field)
+        if (state == 'refining' or state == 'final') and mark.how then return approximate_popup(mark) end
+        return state == 'final' and too_slow_popup(mark, TOO_SLOW) or nil
+    end
+    -- A value's text: an approximation's with its asterisk.
+    local function text(o, field)
         local mark = o[field .. '_mark']
-        return mark_state(o, field) == 'final' and too_slow_popup(mark, TOO_SLOW) or nil
+        if o[field] and type(mark) == 'table' and mark.how then return o[field] .. '*' end
+        return o[field]
     end
     local function has_discard(o)
         return (o.discard ~= nil or o.discard_mark ~= nil) or nil
@@ -123,7 +153,7 @@ function Calculatro.panel_model()
     local function hand(key, name, removable, is_banned)
         local o = hand_odds[key] or {}
         model.targets[#model.targets + 1] = {
-            key = key, name = name, keep = o.keep, discard = o.discard, trend = o.trend,
+            key = key, name = name, keep = text(o, 'keep'), discard = text(o, 'discard'), trend = o.trend,
             keep_stale = stale(o, 'keep'), discard_stale = stale(o, 'discard'),
             keep_popup = popup(o, 'keep'), discard_popup = popup(o, 'discard'), has_discard = has_discard(o),
             removable = removable, banned = is_banned or nil, search = search_state(key) }
@@ -133,7 +163,7 @@ function Calculatro.panel_model()
     for _, c in ipairs(t.cards) do
         local o = card_odds[c.query] or {}
         model.cards[#model.cards + 1] = {
-            key = c.query, name = c.label, about = c.about, discard = o.discard, trend = o.trend,
+            key = c.query, name = c.label, about = c.about, discard = text(o, 'discard'), trend = o.trend,
             discard_stale = stale(o, 'discard'), discard_popup = popup(o, 'discard'), has_discard = has_discard(o),
             search = search_state(c.query), editable = Calculatro.builder_for(c.query) and true or nil }
     end
@@ -182,14 +212,17 @@ local function sections(model, colours)
     local C = G.C
     -- Odds values carry an id (config.calculatro_value), by which
     -- refresh_panel updates them in place. In a cell `w` wide, with its
-    -- popup while hovered (see hover_popups) if it was given up on: on the
-    -- whole cell, since a "?" alone is hard to hover.
+    -- popup while hovered (see hover_popups) if it's approximate or was given
+    -- up on: on the whole cell, since a "*" or "?" alone is hard to hover. The
+    -- cell carries the id too (config.calculatro_popup_of), so the popup is
+    -- updated in place as well, as an approximation narrows.
     local function value(w, text, colour, id, stale, popup)
         local node = label(text or '-', (model.stale or stale) and colours.stale or colour)
         node.config.calculatro_value = id
         local out = cell(w, 'cr', node)
         if popup then
             out.config.id, out.config.collideable, out.config.calculatro_popup = 'calculatro_' .. id, true, popup
+            out.config.calculatro_popup_of = id
         end
         return out
     end

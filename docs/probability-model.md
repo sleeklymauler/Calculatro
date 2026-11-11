@@ -177,6 +177,22 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   kept. `tests/test_hint.py` replays them in the mod, to check that its pruning gives the same odds.
   `tests/test_hint.py` checks that the odds and the hint agree on what each card can be.
 
+## Approximations
+
+The panel shows an approximation of a value whose exact odds are slow, until they arrive
+([architecture.md](architecture.md#the-app)). An approximation is a range that's certain
+(`report.Approx`), never shown as exact. So far there's one:
+
+- **"Any target"** (`how: "bounds"`): its odds are at least each tracked hand's on its own and at most
+  their sum (or 1), as `best_discards` uses too. `build_report` takes them from the hands' values,
+  with a hand not yet known counting as anything from 0 to 1, so the range narrows as they're found.
+  When the bounds meet (a hand is certain, or none can be made) they're the exact odds, and "Any
+  target" isn't worked out at all. `test_any_target_bounds_hold_the_exact_odds` checks the bounds on
+  random hands under jokers and bosses.
+
+Approximations for other slow cases (Four Fingers + Shortcut, The Mark, best discard, face-down
+cards) are planned: [progressive-odds.md](plans/progressive-odds.md#approximations).
+
 ## The discard scenario
 
 The "discard" scenario uses the cards currently highlighted in game (`GameState.selected`), except on

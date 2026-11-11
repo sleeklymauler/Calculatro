@@ -8,8 +8,8 @@ the observations) is done, tested against dealing every way, and checked in game
 tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept, schema
 14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is in two parts: 5a,
 exact optimizations, is done, tested against dealing every way (2026-11-09) and checked in game (2026-11-10);
-5b, approximations for the cases [still slow](#still-slow), is planned (2026-11-10) and waits on stages 1 and
-2 of [the progressive-odds plan](progressive-odds.md#recommended-order). Revised
+5b, approximations for the cases [still slow](#still-slow), is planned (2026-11-10), and stages 1 and
+2 of [the progressive-odds plan](progressive-odds.md#recommended-order) that it waited on are done (2026-11-11). Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with

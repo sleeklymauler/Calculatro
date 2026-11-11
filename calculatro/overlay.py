@@ -6,8 +6,9 @@ a `pending` payload, then with the odds as they're calculated: `partial`
 while some values are still to come, then all of them.
 
 A value (a row's `keep` or `discard`) that isn't exact odds has a mark beside
-it (`keep_mark`, `discard_mark`) saying what it is (`mark`). Without either,
-the row has no such value (nothing is selected, say).
+it (`keep_mark`, `discard_mark`) saying what it is (`mark`): still to come, an
+approximation, or given up on. Without either, the row has no such value
+(nothing is selected, say).
 
 The mod owns the list of what's tracked and names its rows itself, so each
 row here is keyed by what the mod sent: a hand's name ("Three of a Kind", or
@@ -22,18 +23,19 @@ the options it cycles through.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .report import Pending, Report, Value
+from .report import Approx, Pending, Report, Value, interval
 from .search import Search
 from .state import GameState
 from .worker import TooSlow
 
-SCHEMA = 6  # `odds_schema` in the mod's core.lua
+SCHEMA = 7  # `odds_schema` in the mod's core.lua
 
 # The panel fits 3 columns (`max_columns` in the mod's tracked.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -75,14 +77,33 @@ def pending(state: GameState) -> dict[str, Any]:
 TOO_SLOW = "?"  # a value given up on
 
 
+def approximate(value: Approx) -> str:
+    """An approximation in whole percents, which are certain: its lower bound,
+    rounded down, with a "+" ("80%+"), or below 1%, its upper bound with a "<"
+    ("<6%"). The mod adds the asterisk."""
+    low = math.floor(value.low * 100)
+    if low >= 1 or value.high == 1:
+        return f"{low}%+"
+    return f"<{math.floor(value.high * 100) + 1}%"
+
+
 def mark(value: Value) -> dict[str, Any] | None:
     """What a value that isn't exact odds is, for the panel: still to come
-    (`{"state": "pending"}`), or given up on (`{"state": "final", "limit":
+    (`{"state": "pending"}`), an approximation (`{"state": "refining"}` while
+    the exact odds are still being worked out, `"final"` once given up on,
+    with its `how`, its bounds `low` and `high`, and if final the `limit`),
+    or given up on with no approximation (`{"state": "final", "limit":
     "time"}` or `"memory"`, shown as TOO_SLOW). None for exact odds."""
     if isinstance(value, Pending):
         return {"state": "pending"}
     if isinstance(value, TooSlow):
         return {"state": "final", "limit": value.limit}
+    if isinstance(value, Approx):
+        out = {"state": "refining" if value.limit is None else "final", "how": value.how,
+               "low": percent(value.low), "high": percent(value.high)}
+        if value.limit is not None:
+            out["limit"] = value.limit
+        return out
     return None
 
 
@@ -93,15 +114,23 @@ def _put(out: dict[str, Any], name: str, value: Value) -> None:
         return
     if isinstance(value, TooSlow):
         out[name] = TOO_SLOW
+    elif isinstance(value, Approx):
+        out[name] = approximate(value)
     out[name + "_mark"] = mark(value)
 
 
 def _trend(keep: Value, discard: Value) -> int | None:
     """Whether discarding does better (1) or worse (-1) than keeping, or the same
-    (0). None unless both are exact odds."""
-    if isinstance(keep, Fraction) and isinstance(discard, Fraction):
-        return (discard > keep) - (discard < keep)
-    return None
+    (0). None unless that's certain: both exact odds, or approximations whose
+    ranges don't overlap."""
+    a, b = interval(keep), interval(discard)
+    if a is None or b is None:
+        return None
+    if b[0] > a[1]:
+        return 1
+    if b[1] < a[0]:
+        return -1
+    return 0 if a[0] == a[1] == b[0] == b[1] else None
 
 
 def odds(state: GameState, report: Report | None) -> dict[str, Any]:
