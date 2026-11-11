@@ -98,8 +98,8 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   `limit` once the exact odds are given up on) until its exact odds arrive, and keeps it if they're
   given up on ([probability-model.md](probability-model.md#approximations)). "Any target"'s bounds
   come from its hands' values, so they need no pass of their own: `build_report` derives them whenever
-  it makes a report. An estimate from a sample of the face-down cards' deals (`engine.estimate_discard`)
-  is made once, in the pass between, and kept in `known`.
+  it makes a report. A target's estimate (`engine.estimate_discard`), from a sample of the face-down
+  cards' deals or else of final hands, is made once, in the pass between, and kept in `known`.
 - **Limits.** A job's function gets a `worker.Control`, which is the engine's `cancel` (an Event's
   `is_set` and `wait`) and runs parts with limits (`Control.limited`, `worker.limited`): each part is an
   `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
@@ -110,8 +110,10 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   raises `Cancelled`. Python gives a stopped calculation's memory back to Windows as it unwinds (2 GB in
   about 0.4 s), so the limit is on the app's memory, not its growth; the watchdog stops nothing for
   memory again until it falls below the limit or 2 s pass (`grace`), so another job's next part isn't
-  stopped for the memory of the one before. A search is one part, with `Limits.search` (30 s). The
-  engine needs nothing for any of this: it raises `Cancelled` as before.
+  stopped for the memory of the one before. A search is one part, with `Limits.search` (30 s), and if
+  it's given up on, a second answers from estimates of what it had found, in about
+  `Limits.search_estimate` (5 s; `__main__.search_within`, `search.estimated_best`). The engine needs
+  nothing for any of this: it raises `Cancelled` as before.
 - **The garbage collector.** `engine._gc_paused` turns it off while any search runs, and with the
   limits none runs for more than about 30 s. The worst case measured (the 9 GB face-down case, stopped
   at 2 GB after 18 s) left 6 MB of cycles for the collector once it was back on, so pausing it doesn't
@@ -121,8 +123,8 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   exact pass, showing its approximation at once), and its estimate (under `report.ESTIMATE`, or None if
   it has none), by the row and the cards selected, so going back to an earlier
   selection calculates nothing, and values finished before a job was cancelled aren't lost. A value
-  given up on isn't tried again until `known` starts afresh, nor a search given up on until its
-  `search_basis` changes: asked for again, it's answered at once. `run_watch` starts a new `known` whenever
+  given up on isn't tried again until `known` starts afresh, nor a search given up on (answered from
+  estimates or not) until its `search_basis` changes: asked for again, it's answered at once. `run_watch` starts a new `known` whenever
   `odds_basis` changes (`search_basis` without the hand's order, since sorting the hand doesn't change
   the odds, `test_odds_do_not_depend_on_the_hands_order`). A row's key uses the cards, not their
   positions, and `row_key`: a query's text, not the query, since two parses of one may not be equal. There's no size limit:
@@ -203,18 +205,22 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
 ### Shapes
 
 - The odds file never contains `null` (the Lua decoder doesn't support it).
-- The odds file (`odds_schema` 8) answers a snapshot with `{id, pending: true}`, then with its odds as
+- The odds file (`odds_schema` 9) answers a snapshot with `{id, pending: true}`, then with its odds as
   they're found: `partial: true` until the last (an approximation still being refined counts as to
   come). Each row is `{key, keep, discard, trend}`, card rows without `keep`. A value that isn't exact
   odds has a mark beside it, `keep_mark` or `discard_mark` (`overlay.mark`): `{state: "pending"}` with
   no value for one still to come; for an approximation, `{state: "refining", how, low, high}` (the
   range, as percents), or `state: "final"` with its `limit` once the exact odds are given up on, with
   the value in whole percents (`overlay.approximate`). From `how: "bounds"` they're certain ("80%+", or
-  "<6%" below 1%); from `how: "sample"`, an estimate whose range is only likely, they're rounded ("84%",
+  "<6%" below 1%); from `how: "sample"` (deals of the face-down cards) or `"draws"` (final hands), an
+  estimate whose range is only likely, they're rounded ("84%",
   never "0%" or "100%": "<1%", ">99%"). Or `{state: "final", limit: "time"}` (or `"memory"`) with the value `"?"` for one given
   up on with no approximation. A row has no such value (nothing selected) when it has neither.
   `trend` is there only when the comparison is certain: both values exact, or their ranges certain
-  and not overlapping (never from an estimate). A search given up on is answered with `options: []` and the same `mark` (`overlay.search`).
+  and not overlapping (never from an estimate). A search given up on that answered from estimates has
+  its options and a `mark` like an approximation's, `{state: "final", how, low, high, limit}`, the
+  range being the best option's likely odds (`overlay.search`); one that couldn't is answered with
+  `options: []` and a `mark` without a `how`.
 - The snapshot also sends `select_limit` (`G.hand.config.highlighted_limit`) and the latest `search`
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`

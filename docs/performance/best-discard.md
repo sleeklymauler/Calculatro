@@ -215,6 +215,14 @@ The 11-card hands were added later, so they have no first-version timing. Before
   on and Four Fingers debuffed, Straight Flush takes 3.7 s, against 0.1 s
   without the boss, where Four Fingers stays off.
 
+None of these reach the search's limit (`Limits.search`, 30 s) on the
+development machine. A search that does answers from estimates of the choices
+that could still be best (`search.estimated_best`, in about 5 s), marked: see
+[probability-model.md](../probability-model.md#best-discard).
+`benchmark.py --estimates -k "Best discard"` gives each scenario's search up as
+soon as it has its choices, the worst case, and says how far below the best
+its discard is: on 2026-11-11, 100 of the 107 scenarios found the best discard, and the rest were at most 0.32 points below it (0.01 on average), each in at most 5 s.
+
 Ideas not yet tried:
 
 - Ordering by a cheap estimate and bounding single targets too, e.g.

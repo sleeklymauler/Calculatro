@@ -21,6 +21,10 @@ and every choice of counts is simply evaluated.
 A face-down card the hand's sorts tell about (`Card.latent`) has a place of
 its own in them, so it's a group of its own, and discards aren't relabelled:
 which face-down card is thrown away matters (docs/plans/face-down-windows.md).
+
+A search records what it has found as it goes (Progress), so that one given
+up on can still answer from estimates of the choices that could be best
+(estimated_best).
 """
 
 from __future__ import annotations
@@ -32,12 +36,37 @@ from fractions import Fraction
 from itertools import pairwise, product
 from random import Random
 from threading import Event
+from time import monotonic
 
 from .cards import CardQuery
-from .engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard, rules_after, with_usable_evidence
+from .engine import (
+    Cancelled,
+    Estimate,
+    Reuse,
+    can_miss,
+    estimate_cards,
+    estimate_discard,
+    evaluate_cards,
+    evaluate_discard,
+    rules_after,
+    with_usable_evidence,
+)
 from .hands import RANKS, WILD, ClassKey, Pattern, Target, bell_matters, card_key, flush_suits, get_target
 from .rules import Rules
 from .state import SUITS, Card, GameState
+
+
+@dataclass(frozen=True)
+class Estimated:
+    """How a search given up on answered from estimates (estimated_best):
+    the best option's odds are likely `low` to `high` (certainly, if they're
+    equal), from estimates of final hands drawn at random if `draws`, else of
+    deals of the face-down cards. `limit` is what stopped the exact search
+    (worker.TIME or MEMORY), once the caller says."""
+    low: Fraction
+    high: Fraction
+    draws: bool
+    limit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,17 +74,52 @@ class Search:
     # Hand indices to discard, one list per option, best first: fewest cards,
     # then keeping the higher ranks, then the leftmost cards. [] keeps the hand.
     options: list[list[int]]
-    probability: Fraction
+    probability: Fraction  # an estimate's, if `estimated`
+    estimated: Estimated | None = None  # the options are the best by estimates, not certainly the best
 
 
-def best_discards(state: GameState, target: Target, cancel: Event | None = None) -> Search:
+Estimator = Callable[[list[int], Event | None, float], Estimate | Fraction]
+
+
+class Progress:
+    """What a search has found so far, filled in as it goes, for
+    estimated_best: each choice of how many cards to discard from each group
+    (`choices`, None keeping the hand) and a discard for it, bounds on its
+    odds that are certain (`lows`, `highs`), its exact odds where they're
+    known (`exact`), the choices certainly not the best (`out`), and how to
+    estimate a choice's odds in about so many seconds (`estimate`; exact
+    where they're quick)."""
+
+    def __init__(self) -> None:
+        self.state: GameState | None = None
+        self.groups: list[list[int]] = []
+        self.forced: int | None = None
+        self.choices: list[tuple[int, ...] | None] = []
+        self.discards: list[list[int]] = []
+        self.lows: list[Fraction] = []
+        self.highs: list[Fraction] = []
+        self.exact: dict[int, Fraction] = {}
+        self.out: set[int] = set()
+        self.estimate: Estimator | None = None
+
+    def start(self, state: GameState, groups: list[list[int]], forced: int | None,
+              choices: list[tuple[int, ...] | None], estimate: Estimator) -> None:
+        self.state, self.groups, self.forced, self.choices = state, groups, forced, choices
+        self.discards = [_representative(groups, counts, forced) for counts in choices]
+        self.lows, self.highs = [Fraction(0)] * len(choices), [Fraction(1)] * len(choices)
+        self.estimate = estimate
+
+
+def best_discards(state: GameState, target: Target, cancel: Event | None = None,
+                  progress: Progress | None = None) -> Search:
     """The discards (or keeping the hand) with the best odds of reaching `target`.
 
     Discards hold at most `state.select_limit` cards, and with Cerulean Bell
     always the forced card. Without discards left, a hand played to throw cards
     away does the same, as long as another hand is left to play after it
     (`can_redraw`); otherwise only keeping is an option.
-    Raises engine.Cancelled soon after `cancel` is set.
+    Raises engine.Cancelled soon after `cancel` is set, with what it has
+    found by then in `progress`.
     """
     state = with_usable_evidence(state, cancel)
     hand = state.hand
@@ -83,14 +147,16 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
     choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
     if budget >= 0:
         choices += [c for c in _counts([len(g) for g in groups], budget) if forced is not None or any(c)]
-    discards = [_representative(groups, counts, forced) for counts in choices]
+    progress = progress or Progress()
+    progress.start(state, groups, forced, choices,
+                   lambda discard, cancel, seconds: estimate_discard(state, target, discard, cancel, seconds))
+    discards = progress.discards
     # The odds of any of several hands are at least each one's and at most
     # their sum (or 1), and each hand alone is much quicker to work out than
     # all together. Taking the discards by that upper bound, highest first,
     # only the ones that could still be best need the exact odds, and not
     # even those whose bounds meet.
-    lows: list[Fraction] = [Fraction(0)] * len(choices)
-    highs: list[Fraction] = [Fraction(1)] * len(choices)
+    lows, highs = progress.lows, progress.highs
     if len(target.hands) > 1:
         for j, discard in enumerate(discards):
             each = [odds(get_target(h), discard) for h in target.hands]
@@ -108,9 +174,11 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
         if lows[j] == highs[j]:
             p = lows[j]
         elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng, cancel=cancel):
+            progress.out.add(j)
             continue  # below 1, so it can't tie, and how far below doesn't matter
         else:
             p = odds(target, discards[j])
+        progress.exact[j] = p
         if best is None or p > best:
             best, winners = p, [choices[j]]
         elif p == best:
@@ -120,14 +188,16 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None)
     return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
 
 
-def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None = None) -> Search:
+def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None = None,
+                       progress: Progress | None = None) -> Search:
     """The discards (or keeping the hand) with the best odds of a final hand
     satisfying `query`, under the same rules as best_discards.
 
     The odds only look at whether a kept card matches the query (under each
     set of rules it may be judged under, `_rule_sets`), or that it's face
     down, so those are the groups whose counts are enumerated.
-    Raises engine.Cancelled soon after `cancel` is set.
+    Raises engine.Cancelled soon after `cancel` is set, with what it has found
+    by then in `progress`.
     """
     state = with_usable_evidence(state, cancel)
     hand = state.hand
@@ -145,12 +215,19 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
     if budget >= 0:
         choices += [c for c in _counts([len(g) for g in group_list], budget) if forced is not None or any(c)]
+
+    def estimate(discard: list[int], cancel: Event | None, seconds: float) -> Estimate | Fraction:
+        # Without the hand's sorts telling about face-down cards, a query's odds are quick.
+        found = estimate_cards(state, query, discard, cancel, seconds)
+        return found if found is not None else evaluate_cards(state, query, discard, cancel).probability
+    progress = progress or Progress()
+    progress.start(state, group_list, forced, choices, estimate)
     best: Fraction | None = None
     winners: list[tuple[int, ...] | None] = []
-    for counts in choices:
+    for j, counts in enumerate(choices):
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        p = evaluate_cards(state, query, _representative(group_list, counts, forced), cancel).probability
+        p = progress.exact[j] = evaluate_cards(state, query, progress.discards[j], cancel).probability
         if best is None or p > best:
             best, winners = p, [counts]
         elif p == best:
@@ -158,6 +235,72 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
 
     options = {tuple(sorted(o)) for counts in winners for o in _expand(hand, group_list, counts, forced)}
     return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
+
+
+FIRST_SHARE = 0.02  # the most seconds each choice's first estimate gets (estimated_best)
+
+
+def estimated_best(progress: Progress, cancel: Event | None = None, seconds: float = 5.0) -> Search | None:
+    """The best discards by estimates, for a search given up on, from what it
+    had found (`progress`); None if it hadn't got as far as the choices.
+
+    The choices that could still be best are those whose upper bound reaches
+    the highest lower bound or exact odds found. Each is estimated
+    (`Progress.estimate`, within its bounds) in rounds, each giving every
+    choice twice the time the round before did. After each, those whose
+    likely range falls below another's are dropped, and then all but the
+    half of those estimated with the highest upper bounds (those known
+    exactly cost nothing to keep), so each round takes about as long,
+    until one is left or the next round wouldn't fit in about `seconds`.
+    The best is the one with the highest likely lower bound (or exact odds),
+    so that one estimated from a few lucky samples can't win; with every
+    option alike in the cards it throws away (and those of choices tied with
+    it exactly), and its range, which is only likely, so the answer is marked
+    (`Search.estimated`). Unless every choice it looked at turned out quick to
+    work out exactly (as card queries are): the answer is then exact.
+    Raises engine.Cancelled soon after `cancel` is set.
+    """
+    state, estimate = progress.state, progress.estimate
+    if state is None or estimate is None or not progress.choices:
+        return None
+    deadline = monotonic() + seconds
+    lows, highs, exact = progress.lows, progress.highs, dict(progress.exact)
+    floor = max([*lows, *exact.values()])
+    ranges = {j: (p, p) for j, p in exact.items()}  # likely ranges
+    means: dict[int, Fraction] = dict(exact)
+    open_ = [j for j in range(len(progress.choices)) if j not in progress.out and highs[j] >= floor]
+    draws, guessed = False, False
+    per = min(FIRST_SHARE, seconds / 8 / max(1, len(open_)))
+    while True:
+        for j in [j for j in open_ if j not in exact]:
+            found = estimate(progress.discards[j], cancel, per)
+            if isinstance(found, Fraction):
+                exact[j] = means[j] = found
+                ranges[j] = found, found
+                continue
+            draws, guessed = draws or found.draws, True
+
+            def within(x: float, j: int = j) -> Fraction:
+                return min(max(Fraction(x).limit_denominator(10 ** 6), lows[j]), highs[j])
+            ranges[j], means[j] = (within(found.low), within(found.high)), within(found.mean)
+        best_low = max(ranges[j][0] for j in open_)
+        open_ = [j for j in open_ if ranges[j][1] >= best_low]
+        guesses = [j for j in open_ if j not in exact]  # those known exactly cost nothing to keep
+        if len(guesses) > 1:
+            kept = sorted(guesses, key=lambda j: (ranges[j][1], means[j]), reverse=True)[:(len(guesses) + 1) // 2]
+            open_ = [j for j in open_ if j in exact or j in kept]
+        left = sum(j not in exact for j in open_)
+        per *= 2
+        if len(open_) <= 1 or not left or monotonic() + per * left > deadline:
+            break
+    first = max(open_, key=lambda j: (ranges[j][0], means[j]))
+    top = means[first]
+    winners = [j for j in open_ if j in exact and exact[j] == top] if first in exact else [first]
+    hand = state.hand
+    options = {tuple(sorted(o)) for j in winners
+               for o in _expand(hand, progress.groups, progress.choices[j], progress.forced)}
+    return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), top,
+                  Estimated(*ranges[first], draws) if guessed else None)
 
 
 def can_redraw(state: GameState) -> bool:

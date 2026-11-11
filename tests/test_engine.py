@@ -18,6 +18,8 @@ from calculatro.cards import parse_query
 from calculatro.engine import (
     _bell_after_draw,
     _favourable,
+    _holds,
+    _holds_test,
     _split_by_suit,
     count_probability,
     evaluate_cards,
@@ -25,7 +27,7 @@ from calculatro.engine import (
     probability,
     rules_after,
 )
-from calculatro.hands import TARGETS, Requirement, combine, disjoint_groups, get_target
+from calculatro.hands import TARGETS, Requirement, card_key, combine, disjoint_groups, forced_patterns, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState, Joker
 
@@ -217,6 +219,23 @@ def test_matches_brute_force(name, rules):
         draws = rng.randint(1, min(4, 8 - len(kept)))
         assert (probability(get_target(name), kept, pool, draws, rules)
                 == brute({name}, kept, pool, draws, rules))
+
+
+@pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
+def test_quick_holds_test_matches_holds(rules):
+    """_holds_test, for estimates from draws, says what _holds does: every target, and with a forced card."""
+    rng = random.Random(str(rules))
+    targets = [get_target(name) for name in TARGETS]
+    targets.append(combine([get_target("Full House"), get_target("Straight Flush")]))
+    for target in targets:
+        test = _holds_test(target.patterns(rules))
+        for _ in range(40):
+            cards = [random_card(rng) for _ in range(rng.randint(0, 8))]
+            assert test(card_key(c, rules) for c in cards) == _holds(target.patterns(rules), cards, rules)
+            forced, rest = cards[:1], cards[1:]
+            if forced:
+                patterns = forced_patterns(target, rules, card_key(forced[0], rules))
+                assert _holds_test(patterns)(card_key(c, rules) for c in rest) == _holds(patterns, rest, rules)
 
 
 def test_combined_targets_match_brute_force():

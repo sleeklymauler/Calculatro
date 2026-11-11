@@ -60,13 +60,33 @@ local function too_slow_popup(mark, lines)
     return { name = 'Too slow', text = lines[mark.limit] or lines.time }
 end
 
+-- And a search given up on that answered from estimates (a `mark` with a
+-- `how`): the best option's odds, likely in a range (one value if they're
+-- exact), then why it's by estimates, by the mark's limit.
+local SEARCH_ESTIMATED = {
+    time = { 'The best discard by estimates:', 'comparing every discard exactly', 'would take too long.' },
+    memory = { 'The best discard by estimates:', 'comparing every discard exactly', 'would use too much memory.' },
+}
+
+local function search_popup(mark)
+    if not mark.how then return too_slow_popup(mark, SEARCH_TOO_SLOW) end
+    local text = {}
+    if mark.low and mark.high then
+        text[1] = mark.low == mark.high and string.format('Odds %s.', mark.low)
+            or string.format('Odds likely %s to %s.', mark.low, mark.high)
+    end
+    for _, line in ipairs(SEARCH_ESTIMATED[mark.limit] or SEARCH_ESTIMATED.time) do text[#text + 1] = line end
+    return { name = 'Approximate', text = text }
+end
+
 -- What an approximation is, by its mark's `how`: its range (certain from
--- bounds, only likely from a sample) and where it comes from. And what's
--- become of its exact odds: still being worked out, or given up on (by the
--- mark's limit).
+-- bounds, only likely from a sample of deals or of draws) and where it comes
+-- from. And what's become of its exact odds: still being worked out, or given
+-- up on (by the mark's limit).
 local HOW = {
     bounds = { range = 'Between %s and %s.', text = { "From each hand's own odds." } },
     sample = { range = 'Likely %s to %s.', text = { 'Estimated from a sample of the', "deals the hand's sorts allow." } },
+    draws = { range = 'Likely %s to %s.', text = { 'Estimated from a sample of the', 'hands that could be drawn.' } },
 }
 local EXACT = {
     refining = { 'Still working out the exact', 'odds.' },
@@ -122,7 +142,7 @@ function Calculatro.panel_model()
     if not model.message then
         local message, mark = Calculatro.search_message()
         model.message = message
-        model.message_popup = mark and too_slow_popup(mark, SEARCH_TOO_SLOW)
+        model.message_popup = mark and search_popup(mark)
     end
     -- Whether a value is still to come and greyed out, and the popup of one given up on.
     local function stale(o, field)

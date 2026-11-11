@@ -14,13 +14,13 @@ import pytest
 import calculatro.__main__ as cli
 from calculatro import report
 from calculatro.cards import parse_query
-from calculatro.engine import Cancelled, probability
+from calculatro.engine import Cancelled, Estimate, probability
 from calculatro.hands import get_target
 from calculatro.log import open_log
 from calculatro.rules import Rules
 from calculatro.state import SCHEMA, SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Job, Limits, TooSlow, Watchdog, limited
-from test_report import taking
+from test_report import no_estimates, taking  # noqa: F401 (no_estimates is autouse)
 
 
 def test_probability_cancelled():
@@ -383,7 +383,7 @@ def watch_thread(source, sent, writes=None, **kwargs):
 def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
     release, calls = threading.Event(), []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append(state.id)
         while not release.is_set():
             if cancel.is_set():
@@ -420,7 +420,7 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
 def test_new_hand_cancels_search(monkeypatch):
     cancelled = threading.Event()
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         if state.id == "s:2":
             return Search([[]], Fraction(1))
         while not cancel.is_set():
@@ -447,7 +447,7 @@ def test_search_started_again_when_its_basis_changes(monkeypatch):
     search; the mod is still waiting for its reply, so it runs again on the new state rather than never answering."""
     calls = []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append(state.id)
         if state.id == "s:2":
             return Search([[0]], Fraction(1))
@@ -472,7 +472,7 @@ def test_search_started_again_when_its_basis_changes(monkeypatch):
 def test_finished_search_dropped_and_redone_when_its_basis_changes(monkeypatch):
     calls = []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append(state.id)
         return Search([[len(calls)]], Fraction(1))
 
@@ -497,7 +497,7 @@ def test_finished_search_dropped_and_redone_when_its_basis_changes(monkeypatch):
 def test_any_target_search_follows_its_hands(monkeypatch):
     calls = []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append((state.id, target.hands))
         return Search([[0]], Fraction(1))
 
@@ -526,7 +526,7 @@ def test_card_query_search_survives_selecting(monkeypatch, query):
     isn't a change of target, which would restart the search and lose the options it found."""
     release, calls = threading.Event(), []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append(state.id)
         while not release.is_set():
             if cancel.is_set():
@@ -563,7 +563,7 @@ def test_card_query_search_survives_selecting(monkeypatch, query):
 def test_failed_search_answered_without_options(monkeypatch, capsys):
     """A search that fails is logged and answered with no options, so the mod's button comes back; another click
     (a new nonce) searches again."""
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         if state.search[1] == 1:
             raise ValueError("boom")
         return Search([[0]], Fraction(1))
@@ -824,10 +824,42 @@ def test_all_quick_rows_send_no_partial_payload(monkeypatch):
         t.join(5)
 
 
+def test_search_given_up_answers_from_estimates(monkeypatch):
+    """A search given up on at its limit answers from estimates of the choices it had, marked, in the console too,
+    and the same at once when asked for again."""
+    calls: list[str] = []
+    guesses = {(): Estimate(0.4, 0.35, 0.45, 1000, True), (0,): Estimate(0.6, 0.55, 0.65, 1000, True)}
+
+    def search(state, target, cancel, progress=None):
+        calls.append(state.id)
+        progress.start(state, [[0], [1], [2]], None, [None, (1, 0, 0)],
+                       lambda discard, cancel, seconds: guesses[tuple(discard)])
+        while not cancel.is_set():
+            time.sleep(0.001)
+        raise Cancelled
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent, writes = FakeSource(hand_state(1)), [], []
+    stopped, t = watch_thread(source, sent, writes, limits=Limits(search=0.1, search_estimate=0.5))
+    try:
+        wait_for(lambda: sent and "search" in sent[-1])
+        estimated = {"nonce": 1, "key": "Pair", "options": [[0]],
+                     "mark": {"state": "final", "how": "draws", "low": "55.0%", "high": "65.0%", "limit": "time"}}
+        assert sent[-1]["search"] == estimated and no_nulls(sent[-1])
+        assert ("Best discard for Pair: discard 9\u2660, 60.00%* (* by estimates, too slow to compare exactly; "
+                "likely 55.00% to 65.00%)") in writes
+        source.queue.append(hand_state(2, selected=(0,), search=("Pair", 2)))
+        wait_for(lambda: sent[-1].get("search", {}).get("nonce") == 2)
+        assert sent[-1]["search"] == {**estimated, "nonce": 2} and calls == ["s:1"]
+    finally:
+        stopped.set()
+        t.join(5)
+
+
 def test_search_given_up_at_its_limit_and_answered_at_once_after(monkeypatch):
     calls: list[str] = []
 
-    def search(state, target, cancel):
+    def search(state, target, cancel, progress=None):
         calls.append(state.id)
         while not cancel.is_set():
             time.sleep(0.001)

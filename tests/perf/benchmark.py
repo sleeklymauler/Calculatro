@@ -25,9 +25,13 @@ Exits with status 1 if a result was not as expected or had no expected
 result (unless --update-expected wrote it), else 0.
 
 --estimates times, instead, the estimate the panel shows while a value's
-exact odds are slow, for the scenarios that have one (face-down cards in the
-hand's sorts), and how far it is from the expected result: an estimate's
-range is only likely, so one outside it is flagged, not counted as wrong.
+exact odds are slow, for each odds scenario (from deals of the face-down
+cards the hand's sorts tell about, or else from final hands drawn at random),
+and how far it is from the expected result: an estimate's range is only
+likely, so one outside it is flagged, not counted as wrong. A best-discard
+scenario's search is given up as soon as it has its choices, and answers
+from estimates (in Limits.search_estimate): how far below the best its
+discard's exact odds are.
 """
 
 from __future__ import annotations
@@ -45,8 +49,9 @@ from threading import Event, Timer
 sys.path.insert(0, str(Path(__file__).parent))
 
 from calculatro.engine import Cancelled
+from calculatro.worker import LIMITS
 from perfdata import add_results, engine_path, load_expected, save_expected, save_results
-from scenarios import JOKERS, SCENARIOS, Scenario
+from scenarios import JOKERS, SCENARIOS, BestDiscard, Scenario
 
 WARMUP = 1.0  # seconds; see measure()
 NOISY = 0.25  # a standard deviation above this fraction of the mean, see --rerun-noisy
@@ -92,12 +97,25 @@ def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> d
     }
 
 
-def estimates(scenarios: list[Scenario], seconds: float) -> None:
-    """Each scenario's estimate, its time, and how far it is from the expected result."""
+def estimates(scenarios: list[Scenario | BestDiscard], seconds: float) -> None:
+    """Each scenario's estimate, its time, and how far it is from the expected result. A best-discard
+    scenario's search is given up as soon as it has its choices, and answers from estimates in
+    LIMITS.search_estimate: how much worse its discard is than the best."""
     expected = load_expected()
     width = max((len(s.id) for s in scenarios), default=0)
     errors = []
+    losses = []
     for s in scenarios:
+        if isinstance(s, BestDiscard):
+            s.prepare()
+            found, elapsed, picked = s.estimate(LIMITS.search_estimate)
+            line = f"{s.id:<{width}}  {fmt(elapsed):>8}  {float(picked) * 100:6.2f}% {found.options[0]}"
+            if s.id in expected:
+                best = Fraction(expected[s.id].split()[0])
+                losses.append(float(best - picked))
+                line += "  the best" if picked == best else f"  {float(best - picked) * 100:.2f} points below the best"
+            print(line, flush=True)
+            continue
         if not isinstance(s, Scenario):
             continue
         s.prepare()
@@ -106,8 +124,8 @@ def estimates(scenarios: list[Scenario], seconds: float) -> None:
         elapsed = time.perf_counter() - start
         if found is None:
             continue
-        line = (f"{s.id:<{width}}  {fmt(elapsed):>8}  {found.mean * 100:6.2f}% "
-                f"({found.low * 100:.2f} to {found.high * 100:.2f}, {found.samples} deals)")
+        line = (f"{s.id:<{width}}  {fmt(elapsed):>8}  {found.mean * 100:6.2f}% ({found.low * 100:.2f} to "
+                f"{found.high * 100:.2f}, {found.samples} {'hands' if found.draws else 'deals'})")
         if s.id in expected:
             exact = float(Fraction(expected[s.id]))
             errors.append(abs(found.mean - exact))
@@ -118,6 +136,9 @@ def estimates(scenarios: list[Scenario], seconds: float) -> None:
     if errors:
         print(f"{len(errors)} estimates: off by {statistics.fmean(errors) * 100:.2f} points on average, "
               f"{max(errors) * 100:.2f} at most.")
+    if losses:
+        print(f"{len(losses)} searches from estimates: {sum(x == 0 for x in losses)} found the best; "
+              f"{statistics.fmean(losses) * 100:.2f} points below it on average, {max(losses) * 100:.2f} at most.")
 
 
 def noisy(r: dict) -> bool:

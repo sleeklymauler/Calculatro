@@ -34,6 +34,13 @@ def selecting(state: GameState, *indices: int) -> GameState:
     return replace(state, hand=[replace(c, highlighted=i in indices) for i, c in enumerate(state.hand)])
 
 
+@pytest.fixture(autouse=True)
+def no_estimates(monkeypatch) -> None:
+    """build_report gets no estimates unless a test gives it some (`estimating`): with the engine stubbed, the real
+    ones would estimate odds other than the stub's."""
+    monkeypatch.setattr(report, "estimate_discard", lambda *args, **kw: None)
+
+
 @pytest.fixture
 def calls(monkeypatch) -> list[tuple]:
     """Every row the engine is asked for: (target or query text, the cards discarded)."""
@@ -327,6 +334,45 @@ def test_estimates_hold_the_exact_odds():
             checked += 1
             assert found.low <= Fraction(expected[scenario.id]) <= found.high, scenario.id
     assert checked > 30
+
+
+def _draws_hold(state: GameState, target, discard: list[int]) -> None:
+    """The estimate from draws of final hands is within 4.5 standard errors of the exact odds."""
+    found = estimate_discard(state, target, discard, seconds=60, most=1500)
+    p = evaluate_discard(state, target, discard).probability
+    assert found.draws and found.samples >= 64  # fewer than `most` once its range is close enough
+    assert abs(found.mean - p) <= 4.5 * float(p * (1 - p) / found.samples) ** 0.5, (state, discard, target.name)
+
+
+def test_estimates_from_draws_hold_the_exact_odds():
+    """Final hands drawn at random make each target as often as the exact odds say, under every boss and joker
+    rule the engine models, keeping the hand or discarding (seeded, so stable)."""
+    rng = random.Random(20261112)
+    targets = [get_target(n) for n in ("Pair", "Flush", "Straight", "Full House")]
+    targets.append(combine([get_target("Straight"), get_target("Flush")]))
+    setups = set()
+    for _ in range(150):
+        state, discard = _random_setup(rng)
+        setups.add(state.blind or ("DNA" if state.dna_copies else "plain"))
+        for target in rng.sample(targets, 2):
+            for chosen in {(), tuple(discard)}:
+                _draws_hold(state, target, list(chosen))
+    assert len(setups) == 7
+
+
+def test_estimates_from_draws_with_dna_and_crimson_heart():
+    """Cases the random ones rarely reach: DNA's copies of a face-down card are all one card, and Crimson Heart
+    debuffs a random joker after the play."""
+    hand = [card(9), card(10, "Hearts"), card(11, "Hearts"), Card(hidden=True), Card(hidden=True)]
+    unseen = [card(r, s) for s in SUITS for r in (9, 10, 11, 12, 13)]
+    dna = GameState(in_run=True, hand_size=5, hands_left=2, discards_left=0, hand=hand, unseen=unseen, dna_copies=2)
+    for name in ("Pair", "Three of a Kind", "Full House"):
+        _draws_hold(dna, get_target(name), [3])
+    hearts = [card(r, "Hearts") for r in (9, 10, 11, 12)] + [card(2, "Clubs")]
+    crimson = GameState(in_run=True, hand_size=5, hands_left=2, discards_left=0, hand=hearts, unseen=unseen,
+                        blind="Crimson Heart", jokers=[Joker("j_four_fingers"), Joker("j_joker")])
+    for name in ("Flush", "Straight Flush"):
+        _draws_hold(crimson, get_target(name), [4])
 
 
 def test_any_target_bounds_hold_the_exact_odds():

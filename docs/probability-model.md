@@ -180,7 +180,7 @@ the cards around it, and says what's left to draw. The design and its reasoning 
 ## Approximations
 
 The panel shows an approximation of a value whose exact odds are slow, until they arrive
-([architecture.md](architecture.md#the-app)), never shown as exact (`report.Approx`). There are two:
+([architecture.md](architecture.md#the-app)), never shown as exact (`report.Approx`). There are three:
 
 - **"Any target"** (`how: "bounds"`): its odds are at least each tracked hand's on its own and at most
   their sum (or 1), as `best_discards` uses too. `build_report` takes them from the hands' values,
@@ -194,18 +194,35 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   it reached each partial state, so a deal is drawn from the last card back. Each deal's odds are then
   exact and quick, every face-down card turned up, and deals alike in what the odds see of them share
   an evaluation (`_labels`), so the estimate is off only by which deals were drawn
-  (`engine._estimate`). It draws until its range is within half a point either side, or 4096 deals, or
-  `Limits.approx` passes. The range is 3 standard errors either side, counting a deal at 0 and one at
+  (`engine._estimate`). Where a deal's exact odds are slow too (Four Fingers + Shortcut), they're given
+  up after 1/200 of the time (`DEAL_SHARE`), and so are every other deal's from then on: each deal
+  drawn is then one final hand drawn from its resolved state, as below, which still gives an unbiased
+  value. It draws until its range is within half a point either side, or 4096 deals (131,072 when
+  deals may be drawing hands), or `Limits.approx` passes. The range is 3 standard errors either side, counting a deal at 0 and one at
   1 besides those drawn, so a few deals all alike can't look certain. It's likely, not certain, so
   the trend colour never comes from it, and "Any target"'s bounds only from exact values; "Any
   target"'s own estimate is kept within its bounds. The draws are seeded (`Random(0)`), so the same
   state gives the same estimate, unless `Limits.approx` runs out first. The windows aren't used:
   every deal is turned up. `test_deals_are_drawn_by_their_posterior_weight` checks the draws against
   the oracle, and `test_estimates_hold_the_exact_odds` (in `test_posterior.py` and `test_report.py`)
-  each estimate's range against the exact odds, under the bosses and DNA too.
+  each estimate's range against the exact odds, under the bosses and DNA too;
+  `test_estimates_from_deals_drawing_hands_hold_the_exact_odds` does it with every deal drawing hands.
+- **Any other target value** (`how: "draws"`): an estimate from final hands drawn at random, the share
+  of them that make the target (`engine._estimate_draws`), for what's slow however few the face-down
+  cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as
+  `_discard_odds` models the game dealing it: the rules it's judged under drawn by their weight
+  (`rules_after`), The Hook's kept cards taken at random, the face-down kept cards and the draw a
+  uniform sample of the pool (under The Mark the face-down cards a sample of the pool's face cards,
+  and the draw from the rest), DNA's copies of a face-down card all one card, and Cerulean Bell's
+  forced card a random card of the final hand (or the forced card kept). A hand is checked against the
+  target's patterns as bit masks of the requirements it meets (`_holds_test`, about 20 µs with Four
+  Fingers + Shortcut's 1,856 Straight Flush patterns, against 1 ms for `_holds`), so 1 s draws about
+  55,000 hands: about half a point either side. The same stopping rule and range as above, and seeded
+  too. Card queries have none: without the sorts they're always quick. `test_estimates_from_draws_*`
+  (in `test_report.py`) check it against the exact odds on random hands under every boss, DNA,
+  The Serpent and the joker rules.
 
-Approximations for the other slow cases (Four Fingers + Shortcut, The Mark without sorts, best
-discard) are planned: [progressive-odds.md](plans/progressive-odds.md#approximations).
+A best-discard search given up on answers from estimates too: see [Best discard](#best-discard).
 
 ## The discard scenario
 
@@ -237,6 +254,20 @@ discard and draw only, using `evaluate_discard`.
 
 `search.best_card_discards` groups hand cards only by whether they match (face-down ones apart, and
 each latent one on its own), so it's a handful of evaluations.
+
+A search records what it has found as it goes (`search.Progress`: its choices, their bounds, the exact
+odds found), so one given up on (`Limits.search`, or the memory limit) can still answer, from estimates
+(`search.estimated_best`, in about `Limits.search_estimate`, 5 s). The choices that could still be
+best are those whose upper bound reaches the highest lower bound or exact odds found. Each is
+estimated as a value is ([Approximations](#approximations), kept within its bounds), in rounds that
+give each choice twice the time of the round before, starting at 20 ms at most, and drop those whose
+likely range falls below another's, then all but the half of the estimated ones with the highest upper
+bounds, until one is left or the next round wouldn't fit. The answer is the one with the highest
+likely lower bound (or exact odds), so that one estimated from a few lucky samples can't win, with
+its options, and marked as from estimates (`Search.estimated`: the best's likely range). It isn't certainly the best, though in the benchmark
+scenarios it nearly always is (`benchmark.py --estimates`). If every choice it looked at turned out
+quick to work out exactly (card queries without the hand's sorts), the answer is exact and unmarked.
+`tests/test_search.py` checks it against the exact search, stopped part of the way.
 
 How the panel's button asks for this and uses the reply is in
 [panel.md](panel.md#best-discard-button).

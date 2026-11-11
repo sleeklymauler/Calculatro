@@ -30,12 +30,12 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .report import SAMPLE, Approx, Pending, Report, Value, interval
+from .report import DRAWS, SAMPLE, Approx, Pending, Report, Value, interval
 from .search import Search
 from .state import GameState
-from .worker import TooSlow
+from .worker import TIME, TooSlow
 
-SCHEMA = 8  # `odds_schema` in the mod's core.lua
+SCHEMA = 9  # `odds_schema` in the mod's core.lua
 
 # The panel fits 3 columns (`max_columns` in the mod's tracked.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -82,7 +82,7 @@ def approximate(value: Approx) -> str:
     lower bound, rounded down, with a "+" ("80%+"), or below 1%, its upper
     bound with a "<" ("<6%"). An estimate is rounded ("84%"), but never to a
     misleading 0% or 100% ("<1%", ">99%"). The mod adds the asterisk."""
-    if value.how == SAMPLE and value.estimate is not None:
+    if value.estimate is not None:
         rounded = math.floor(value.estimate * 100 + Fraction(1, 2))
         return "<1%" if rounded < 1 else ">99%" if rounded > 99 else f"{rounded}%"
     low = math.floor(value.low * 100)
@@ -167,10 +167,17 @@ def search(key: str, nonce: int, found: Search | TooSlow | None) -> dict[str, An
     """The result of the mod's search request `nonce` for the row `key`: the
     discards to cycle through, as hand indices (0-based), best first. No
     options if there was nothing to search (`key` isn't tracked), or if it was
-    given up on, which its `mark` says (see mark)."""
+    given up on, which its `mark` says (see mark). One given up on that
+    answered from estimates has its options, and a `mark` saying so: `{state:
+    "final", how, low, high, limit}`, the range being the best option's
+    likely odds (one value if they're exact)."""
     if isinstance(found, TooSlow):
         return {"nonce": nonce, "key": key, "options": [], "mark": mark(found)}
-    return {"nonce": nonce, "key": key, "options": found.options if found else []}
+    out: dict[str, Any] = {"nonce": nonce, "key": key, "options": found.options if found else []}
+    if found is not None and (e := found.estimated) is not None:
+        out["mark"] = {"state": "final", "how": DRAWS if e.draws else SAMPLE, "low": percent(e.low),
+                       "high": percent(e.high), "limit": e.limit or TIME}
+    return out
 
 
 def write(path: Path, payload: dict[str, Any], attempts: int = 20) -> bool:

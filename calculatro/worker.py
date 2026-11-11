@@ -27,6 +27,7 @@ class Limits:
     approx: float = 1.0  # an estimate of each value its first try found slow
     exact: float = 30.0  # each odds value's last try, after every other value's first
     search: float = 30.0  # a best-discard search
+    search_estimate: float = 5.0  # a search given up on, answering from estimates
 
 
 LIMITS = Limits()

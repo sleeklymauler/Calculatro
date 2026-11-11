@@ -961,8 +961,42 @@ def test_estimates_hold_the_exact_odds(seed, blind, kw):
             assert found.low <= evaluate_cards(state, query, discard).probability <= found.high, query.text
 
 
-def test_no_estimate_without_evidence():
-    """With nothing the sorts say here, there's nothing to estimate: the exact odds are today's."""
+@pytest.mark.parametrize("seed, blind, kw", [(seed, None, {}) for seed in range(3)] + [
+    (6, "The Mark", {}),
+    (7, "The Hook", {"discards_left": 0, "hands_left": 2}),
+    (8, "Cerulean Bell", {}),
+    (9, None, {"discards_left": 0, "hands_left": 2, "dna_copies": 2}),
+])
+def test_estimates_from_deals_drawing_hands_hold_the_exact_odds(monkeypatch, seed, blind, kw):
+    """With every deal's exact odds given up (as when they're slow), each deal drawn is one final hand drawn at
+    random: the range still holds the exact odds."""
+    exact = engine._evaluate_discard
+
+    def slow(state, target, discard, cancel, *args):
+        if isinstance(cancel, engine._Until):  # an estimate's deal: as if past its time
+            raise Cancelled
+        return exact(state, target, discard, cancel, *args)
+    monkeypatch.setattr(engine, "_evaluate_discard", slow)
+    drawn = []
+    final_hands = engine._final_hands
+    monkeypatch.setattr(engine, "_final_hands", lambda *args: drawn.append(1) or final_hands(*args))
+    rng = random.Random(100 + seed)
+    while True:
+        case = random_case(rng, ranks=range(9, 14) if blind == "The Mark" else range(7, 12), latent=(2, 3),
+                           down_discarded=seed % 3 == 2, blind=blind, **kw)
+        state = case.state()
+        if not state.mark or all(engine.flipped_by_mark(case.cards[n], state.rules) for n in case.down):
+            break
+    for discard in some_discards(rng, case):
+        for target in TARGETS:
+            found = engine.estimate_discard(state, target, discard, seconds=60)
+            assert found.low <= evaluate_discard(state, target, discard).probability <= found.high, target.name
+    assert drawn
+
+
+def test_estimate_from_draws_without_evidence():
+    """With nothing the sorts say here, the estimate is from draws of final hands, of today's odds."""
     case = random_case(random.Random(3))
-    state = engine.with_usable_evidence(case.state())
-    assert engine.estimate_discard(replace(state, observations=(), observed=()), TARGETS[0], []) is None
+    state = replace(engine.with_usable_evidence(case.state()), observations=(), observed=())
+    found = engine.estimate_discard(state, TARGETS[0], [], most=2000)
+    assert found.draws and found.low <= evaluate_discard(state, TARGETS[0], []).probability <= found.high

@@ -112,7 +112,8 @@ A value the app is still working out exactly, or gave up on (over its time or me
 percents, certain from bounds ("80%+", or "<6%") and rounded from an estimate ("84%", "<1%"), and the
 panel adds an asterisk ("80%+*"), which still fits `DISCARD_VALUE_W`. Hovering it shows a popup
 ("Approximate", the range, "Between ... and ..." from bounds or "Likely ... to ..." from an estimate,
-where it comes from by the mark's `how`, then whether the exact odds are still being worked out or why they were given up on;
+where it comes from by the mark's `how` (each hand's own odds, a sample of the deals the hand's sorts
+allow, or a sample of the hands that could be drawn), then whether the exact odds are still being worked out or why they were given up on;
 `approximate_popup`, `HOW` and `EXACT` in `odds.lua`). An approximation still being refined isn't
 greyed out: it's this snapshot's. One given up on with no approximation shows "?", and its popup says
 "Too slow", then that the exact odds would take too long or use too much memory, by its mark's
@@ -334,10 +335,17 @@ search: the next if the selection is still the last one made, else the first. Th
 "i/n" with several options and "Keep hand" when keeping is the only best; "Calculating..." and
 "Waiting for app" take priority.
 
-A search the app gave up on (30 s, or the memory limit) comes with no options and a `mark`. It
-selects nothing, and the title row says "Too slow", with a popup saying why (`SEARCH_TOO_SLOW`), until
-the selection changes (`found.gave_up`, `found.selection`). The button then asks again, and the app,
-which remembers it gave up until `search_basis` changes, answers at once.
+A search the app gave up on (30 s, or the memory limit) answers from estimates of the discards that
+could still be best ([probability-model.md](probability-model.md#best-discard)), up to 5 s later. Its
+reply has options as usual, and a `mark` with a `how` (`found.estimated`): the title row's word gets
+an asterisk ("1/3*", "Keep hand*", and "1/1*" for a single discard, which otherwise shows nothing),
+with a popup (`search_popup`): "Approximate", the best's odds ("Odds likely 38.2% to 41.0%.", or one
+value if they're exact), and that it's the best by estimates since comparing every discard exactly
+would take too long or use too much memory (`SEARCH_ESTIMATED`). One that couldn't answer even so
+(given up before it had its discards) comes with no options and a `mark` without a `how`. It selects
+nothing, and the title row says "Too slow", with a popup saying why (`SEARCH_TOO_SLOW`), until the
+selection changes (`found.gave_up`, `found.selection`). Either way the app remembers the answer until
+`search_basis` changes, so asking again is answered at once.
 
 Buttons are inert outside `SELECTING_HAND`, or with no way left to throw cards away before the last
 hand (`search.can_redraw`/`Calculatro.can_search`: a discard, or a hand played as one with another

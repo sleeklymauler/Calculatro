@@ -4,7 +4,8 @@ Status: drafted 2026-11-10. Stage 1 done and tried in game 2026-11-10 (see
 [What stage 1 settled](#what-stage-1-settled)). Stage 2 done and tried in game 2026-11-11 (see
 [What stage 2 settled](#what-stage-2-settled)). Face-down stage 5b done and tried in game 2026-11-11
 (see [its notes](face-down-windows.md#what-5b-settled)): it brought the approximation pass and the first
-estimates from sampling. Stage 3 next; see [Recommended order](#recommended-order).
+estimates from sampling. Stage 3 done 2026-11-11, not yet tried in game (see
+[What stage 3 settled](#what-stage-3-settled)). Parallelism next; see [Recommended order](#recommended-order).
 
 ## Summary
 
@@ -344,6 +345,46 @@ Decided or found while doing stage 2, where it differs from or adds to the desig
   at the value's width, the popups' lines fit, and the panel rebuilds cleanly as an approximation
   appears and goes. Still open: how often players meet a slow "Any target" in real runs.
 
+## What stage 3 settled
+
+Decided or found while doing stage 3, where it differs from or adds to the design above:
+
+- **One approximation for every slow target value: sampling final hands** (`how: "draws"`,
+  `engine._estimate_draws`). Bounds from dropping a joker's patterns weren't tried: they're slow too
+  (Four Fingers alone takes 1.8 s where Four Fingers + Shortcut takes 10.7 s), and wide, so the value
+  shown ("2%+") would say little. A final hand is drawn as `_discard_odds` models the game dealing it,
+  under every boss, DNA and Crimson Heart (`_final_hands`), and checked against the target's patterns
+  as bit masks (`_holds_test`, 50 times quicker than `_holds`): about 55,000 hands in 1 s, half a point
+  either side. It covers The Mark and Cerulean Bell too, so neither needed one of its own. On the 33
+  odds scenarios whose exact odds take 0.25 s or more: off by 0.16 points on average and 1.16 at most,
+  none outside its range. Its range is only likely, like 5b's estimates: "Likely ... to ..." in the
+  popup, and never the trend colour. `odds_schema` 9, for the new `how`.
+- **5b's estimates draw hands for slow deals.** Where each deal's exact odds are slow too (Four Fingers +
+  Shortcut, or many cards still to draw), a deal gets 1/200 of the time (`DEAL_SHARE`); once one runs
+  over, every deal drawn after is one final hand drawn from it. That fixed the ±17-point ranges 5b
+  left: every sorted scenario's estimate is now within half a point either side in 1 s, off by 0.13
+  points on average and 0.99 at most (was 0.26 and 1.73).
+- **Card queries need no approximation** outside 5b's: without the hand's sorts they're always quick.
+- **A search answers from estimates only once it's given up on**, as recommended: the mod selects
+  cards when a reply arrives, so it still waits up to `Limits.search` (30 s), then up to
+  `Limits.search_estimate` (5 s) more (`__main__.search_within`). The search records what it has found
+  as it goes (`search.Progress`), and `search.estimated_best` estimates the choices that could still
+  be best, in rounds that double each one's time and drop those whose likely range falls below
+  another's, then all but the half with the highest upper bounds. The best is the one with the highest
+  likely lower bound, not estimate: picking by estimate let a choice drawn from one lucky deal win (20
+  points below the best, on a sorted hand with Four Fingers + Shortcut). The reply has its options and a mark (`{state: "final", how, low, high, limit}`, the
+  best's likely odds). The title row's word gets the asterisk ("1/3*", "Keep hand*", and "1/1*" for a
+  single discard, which otherwise shows nothing), with a popup. It's remembered like a search given up
+  on, so asking again is answered at once. "Too slow" is left for a search given up before it had its
+  choices (which shouldn't happen: they're quick), or whose estimates were stopped too (at twice
+  `Limits.search_estimate`, or the memory limit).
+- **Benchmarks:** `benchmark.py --estimates` now covers every odds scenario, and the best-discard
+  scenarios with the search given up as soon as it has its choices, the worst case: on 2026-11-11, 100 of the 107 scenarios found the best discard, and the rest were at most 0.32 points below it (0.01 on average), each in at most 5 s.
+- **Still to try in game:** an estimate's asterisk and popup ("Likely ... to ...", "hands that could be
+  drawn") under Four Fingers + Shortcut, The Mark and Cerulean Bell; and a search answering from
+  estimates (lower `Limits.search` to see one): the title row's "1/3*" and "1/1*" at every panel width,
+  and its popup's lines.
+
 ## Recommended order
 
 Across this plan and the face-down plan:
@@ -359,10 +400,10 @@ Across this plan and the face-down plan:
    sorts, so every player meets those cases, which is why it waits for the
    limits and the approximations. The plan's details are fresh, and its slow
    cases are the worst (minutes, gigabytes).
-4. **This plan's stage 3**: the other slow cases. These could come before 5b
-   instead: Four Fingers + Shortcut and big hands don't depend on a boss.
-   But their slow cases take seconds rather than minutes, and stage 1 already
-   stops them blocking the quick rows.
+4. **This plan's stage 3** (done): the other slow cases. These could have come
+   before 5b instead: Four Fingers + Shortcut and big hands don't depend on a
+   boss. But their slow cases take seconds rather than minutes, and stage 1
+   already stops them blocking the quick rows.
 5. **Then revisit parallelism** (the TODO). With slow rows no longer holding
    up the panel, what's left to gain is only how soon the exact odds arrive,
    so measure first.
@@ -376,7 +417,7 @@ Across this plan and the face-down plan:
   ([5b's notes](face-down-windows.md#what-5b-settled)).
 - ~~**The value shown from bounds alone.**~~ Settled in stage 2: the lower
   bound with a "+" (see [What stage 2 settled](#what-stage-2-settled)).
-- **Whether a search answers before its exact pass.** Recommended: no. The
+- ~~**Whether a search answers before its exact pass.**~~ No (stage 3): the
   mod selects cards when a reply arrives, and changing the selection under
   the player when the exact answer differs is worse than waiting. A search
   waits up to its limit, then answers by approximation, marked.

@@ -67,13 +67,16 @@ time `search.best_discards` instead, a click on a row's search button (see
   in place.
 - `--estimates [SECONDS]` times the estimate the panel shows while a value's
   exact odds are slow (`engine.estimate_discard`, with up to SECONDS, 1 by
-  default), for the scenarios that have one (face-down cards in the hand's
-  sorts), and how far each is from the expected result. Its range is only
-  likely, so one outside it is flagged ("OUTSIDE ITS RANGE"), not counted as
-  wrong. Measured on 2026-11-11: 97 estimates, off by 0.26 points on average
-  and 1.73 at most, none outside its range; each in at most 1.06 s. The
-  widest ranges (about ±17 points, from 12-16 deals) are Four Fingers +
-  Shortcut with Straight Flush, whose exact odds are slow for each deal too.
+  default), for each odds scenario: from deals of the face-down cards in the
+  hand's sorts, or else from final hands drawn at random. It shows how far
+  each is from the expected result. Its range is only likely, so one outside
+  it is flagged ("OUTSIDE ITS RANGE"), not counted as wrong. Measured on
+  2026-11-11, with `-k sorted`: 112 estimates, off by 0.13 points on average
+  and 0.99 at most, none outside its range, each within half a point either
+  side in at most 0.95 s. On the 33 odds scenarios whose exact odds take
+  0.25 s or more (all Four Fingers, Shortcut, The Mark or Cerulean Bell, and
+  2 sorted): off by 0.16 points on average and 1.16 at most, none outside
+  its range, each in at most 1 s.
 
 ### Regression tests
 

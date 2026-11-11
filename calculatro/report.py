@@ -36,21 +36,22 @@ PENDING = Pending()
 # Where an approximation comes from (`Approx.how`):
 BOUNDS = "bounds"  # the odds of other values
 SAMPLE = "sample"  # deals of the face-down cards drawn at random (engine.estimate_discard)
+DRAWS = "draws"  # final hands drawn at random (engine.estimate_discard, without the hand's sorts)
 
 
 @dataclass(frozen=True)
 class Approx:
     """An approximation of odds not (yet) worked out exactly. `how` says where
     it comes from: from BOUNDS, the odds are between `low` and `high`, which
-    is certain; from a SAMPLE, they're about `estimate`, and likely (not
-    certainly) between `low` and `high`. `limit` is None while the exact odds
+    is certain; from a SAMPLE or DRAWS, they're about `estimate`, and likely
+    (not certainly) between `low` and `high`. `limit` is None while the exact odds
     are still being worked out, else what made the app give up on them
     (worker.TIME or MEMORY)."""
     low: Fraction
     high: Fraction
     how: str = BOUNDS
     limit: str | None = None
-    estimate: Fraction | None = None  # a SAMPLE's
+    estimate: Fraction | None = None  # a SAMPLE's or DRAWS'
 
     @property
     def certain(self) -> bool:
@@ -100,7 +101,8 @@ def _sampled(found: Estimate, near: tuple[Fraction, Fraction] | None, limit: str
 
     def within(x: float) -> Fraction:
         return min(max(_fraction(x), low), high)
-    return Approx(within(found.low), within(found.high), SAMPLE, limit, within(found.mean))
+    return Approx(within(found.low), within(found.high), DRAWS if found.draws else SAMPLE, limit,
+                  within(found.mean))
 
 
 @dataclass(frozen=True)
@@ -159,9 +161,11 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         their sum (or 1), so its BOUNDS come from their values, and narrow as
         they're found. When they meet, they're its exact odds, and it isn't
         worked out at all. So "Any target" comes after the hands in each pass.
-      * A value whose face-down cards the hand's sorts tell about is estimated
-        from a SAMPLE of their deals (engine.estimate_discard), within those
-        bounds for "Any target".
+      * A target's value is estimated (engine.estimate_discard), within those
+        bounds for "Any target": from a SAMPLE of the deals of the face-down
+        cards the hand's sorts tell about, or from DRAWS of final hands. A
+        card query's only from a SAMPLE (engine.estimate_cards): without the
+        sorts, it's always quick.
 
     `known` holds each value as soon as it's worked out, or given up on, or
     found slow (SLOW), and its estimate (under ESTIMATE), so they outlive a

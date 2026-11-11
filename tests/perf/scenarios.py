@@ -287,8 +287,7 @@ class Scenario:
         return evaluate_discard(state, self.target(), discard, cancel).probability
 
     def estimate(self, seconds: float):
-        """The estimate the panel shows while the exact odds are slow (engine.Estimate), or None if
-        there's none: only with face-down cards in the hand's sorts."""
+        """The estimate the panel shows while the exact odds are slow (engine.Estimate)."""
         from calculatro.engine import estimate_discard
         state, discard = self.state()
         return estimate_discard(state, self.target(), discard, seconds=seconds)
@@ -348,6 +347,28 @@ class BestDiscard:
         from calculatro.search import best_discards
         found = best_discards(self.state(), self.target(), cancel)
         return f"{found.probability} ({len(found.options)} options, first {found.options[0]})"
+
+    def estimate(self, seconds: float):
+        """The search given up as soon as it has its choices, answering from estimates in about `seconds`
+        (search.estimated_best), the seconds that took, and the exact odds of the discard it picks first."""
+        import time
+
+        from calculatro.engine import Cancelled
+        from calculatro.search import Progress, best_discards, estimated_best
+        state, target = self.state(), self.target()
+        progress = Progress()
+
+        class GiveUp:  # set once it has its choices
+            def is_set(self) -> bool:
+                return progress.estimate is not None
+        start = time.perf_counter()
+        try:
+            best_discards(state, target, GiveUp(), progress)
+        except Cancelled:
+            pass
+        found = estimated_best(progress, None, seconds)
+        elapsed = time.perf_counter() - start
+        return found, elapsed, evaluate_discard(state, target, found.options[0]).probability
 
 
 SINGLE_HANDS = ["Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", "Full House",

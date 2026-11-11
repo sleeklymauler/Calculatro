@@ -102,7 +102,9 @@ end
 -- its cards) is kept without selecting anything (index 0), and the button's
 -- next click selects its first option. A search the app gave up on (its
 -- `mark`) has no options, and is kept as `gave_up` with the selection then,
--- for the title row; the button asks again, and the app answers at once.
+-- for the title row; the button asks again, and the app answers at once. One
+-- it gave up on but answered from estimates has options and a mark with a
+-- `how`, kept as `estimated` for the title row.
 function Calculatro.receive_search(reply)
     local found = Calculatro.found
     if found and not (type(reply) == 'table' and reply.nonce == found.nonce
@@ -114,15 +116,17 @@ function Calculatro.receive_search(reply)
     Calculatro.searching, Calculatro.request = nil, nil
     local options = reply.options or {}
     if not same_hand(searching.hand) then return end
-    if type(reply.mark) == 'table' and reply.mark.state == 'final' then
+    local mark = type(reply.mark) == 'table' and reply.mark or nil
+    if mark and mark.state == 'final' and #options == 0 then
         Calculatro.found = { key = searching.key, nonce = searching.nonce, options = {}, index = 0,
-                             hand = searching.hand, gave_up = reply.mark, selection = selection(searching.hand) }
+                             hand = searching.hand, gave_up = mark, selection = selection(searching.hand) }
         return
     end
     if #options == 0 then return end
     local apply = Calculatro.can_search()
     Calculatro.found = { key = searching.key, nonce = searching.nonce, options = options,
-                         index = apply and 1 or 0, hand = searching.hand }
+                         index = apply and 1 or 0, hand = searching.hand,
+                         estimated = mark and mark.how and mark or nil }
     if apply then Calculatro.select(options[1], searching.hand) end
 end
 
@@ -138,7 +142,9 @@ end
 -- The title row's word on the search: while it runs, and while the selection
 -- is one of its options ("2/3", or "Keep hand" for keeping it). For a search
 -- given up on, "Too slow" and its mark (for the popup), until the selection
--- changes.
+-- changes. Options from estimates have an asterisk, and their mark (for the
+-- popup): "2/3*", "Keep hand*", or "1/1*" for the one discard, which
+-- otherwise shows nothing.
 function Calculatro.search_message()
     if Calculatro.searching then return 'Searching...' end
     local found = Calculatro.found
@@ -152,6 +158,9 @@ function Calculatro.search_message()
         or not is_selected(found.options[found.index], found.hand) then
         return nil
     end
-    if #found.options > 1 then return found.index .. '/' .. #found.options end
-    if #found.options[found.index] == 0 then return 'Keep hand' end
+    local estimated = found.estimated
+    local mark = estimated and '*' or ''
+    if #found.options > 1 then return found.index .. '/' .. #found.options .. mark, estimated end
+    if #found.options[found.index] == 0 then return 'Keep hand' .. mark, estimated end
+    if estimated then return '1/1*', estimated end
 end

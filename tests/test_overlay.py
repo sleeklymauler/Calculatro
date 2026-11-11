@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import time
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -16,7 +17,7 @@ from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
 from calculatro.report import PENDING, SAMPLE, Approx, CardOdds, Report, TargetOdds, build_report
 from calculatro.rules import Rules
-from calculatro.search import Search
+from calculatro.search import Estimated, Search
 from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
 from calculatro.worker import MEMORY, TIME, TooSlow
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
@@ -1167,6 +1168,41 @@ def test_search_given_up_says_so_on_the_title_row(lua, tmp_path):
     # The button asks again (the app answers at once).
     assert click(lua, "calculatro_search_Pair")
     assert read_state(tmp_path).search == ("Pair", 2) and message(rt) == "Searching..."
+
+
+def test_search_from_estimates_marks_its_options(lua, tmp_path):
+    """A search given up on that answered from estimates selects its options like any other, with an asterisk on
+    the title row's word, even for one discard (which otherwise has none), and a popup saying why."""
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    assert click(lua, "calculatro_search_Pair")
+    payload = app_payload(tmp_path)
+    estimated = Estimated(Fraction(55, 100), Fraction(65, 100), True, TIME)
+    payload["search"] = overlay.search("Pair", 1, Search([[0], [1]], Fraction(6, 10), estimated))
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    assert message(rt) == "1/2*" and selected(rt) == [0]
+    popup = rt.execute(TOO_SLOW_POPUP)(mod, find(rt, "calculatro_message").config.calculatro_popup)
+    lines = [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()]
+    assert lines == ["Approximate", "Odds likely 55.0% to 65.0%.", "The best discard by estimates:",
+                     "comparing every discard exactly", "would take too long."]
+    assert all(len(line) <= 31 for line in lines)
+    assert click(lua, "calculatro_search_Pair")  # cycles as usual
+    mod.update(0.1)
+    assert message(rt) == "2/2*" and selected(rt) == [1]
+    for options, word in (([[2]], "1/1*"), ([[]], "Keep hand*")):
+        mod.found = None
+        assert click(lua, "calculatro_search_Pair")
+        nonce = read_state(tmp_path).search[1]
+        payload = app_payload(tmp_path)
+        payload["search"] = overlay.search("Pair", nonce, Search(options, Fraction(6, 10), replace(
+            estimated, low=Fraction(6, 10), high=Fraction(6, 10), limit=MEMORY)))
+        write_payload(tmp_path, payload)
+        mod.update(0.1)
+        assert message(rt) == word
+        popup = rt.execute(TOO_SLOW_POPUP)(mod, find(rt, "calculatro_message").config.calculatro_popup)
+        assert [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()][1::3] == [
+            "Odds 60.0%.", "would use too much memory."]
 
 
 def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):

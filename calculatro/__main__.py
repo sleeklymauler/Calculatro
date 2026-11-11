@@ -20,10 +20,10 @@ from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
 from .log import header, open_log
 from .report import Approx, Report, Value, build_report, row_key
-from .search import Search, best_card_discards, best_discards
+from .search import Progress, Search, best_card_discards, best_discards, estimated_best
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
-from .worker import LIMITS, MEMORY, Control, Job, Limits, TooSlow, Watchdog, limited
+from .worker import LIMITS, MEMORY, TIME, Control, Job, Limits, TooSlow, Watchdog, limited
 
 
 def summarize(state: GameState) -> str:
@@ -155,11 +155,32 @@ def search_target(state: GameState, key: str) -> Target | CardQuery | None:
             or next((q for q in queries if q.text == key), None))
 
 
-def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None = None) -> Search:
+def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None = None,
+              progress: Progress | None = None) -> Search:
     """The best discards for a row's target hand or card query."""
     if isinstance(target, CardQuery):
-        return best_card_discards(state, target, cancel)
-    return best_discards(state, target, cancel)
+        return best_card_discards(state, target, cancel, progress)
+    return best_discards(state, target, cancel, progress)
+
+
+def search_within(state: GameState, target: Target | CardQuery, control: Control | Event | None,
+                  limits: Limits = LIMITS) -> Search | TooSlow:
+    """find_best, given up after `limits.search` (or at the memory limit). One
+    given up on answers from estimates of what it had found
+    (`search.estimated_best`, in about `limits.search_estimate`), marked with
+    what stopped it; TooSlow if it can't. (Unmarked if they turn out exact.)"""
+    progress = Progress()
+    found = limited(control, limits.search, lambda cancel: find_best(state, target, cancel, progress))
+    if not isinstance(found, TooSlow):
+        return found
+    # The estimates stop themselves; the limit is for ones that can't.
+    estimated = limited(control, 2 * limits.search_estimate,
+                        lambda cancel: estimated_best(progress, cancel, limits.search_estimate))
+    if not isinstance(estimated, Search):
+        return found
+    if estimated.estimated is None:
+        return estimated  # every choice that could be best was quick after all: exact
+    return replace(estimated, estimated=replace(estimated.estimated, limit=found.limit))
 
 
 def search_basis(state: GameState) -> GameState:
@@ -185,8 +206,13 @@ def format_search(state: GameState, key: str, found: Search | TooSlow) -> str:
         return f"Best discard for {key}: {_too_slow(found.limit)}, given up on"
     best = found.options[0]
     what = f"discard {' '.join(state.hand[i].short() for i in best)}" if best else "keep the hand"
-    more = f" (1 of {len(found.options)} options)" if len(found.options) > 1 else ""
-    return f"Best discard for {key}: {what}, {_pct(found.probability).strip()}{more}"
+    more = [f"1 of {len(found.options)} options"] if len(found.options) > 1 else []
+    odds = _pct(found.probability).strip()
+    if (e := found.estimated) is not None:
+        odds += "*"
+        more.append(f"* by estimates, {_too_slow(e.limit or TIME)} to compare exactly"
+                    + ("" if e.low == e.high else f"; likely {_pct(e.low).strip()} to {_pct(e.high).strip()}"))
+    return f"Best discard for {key}: {what}, {odds}" + (f" ({'; '.join(more)})" if more else "")
 
 
 CALCULATING = "Calculating odds..."
@@ -235,8 +261,9 @@ def run_watch(source: StateSource, write: Callable[[str], None],
 
     Each odds value, and each search, stops at its `limits` (`build_report`),
     or once `watchdog` finds the app using too much memory, and is given up on
-    (`worker.TooSlow`). A search given up on is answered at once when asked for
-    again, until what it depends on changes.
+    (`worker.TooSlow`). A search given up on answers from estimates if it can
+    (`search_within`), and is answered the same at once when asked for again,
+    until what it depends on changes.
 
     A state asking for a best-discard search (`GameState.search`, with a number
     not seen before) starts one in a job of its own. Only a change to what it
@@ -265,7 +292,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     searching: Job[Search | TooSlow] | None = None
     search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
     # basis, state, key, nonce, target
-    given_up: dict[object, TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
+    given_up: dict[object, Search | TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
     given_up_for: GameState | None = None
     found: dict | None = None  # the finished search's result, for the panel
     seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
@@ -332,8 +359,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         if target is None or row_key(target) in given_up:
             found = overlay.search(key, nonce, None if target is None else given_up[row_key(target)])
         else:
-            searching = Job(lambda control, state=state, target=target:
-                            limited(control, limits.search, lambda cancel: find_best(state, target, cancel)),
+            searching = Job(lambda control, state=state, target=target: search_within(state, target, control, limits),
                             watchdog)
 
     while not stop():
@@ -375,7 +401,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                     failed(f"Best discard search for {key}", e)
                     result = None
                 searching, found = None, overlay.search(key, nonce, result)
-                if isinstance(result, TooSlow):
+                if isinstance(result, TooSlow) or (isinstance(result, Search) and result.estimated is not None):
                     given_up[row_key(target)] = result
                 if result is not None:
                     write(format_search(searched, key, result))

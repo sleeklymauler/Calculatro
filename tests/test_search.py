@@ -14,7 +14,7 @@ import pytest
 from calculatro.cards import CardQuery, parse_query
 from calculatro.engine import Cancelled, Reuse, can_miss, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.search import _identity, best_card_discards, best_discards
+from calculatro.search import Progress, _identity, best_card_discards, best_discards, estimated_best
 from calculatro.state import SUITS, Card, GameState, Joker
 from test_engine import card
 
@@ -399,3 +399,74 @@ def test_dna_face_down_cards():
     state = replace(state, hand=state.hand[:-2] + [Card(hidden=True)] * 2, unseen=[*state.unseen, *hidden])
     for name in ("Pair", "Flush"):
         check(state, get_target(name))
+
+
+# --- A search given up on (docs/plans/progressive-odds.md) ----------------------------
+
+
+class StopAfter:
+    """A `cancel` that's set after it has been asked `n` times: a search stopped part of the way."""
+
+    def __init__(self, n: int):
+        self.n = n
+
+    def is_set(self) -> bool:
+        self.n -= 1
+        return self.n < 0
+
+
+def given_up(search, state, target, asked: int) -> Progress:
+    progress = Progress()
+    with pytest.raises(Cancelled):
+        search(state, target, StopAfter(asked), progress)
+    return progress
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_search_given_up_answers_from_estimates(seed):
+    """Stopped part of the way, the search's estimates find a discard as good as the best, or nearly (within a
+    point: estimates can't tell much closer), whose odds are in the likely range it gives."""
+    rng = random.Random(seed)
+    state = random_state(rng, jokers=[Joker("j_four_fingers"), Joker("j_shortcut")] if seed % 2 else [])
+    targets = [get_target(n) for n in ("Straight", "Flush", "Full House")]
+    targets.append(combine(targets[:2]))
+    for target in targets:
+        exact = best_discards(state, target)
+        progress = given_up(best_discards, state, target, rng.randint(1, 30))
+        found = estimated_best(progress, None, 1.0)
+        assert found.estimated is not None and found.estimated.draws
+        p = evaluate_discard(state, target, found.options[0]).probability
+        assert p >= exact.probability - Fraction(1, 100), target.name
+        assert found.estimated.low <= p <= found.estimated.high, target.name
+        assert {cards_of(state, o) for o in found.options} == {cards_of(state, found.options[0])} | {
+            cards_of(state, o) for o in found.options}  # one choice's options, or ties found exactly
+
+
+def test_a_search_records_what_it_found_before_it_was_given_up():
+    """Its choices, their exact odds as they're found, and for several hands each one's bounds. (A full search of
+    Straight here asks whether to stop 1401 times, and of the two hands 1444, mostly for the bounds.)"""
+    state = random_state(random.Random(5))
+    target = get_target("Straight")
+    progress = given_up(best_discards, state, target, 700)
+    assert progress.choices and len(progress.discards) == len(progress.choices)
+    assert 0 < len(progress.exact) < len(progress.choices)
+    assert all(evaluate_discard(state, target, progress.discards[j]).probability == p
+               for j, p in progress.exact.items())
+    target = combine([get_target("Flush"), get_target("Straight")])
+    progress = given_up(best_discards, state, target, 700)
+    known = [j for j, high in enumerate(progress.highs) if high < 1 or progress.lows[j] > 0]
+    assert 0 < len(known) < len(progress.choices)
+    assert all(progress.lows[j] <= evaluate_discard(state, target, progress.discards[j]).probability
+               <= progress.highs[j] for j in known)
+
+
+def test_a_search_given_up_before_its_choices_has_no_answer():
+    assert estimated_best(Progress()) is None
+
+
+def test_a_card_query_search_given_up_answers_exactly():
+    """Without face-down cards in the hand's sorts, a card query's odds are quick: the answer is exact, unmarked."""
+    state = random_state(random.Random(2))
+    query = parse_query("at least 2 hearts")
+    found = estimated_best(given_up(best_card_discards, state, query, 3), None, 1.0)
+    assert found == best_card_discards(state, query)

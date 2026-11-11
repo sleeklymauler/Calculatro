@@ -50,12 +50,12 @@ import gc
 import sys
 from bisect import bisect_left
 from collections import Counter, OrderedDict, defaultdict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from functools import cache
-from itertools import combinations, product, repeat
+from functools import cache, lru_cache
+from itertools import accumulate, combinations, product, repeat
 from math import comb, lcm, prod, sqrt
 from operator import gt
 from random import Random
@@ -1632,33 +1632,82 @@ def _split(window: Window, kept: list[bool], state: GameState) -> list[WindowSpl
 
 @dataclass(frozen=True)
 class Estimate:
-    """Odds estimated from `samples` deals of the face-down cards (_estimate):
+    """Odds estimated from `samples` deals of the face-down cards (_estimate),
+    or, if `draws`, from `samples` final hands drawn at random (_estimate_draws):
     `mean`, and the range from `low` to `high` they're likely in. Not certain:
     the range is MARGIN standard errors either side."""
     mean: float
     low: float
     high: float
     samples: int
+    draws: bool = False
 
 
 MARGIN = 3  # standard errors either side of an estimate
 ESTIMATE_SAMPLES = 4096  # most deals an estimate draws
+DRAW_SAMPLES = 1 << 17  # most final hands an estimate from draws makes
 ESTIMATE_CLOSE = 0.005  # an estimate stops once its range is this close either side (and it has 64 deals)
 
 
+def _sampled(sample: Callable[[], float], check: Callable[[], None], seconds: float, most: int,
+             draws: bool = False) -> Estimate:
+    """An Estimate from the values `sample` gives, each unbiased, taken until
+    the range is within ESTIMATE_CLOSE either side (with at least 64), or
+    there are `most`, or `seconds` have passed. The range counts a value of 0
+    and one of 1 besides those taken, so a few all alike can't make it look
+    certain."""
+    deadline = monotonic() + seconds
+    n, total, squares = 0, 0.0, 0.0
+
+    def margin() -> float:
+        m, s, q = n + 2, total + 1, squares + 1
+        return MARGIN * sqrt(max(0.0, q - s * s / m) / (m - 1) / m)
+
+    while True:
+        check()
+        p = sample()
+        n, total, squares = n + 1, total + p, squares + p * p
+        if n >= most or (n >= 64 and margin() <= ESTIMATE_CLOSE) or monotonic() >= deadline:
+            break
+    mean, spread = total / n, margin()
+    return Estimate(mean, max(0.0, mean - spread), min(1.0, mean + spread), n, draws)
+
+
+class _Until:
+    """A `cancel` for the engine that's set once `cancel` is, or `deadline` (monotonic) has passed."""
+
+    def __init__(self, cancel: Event | None, deadline: float):
+        self.cancel, self.deadline = cancel, deadline
+
+    def is_set(self) -> bool:
+        return (self.cancel is not None and self.cancel.is_set()) or monotonic() >= self.deadline
+
+
+DEAL_SHARE = 200  # an estimate gives each deal's exact odds 1/DEAL_SHARE of its time
+
+
 def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], object],
-              odds: Callable[[GameState, tuple[Marked, ...]], Fraction], cancel: Event | None,
-              seconds: float) -> Estimate | None:
+              odds: Callable[[GameState, Event | _Until | None], Fraction], cancel: Event | None,
+              seconds: float, hands: Callable[[GameState], Callable[[Random], bool]] | None = None
+              ) -> Estimate | None:
     """The odds of discarding `discard` estimated from deals of the face-down
     cards the hand's sorts tell about, drawn at random by their weight in the
     posterior (posterior.deals); None if there are none, as for _averaged.
 
-    Each deal's odds are exact, and quick, with every face-down card turned
-    up, so the estimate is off only by which deals were drawn. Deals alike in
-    what the odds see of them (`classes`, _labels) share an evaluation. It
-    draws deals until its range is within ESTIMATE_CLOSE either side, or it
-    has ESTIMATE_SAMPLES, or `seconds` have passed. The draws are seeded, so
-    the same state gives the same estimate, unless the time runs out first.
+    Each deal's odds are exact, and usually quick, with every face-down card
+    turned up, so the estimate is off only by which deals were drawn. Deals
+    alike in what the odds see of them (`classes`, _labels) share an
+    evaluation. With `hands`, a deal's exact odds that take more than
+    1/DEAL_SHARE of the time are given up, and so are every other deal's
+    from then on, which would be as slow: each time such a deal is drawn,
+    it's one final hand drawn at random (`hands` of its resolved state) that
+    makes the target or not. Slow targets (Four Fingers with Shortcut) would
+    leave too few deals otherwise. Either way each value drawn is unbiased.
+
+    It draws until its range is within ESTIMATE_CLOSE either side, or it has
+    ESTIMATE_SAMPLES (DRAW_SAMPLES with `hands`), or `seconds` have passed.
+    The draws are seeded, so the same state gives the same estimate, unless
+    the time runs out first.
 
     The range counts a deal at 0 and a deal at 1 besides those drawn, so a
     few deals all alike can't make it look certain.
@@ -1677,45 +1726,201 @@ def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], ob
     resolve = _resolver(state)
     rng = Random(0)
     seen: dict[frozenset, float] = {}
-    deadline = monotonic() + seconds
-    n, total, squares = 0, 0.0, 0.0
+    slow: dict[frozenset, Callable[[Random], bool]] = {}  # deals whose exact odds were given up, with `hands`
+    exact = True  # until a deal's exact odds are given up
 
-    def margin() -> float:
-        m, s, q = n + 2, total + 1, squares + 1
-        return MARGIN * sqrt(max(0.0, q - s * s / m) / (m - 1) / m)
-
-    while True:
-        check()
+    def sample() -> float:
+        nonlocal exact
         branch = found.draw(rng)
         key = frozenset(Counter(label(i, c) for i, c in [*branch.cards, *((None, c) for c in branch.discarded)])
                         .items())
         p = seen.get(key)
-        if p is None:
-            p = seen[key] = float(odds(resolve(branch), ()))
-        n, total, squares = n + 1, total + p, squares + p * p
-        if (n >= ESTIMATE_SAMPLES or (n >= 64 and margin() <= ESTIMATE_CLOSE)) or monotonic() >= deadline:
-            break
-    mean, spread = total / n, margin()
-    return Estimate(mean, max(0.0, mean - spread), min(1.0, mean + spread), n)
+        if p is not None:
+            return p
+        if key not in slow:
+            if hands is None:
+                p = seen[key] = float(odds(resolve(branch), cancel))
+                return p
+            if exact:
+                try:
+                    p = seen[key] = float(odds(resolve(branch), _Until(cancel, monotonic() + seconds / DEAL_SHARE)))
+                    return p
+                except Cancelled:
+                    check()  # the estimate itself cancelled
+                    exact = False
+            slow[key] = hands(resolve(branch))
+        return float(slow[key](rng))
+    return _sampled(sample, check, seconds, ESTIMATE_SAMPLES if hands is None else DRAW_SAMPLES)
 
 
 def estimate_discard(state: GameState, target: Target, discard: list[int], cancel: Event | None = None,
-                     seconds: float = 1.0) -> Estimate | None:
-    """evaluate_discard's odds estimated from deals of the face-down cards
-    (_estimate), in about `seconds`; None if the hand's sorts tell about none.
-    Raises Cancelled soon after `cancel` is set."""
-    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
-        return _evaluate_discard(resolved, target, discard, cancel, None, windows).probability
+                     seconds: float = 1.0, most: int = DRAW_SAMPLES) -> Estimate:
+    """evaluate_discard's odds estimated in about `seconds`: from deals of the
+    face-down cards the hand's sorts tell about (_estimate), or where they
+    tell about none here, from final hands drawn at random (_estimate_draws,
+    at most `most`). Raises Cancelled soon after `cancel` is set."""
+    def odds(resolved: GameState, until: Event | _Until | None) -> Fraction:
+        return _evaluate_discard(resolved, target, discard, until, None).probability
 
     classes = _rule_classes(state, discard, _counts_towards(target, state))
-    return _estimate(state, discard, classes, odds, cancel, seconds)
+    found = _estimate(state, discard, classes, odds, cancel, seconds,
+                      lambda resolved: _final_hands(resolved, target, discard))
+    return found if found is not None else _estimate_draws(state, target, discard, cancel, seconds, most)
+
+
+def _estimate_draws(state: GameState, target: Target, discard: list[int], cancel: Event | None,
+                    seconds: float, most: int = DRAW_SAMPLES) -> Estimate:
+    """evaluate_discard's odds without the hand's sorts (`_evaluate_discard`'s),
+    estimated from final hands drawn at random (_final_hands): the share that
+    make `target`. Seeded, so the same state gives the same estimate, unless
+    the time runs out first. For the odds that are slow to count however few
+    the face-down cards are (Four Fingers with Shortcut, The Mark)."""
+    final = _final_hands(state, target, discard)
+    rng = Random(0)
+    return _sampled(lambda: float(final(rng)), _checker(cancel), seconds, most, draws=True)
+
+
+def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callable[[Random], bool]:
+    """Draws a final hand after discarding `discard` at random, as the engine
+    models the game dealing it, and says whether it makes `target`: so the
+    chance it says yes is `_evaluate_discard`'s odds. Every face-down card is
+    unknown (the hand's sorts aren't used).
+
+    It mirrors _discard_odds and what it calls: the rules the final hand is
+    judged under (`rules_after`), drawn by their weight; The Hook's kept cards
+    taken at random (_after_hook); the face-down kept cards and the draw a
+    uniform sample of the pool, but under The Mark its face-down cards a
+    uniform sample of the pool's face cards and the draw from the rest
+    (_mark_split); DNA's copies of a face-down card, all of one unknown card;
+    and Cerulean Bell's forced card, a random one of the final hand
+    (_bell_after_draw), or the forced card kept.
+    """
+    d = _discard(state, discard)
+    outcomes = rules_after(state, discard)
+    rule_sets = [rules for rules, _ in outcomes]
+    weights = list(accumulate(n for _, n in outcomes))
+    pool = d.pool
+    known = list(d.kept_known)
+    bell = state.bell and bell_matters(target, state.rules)
+    forced: Card | None = None
+    if bell and not discard and state.forced is not None and not state.hand[state.forced].hidden:
+        forced = state.hand[state.forced]  # keeping the hand keeps its forced card
+        known = [c for i, c in enumerate(state.hand) if i != state.forced and not c.hidden]
+    copied = 1 if d.added_hidden else 0  # DNA's copies of a face-down card are one unknown card
+    faces: list[int] = []
+    if d.marked and not state.rules.pareidolia:
+        faces = [j for j, c in enumerate(pool) if flipped_by_mark(c, state.rules)]
+        if len(faces) < d.marked:
+            faces = []  # as _mark_split: only a rank changed while face down does that
+    keys = [([card_key(c, rules) for c in pool], [card_key(c, rules) for c in known],
+             [card_key(c, rules) for c in d.added], None if forced is None else card_key(forced, rules))
+            for rules in rule_sets]
+    tests: dict[tuple[int, ClassKey | None], Callable[[Iterable[ClassKey | None]], bool]] = {}
+
+    def test(r: int, forced_key: ClassKey | None) -> Callable[[Iterable[ClassKey | None]], bool]:
+        found = tests.get((r, forced_key))
+        if found is None:
+            found = tests[(r, forced_key)] = _target_test(target.hands, rule_sets[r], bell, forced_key)
+        return found
+
+    everything = range(len(pool))
+
+    def final(rng: Random) -> bool:
+        r = rng.choices(range(len(rule_sets)), cum_weights=weights)[0] if len(rule_sets) > 1 else 0
+        pool_keys, hand, added, forced_key = keys[r]
+        hidden = d.hidden_kept
+        if d.hooked:
+            slots = len(hand) + hidden
+            taken = set(rng.sample(range(slots), d.hooked))
+            hand = [k for i, k in enumerate(hand) if i not in taken]
+            hidden -= sum(1 for i in taken if i >= slots - hidden)
+        if faces:
+            down = rng.sample(faces, d.marked)  # the face-down cards: kept, copied, then gone
+            gone = set(down)
+            rest = [j for j in everything if j not in gone]
+            picks = down[:hidden + copied] + rng.sample(rest, min(d.draws, len(rest)))
+        else:
+            picks = rng.sample(everything, min(hidden + copied + d.draws, len(pool)))
+        cards = hand + added + [pool_keys[j] for j in picks]
+        if copied and len(picks) > hidden:
+            cards += [pool_keys[picks[hidden]]] * (d.added_hidden - 1)
+        if not bell:
+            return test(r, None)(cards)
+        if forced is None:
+            if not cards:
+                return False
+            i = rng.randrange(len(cards))
+            forced_key = cards[i]
+            cards = cards[:i] + cards[i + 1:]
+        return test(r, forced_key)(cards)
+    return final
+
+
+@lru_cache(maxsize=256)
+def _target_test(hands: tuple[str, ...], rules: Rules, bell: bool,
+                 forced_key: ClassKey | None) -> Callable[[Iterable[ClassKey | None]], bool]:
+    """_holds_test of the patterns of `hands`, or with `bell`, those with a
+    forced card of class `forced_key` (Cerulean Bell): built once for every
+    deal an estimate draws hands for."""
+    target = Target("", hands)
+    return _holds_test(forced_patterns(target, rules, forced_key) if bell else target.patterns(rules))
+
+
+def _holds_test(patterns: tuple[Pattern, ...]) -> Callable[[Iterable[ClassKey | None]], bool]:
+    """_holds for many hands, quicker: whether cards with these class keys
+    (None for a card of none) satisfy one of `patterns`. The requirements met
+    are a bit mask: those needing one card are met by any key of theirs, so
+    each key has a mask of them; the others are counted. A pattern is only
+    looked at once the first requirement it needs a card for is met."""
+    index: dict[Requirement, int] = {}
+    for pattern in patterns:
+        for req in pattern:
+            index.setdefault(req, len(index))
+    need = [req.need for req in index]
+    one_of: dict[ClassKey, int] = defaultdict(int)  # the requirements needing one card that a key meets
+    many_of: dict[ClassKey, list[int]] = defaultdict(list)  # those needing more that it counts towards
+    for req, i in index.items():
+        for key in req.keys:
+            if req.need == 1:
+                one_of[key] |= 1 << i
+            elif req.need > 1:
+                many_of[key].append(i)
+    met_anyway = sum(1 << i for i, n in enumerate(need) if n <= 0)
+    by_first: dict[int, list[int]] = defaultdict(list)  # patterns' masks by the first requirement's bit
+    for pattern in patterns:
+        ids = [index[req] for req in pattern]
+        first = next((i for i in ids if need[i] > 0), None)
+        if first is None:
+            return lambda keys: True  # a pattern that needs no cards
+        by_first[1 << first].append(sum(1 << i for i in set(ids)))
+    firsts = sum(by_first)
+    one_of, many_of = dict(one_of), dict(many_of)
+
+    def holds(keys: Iterable[ClassKey | None]) -> bool:
+        met = met_anyway
+        counts: dict[int, int] = {}
+        for key in keys:
+            met |= one_of.get(key, 0)
+            for i in many_of.get(key, ()):
+                counts[i] = counts.get(i, 0) + 1
+        for i, n in counts.items():
+            if n >= need[i]:
+                met |= 1 << i
+        todo = met & firsts
+        while todo:
+            bit = todo & -todo
+            if any(m & met == m for m in by_first[bit]):
+                return True
+            todo ^= bit
+        return False
+    return holds
 
 
 def estimate_cards(state: GameState, query: CardQuery, discard: list[int], cancel: Event | None = None,
                    seconds: float = 1.0) -> Estimate | None:
     """evaluate_cards's odds estimated as estimate_discard's."""
-    def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
-        return _evaluate_cards(resolved, query, discard, windows).probability
+    def odds(resolved: GameState, until: Event | None) -> Fraction:
+        return _evaluate_cards(resolved, query, discard).probability
 
     return _estimate(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel, seconds)
 
