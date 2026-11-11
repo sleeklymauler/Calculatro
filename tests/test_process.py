@@ -62,7 +62,7 @@ def run_main(monkeypatch, tmp_path, first: bool):
     """`watch` started by hand: the panel callback it would run with, and its console output."""
     monkeypatch.setattr(process, "claim_instance", lambda name: first)
     calls = []
-    monkeypatch.setattr(cli, "run_watch", lambda source, write, panel, stop: calls.append(panel))
+    monkeypatch.setattr(cli, "run_watch", lambda source, write, panel, stop, **_: calls.append(panel))
     assert main(["watch", "--file", str(tmp_path / "state.json")]) == 0
     return calls[0]
 

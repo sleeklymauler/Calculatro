@@ -7,8 +7,9 @@ the observations) is done, tested against dealing every way, and checked in game
 (2026-11-08). Stage 3 (cards discarded face down stay in the observations, schema 13) is done and
 tested against dealing every way, not yet checked in game. Stage 4 (earlier sorts are kept, schema
 14) is done, tested against playing rounds out, and checked in game (2026-11-08). Stage 5 is in two parts: 5a,
-exact optimizations, is done and tested against dealing every way (2026-11-09), not yet checked in game; 5b,
-shortcuts that give up accuracy, is by decision, for the cases [still slow](#still-slow). Revised
+exact optimizations, is done, tested against dealing every way (2026-11-09) and checked in game (2026-11-10);
+5b, approximations for the cases [still slow](#still-slow), is planned (2026-11-10) and waits on stages 1 and
+2 of [the progressive-odds plan](progressive-odds.md#recommended-order). Revised
 2026-10-15 after review: the first draft's per-card windows were replaced by observations that keep
 the order of face-down cards (see [the model](#what-the-player-learns)). Revised 2026-11-08 after
 review against the code: the odds use the same observations as the hint, both sort modes, with
@@ -59,6 +60,8 @@ Decisions already made:
   hint and, from stage 1, the export of observations. With it off the snapshot
   carries none, so the odds and the search are today's. `observe.lua` watches
   the hand either way, so turning it on mid-hand takes effect at once.
+  Revised 2026-11-10: from stage 5b the setting controls only the hint, and
+  the observations are always exported (see [stage 5](#stages)).
 - **The odds know everything the hint knows** (decided 2026-11-08): they use
   the same observations, every sort seen this round (from stage 4), whether
   the player has sorted by rank, by suit or both. They weigh whole deals consistent with all
@@ -74,6 +77,12 @@ Decisions already made:
   - calculations stay cancellable, so a slow one never blocks the app;
   - shortcuts that trade a little accuracy for speed are a later decision,
     taken with the measurements from the first pass (see [stage 5](#stages)).
+
+  Revised 2026-11-10: the panel shows a marked approximation first where the
+  exact odds are slow, then the exact odds, for every row and not only those
+  with face-down cards ([the progressive-odds plan](progressive-odds.md)).
+  The exact odds are still what the app works out; there's no setting to
+  turn the approximations off.
 
 ## Game behaviour (verified in the game's source)
 
@@ -710,7 +719,7 @@ scenarios' results match the deal-by-deal sum (no windows), which took up to
 
 ### Still slow
 
-The cases that are still slow after stage 5a, for the shortcuts of stage 5b.
+The cases that are still slow after stage 5a, for the approximations of stage 5b.
 Times are for one odds row (or one best-discard search), measured as above.
 
 1. **Discards that split The House's first hand into several blocks**, for
@@ -956,7 +965,7 @@ copies of a face-down card (branched on with every unseen card).
      this plan's model sections.
 5. **Performance**, in two parts (decided 2026-11-09): exact optimizations
    first, then shortcuts that give up accuracy for the cases still slow.
-   - **5a, exact**, done (2026-11-09), not yet checked in game. Measurements
+   - **5a, exact**, done (2026-11-09), checked in game (2026-11-10). Measurements
      in [Performance](#performance).
      - `posterior.summed` replaces `branches`. It deals the latent cards one
        at a time and sums the partial deals that the rest can't tell apart as
@@ -1002,7 +1011,57 @@ copies of a face-down card (branched on with every unseen card).
        House's first discard, `HOUSE_EARLIER`, The House's first hand split
        at the top and in the middle, and the Four Fingers + Shortcut
        searches.
-   - **5b, shortcuts**, by decision, for the cases [still slow](#still-slow).
+   - **5b, approximations**, planned (2026-11-10), for the cases
+     [still slow](#still-slow). It plugs into
+     [the progressive-odds plan](progressive-odds.md), whose stages 1 and 2
+     come first ([Recommended order](progressive-odds.md#recommended-order)).
+     That plan provides everything around an approximation: the quick pass,
+     the time and memory limits, the asterisk and its popup, the marks in the
+     odds file, and the exact pass that replaces the approximation. This stage
+     adds only the approximations for face-down cards, and the setting change.
+     - **No accuracy setting** (decided 2026-11-10): an approximation is shown
+       only while the exact odds are being worked out, or once they've been
+       given up on, and it's always marked.
+     - **Cases 1-3** (a discard that splits The House's first hand, best
+       discard on that hand, and a discard that draws after The House's first
+       discard): `summed` grows too big. Candidates, to choose between by
+       measurement, ranges first:
+       - **Sampling deals from the exact posterior.** Counting the deals
+         without labels is quick (`engine.usable` does it in one branch, even
+         for The House's first hand). Kept for each step, those counts would
+         let deals be drawn in proportion to their weight, exactly. Each
+         sampled deal's odds are then exact and quick (no face-down cards
+         left), so the estimate's margin comes only from which deals were
+         drawn. Check first that the counts for each step stay small.
+       - **Leaving out the observations that make it slow** (the oldest
+         sorts, or the cards discarded face down). Quick, but not a bound,
+         and it can be far off: stage 2 measured Pair at 83.4% against 87.3%
+         when the cards discarded face down were left out.
+       - **Ignoring the sorts**, as with the setting off today. Always quick,
+         and the last resort.
+     - **Cases 4 and 5** (Four Fingers + Shortcut searches, and The Mark): the
+       engine's search is what's slow, as without face-down cards, so the
+       progressive-odds plan's stage 3 covers them. Check here that they're
+       marked and stop at their limit.
+     - **Case 6** (memory): the progressive-odds plan's memory limit. Check
+       that the 9 GB case (throwing away every other card of The House's
+       sorted hand) stops cleanly and frees what it used.
+     - **Not yet measured**: face-down cards in sorts under The Hook and
+       Cerulean Bell, and DNA's copies of a face-down card. Measure them, add
+       benchmark scenarios, and give them an approximation if they're slow.
+     - **The setting**, last: "Face-down windows" controls only the hint, and
+       `observe.lua` exports the observations whether it's on or off (still
+       none under The Mark with `flipped_cards`). Consider renaming it
+       "Face-down hints", and decide its default. Update its popup (`about`
+       in `settings.lua`), `docs/panel.md`, `docs/architecture.md` and
+       `docs/probability-model.md`. With it, every player meets the slow
+       cases, which is why it waits for the limits and the approximations.
+     - **Tests**: each approximation against the exact odds on the scenarios
+       that finish, through the oracle in `tests/test_posterior.py` (a range
+       holds the exact value; a seeded sample's margin does in nearly all
+       cases); the snapshot with the setting off still carries the
+       observations; the benchmark scenarios record each approximation's time
+       and error.
 
 Update `docs/architecture.md` (information hiding, the snapshot contract),
 `docs/probability-model.md`, `docs/panel.md` (the hint and the setting),
@@ -1011,9 +1070,6 @@ The Fish, The Mark, The House) as each stage lands.
 
 ## Open questions
 
-- What the panel should show for a calculation that won't finish in a useful
-  time (the cases [still slow](#still-slow)): "Calculating..." indefinitely,
-  as now, or something more telling. For stage 5b.
 - How The Mark should handle `flipped_cards` properly (an existing engine
   limitation; this plan only avoids leaning on it).
 - Whether the hint should adopt the exact tie model, so it's never wider than

@@ -84,13 +84,15 @@ end
 -- What of the odds panel's model changes its layout: everything but the
 -- odds values (their text and colour), whether they're stale, and the title
 -- row's message, which refresh_panel updates in place. Whether a target hand
--- has a Discard value is layout: its arrow comes and goes with it.
-local VALUE_FIELDS = { keep = true, discard = true, trend = true }
+-- has a Discard value (`has_discard`) is layout: its arrow comes and goes
+-- with it. So are popups (a value given up on, a search given up on), which
+-- are on the cells.
+local VALUE_FIELDS = { keep = true, discard = true, trend = true, keep_stale = true, discard_stale = true }
 local function layout_key(model)
     local function rows(list)
         local out = array()
         for i, r in ipairs(list) do
-            local copy = { has_discard = r.discard ~= nil or nil }
+            local copy = {}
             for k, v in pairs(r) do
                 if not VALUE_FIELDS[k] then copy[k] = v end
             end
@@ -100,7 +102,7 @@ local function layout_key(model)
     end
     local empty = #model.targets == 0 and #model.cards == 0
     return encode({ targets = rows(model.targets), cards = rows(model.cards), can_add = model.can_add,
-                    message = empty and model.message or nil })
+                    message = empty and model.message or nil, message_popup = model.message_popup })
 end
 Calculatro.layout_key = layout_key
 

@@ -128,8 +128,33 @@ function Calculatro.check_round()
     if Calculatro.odds and not this_round(Calculatro.odds.id) then Calculatro.odds = nil end
 end
 
+-- A partial payload's values still to come (marked pending) are the ones
+-- shown before, from the odds before it, if they had one: the panel keeps
+-- them, greyed out after a while (panel_model), as it does odds for an older
+-- snapshot. A Discard value kept keeps its colour (trend), but no value keeps
+-- its mark: its popup would be about the selection before.
+local function merged(odds, before)
+    if not odds.partial then return odds end
+    for _, kind in ipairs({ 'targets', 'cards' }) do
+        local earlier = {}
+        for _, o in ipairs(before and before[kind] or {}) do earlier[o.key] = o end
+        for _, o in ipairs(type(odds[kind]) == 'table' and odds[kind] or {}) do
+            local e = earlier[o.key] or {}
+            for _, field in ipairs({ 'keep', 'discard' }) do
+                local mark = o[field .. '_mark']
+                if type(mark) == 'table' and mark.state == 'pending' then
+                    o[field] = e[field]
+                    if field == 'discard' then o.trend = e.trend end
+                end
+            end
+        end
+    end
+    return odds
+end
+
 -- The app answers each snapshot first with {id, pending = true}, then with
--- the odds once they're calculated. Odds left over from an earlier game
+-- the odds as they're calculated: partial ones while some are still to come
+-- (see merged), then all of them. Odds left over from an earlier game
 -- session or round are ignored.
 local function receive_odds(raw)
     if not raw or raw == Calculatro.odds_raw then return end
@@ -139,7 +164,7 @@ local function receive_odds(raw)
         return
     end
     Calculatro.ack_id = odds.id
-    if not odds.pending and this_round(odds.id) then Calculatro.odds = odds end
+    if not odds.pending and this_round(odds.id) then Calculatro.odds = merged(odds, Calculatro.odds) end
     Calculatro.receive_search(odds.search)
 end
 

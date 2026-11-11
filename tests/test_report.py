@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import random
+import threading
+import time
 from dataclasses import replace
+from fractions import Fraction
 
 import pytest
 
 from calculatro import report
 from calculatro.cards import parse_query
-from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard
+from calculatro.engine import Cancelled, DiscardOutcome, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.report import build_report
+from calculatro.report import PENDING, build_report
 from calculatro.state import SUITS, Card, GameState, Joker
+from calculatro.worker import MEMORY, TIME, Control, Limits, TooSlow, Watchdog
 
 
 def card(rank_id: int, suit: str = "Spades", **kw) -> Card:
@@ -124,6 +128,93 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
 
     monkeypatch.setattr(report, "evaluate_discard", only_the_discard)
     assert build_report(selecting(STATE, 0), [get_target("Pair")], known=known).targets[0].discard is not None
+
+
+def taking(seconds: dict[str, float], calls: list[tuple] | None = None):
+    """A stand-in for `evaluate_discard` whose rows take set times, by the target's
+    name (none for others), and stop when cancelled, as the engine does. The odds
+    are 1/(number of cards discarded + 2)."""
+    def evaluate(state, target, discard, cancel=None):
+        if calls is not None:
+            calls.append((target.name, len(discard)))
+        end = time.monotonic() + seconds.get(target.name, 0)
+        while time.monotonic() < end:
+            if cancel is not None and cancel.is_set():
+                raise Cancelled
+            time.sleep(0.002)
+        return DiscardOutcome([state.hand[i] for i in discard], 1, Fraction(1, len(discard) + 2))
+    return evaluate
+
+
+def test_quick_values_first_then_the_slow_ones_then_given_up(monkeypatch):
+    """Each value gets a quick try first, so a slow one never holds up the rest; the slow ones then get longer, and
+    one that doesn't finish then is given up on, and isn't tried again."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
+    targets = [get_target(n) for n in ("Pair", "Flush", "Straight Flush")]
+    control, known, partials = Control(Watchdog(period=0.005)), {}, []
+    found = build_report(selecting(STATE, 0), targets, cancel=control, known=known,
+                         limits=Limits(quick=0.1, exact=0.5), progress=partials.append)
+    # Keep, then Discard, in the panel's order ("Any target" is the combined target), in each pass.
+    rows = ("Pair / Flush / Straight Flush", "Pair", "Flush", "Straight Flush")
+    assert calls == [(t, n) for n in (0, 1) for t in rows] + [(t, n) for n in (0, 1) for t in rows[2:]]
+    assert [(t.name, t.keep, t.discard) for t in found.targets] == [
+        ("Any target", Fraction(1, 2), Fraction(1, 3)), ("Pair", Fraction(1, 2), Fraction(1, 3)),
+        ("Flush", Fraction(1, 2), Fraction(1, 3)), ("Straight Flush", TooSlow(TIME), TooSlow(TIME))]
+    assert not found.partial and found.discard_draws == 1
+    # Each value as it's found: the quick ones, then Flush's and Straight Flush's in turn.
+    shown = [[(t.keep, t.discard) for t in p.targets] for p in partials]
+    assert len(partials) == 8 and all(p.partial for p in partials[:-1]) and partials[-1] == found
+    assert shown[0][0] == (Fraction(1, 2), PENDING)
+    assert shown[3][1] == (Fraction(1, 2), Fraction(1, 3)) and shown[3][2:] == [(PENDING, PENDING)] * 2
+    assert shown[4][2] == (Fraction(1, 2), PENDING) and shown[5][3] == (TooSlow(TIME), PENDING)
+    assert shown[6][2] == (Fraction(1, 2), Fraction(1, 3)) and shown[6][3] == (TooSlow(TIME), PENDING)
+    calls.clear()
+    again = build_report(selecting(STATE, 0), targets, cancel=control, known=known, limits=Limits(quick=0.1, exact=0.5))
+    assert calls == [] and again == found
+
+
+def test_a_value_using_too_much_memory_is_given_up(monkeypatch):
+    """Over the memory limit a value is given up on, saying so, and the next one starts afresh once the memory is
+    given back."""
+    used = [0]
+    slow = taking({"Flush": 10})
+
+    def hungry(state, target, discard, cancel=None):
+        if target.name != "Flush":
+            return slow(state, target, discard, cancel)
+        used[0] = 2000
+        try:
+            return slow(state, target, discard, cancel)
+        finally:
+            used[0] = 0  # given back as it unwinds
+
+    monkeypatch.setattr(report, "evaluate_discard", hungry)
+    control = Control(Watchdog(lambda: used[0], memory_limit=1000, period=0.005, grace=0.05))
+    found = build_report(selecting(STATE, 0), [get_target("Flush"), get_target("Pair")], cancel=control,
+                         limits=Limits(quick=5, exact=5))
+    assert [(t.name, t.keep, t.discard) for t in found.targets][1:] == [
+        ("Flush", TooSlow(MEMORY), TooSlow(MEMORY)), ("Pair", Fraction(1, 2), Fraction(1, 3))]
+
+
+def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
+    """Only the limits give a value up: cancelling the job still cancels it."""
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair": 10}))
+    control = Control(Watchdog(period=0.005))
+    threading.Timer(0.2, control.cancel).start()
+    known = {}
+    with pytest.raises(Cancelled):
+        build_report(selecting(STATE, 0), [get_target("Pair")], cancel=control, known=known,
+                     limits=Limits(quick=0.05, exact=5))
+    assert known == {}
+
+
+def test_no_limits_without_a_job(monkeypatch):
+    """Called with a plain Event (or none), as the console and the benchmarks do, every value is worked out."""
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair": 0.1}))
+    found = build_report(selecting(STATE, 0), [get_target("Pair")], cancel=threading.Event(),
+                         limits=Limits(quick=0.01, exact=0.01))
+    assert found.targets[0].discard == Fraction(1, 3)
 
 
 def _random_setup(rng: random.Random) -> tuple[GameState, list[int]]:

@@ -118,7 +118,7 @@ Every reviewer that tested a claim confirmed it with a scratch reproducer, unles
 - [ ] **[low]** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:199-200`)
   - Use the same condition as `_groups`/`evaluate_discard`. The gain is small today.
 - [ ] **[low]** `engine._gc_paused` turns the garbage collector off for the whole process while any job runs
-  - With overlapping long searches, it can stay off for long stretches. Count nested pauses, and consider `gc.freeze()` or a raised threshold instead of disabling it.
+  - Nested pauses are counted. With overlapping long searches, it can stay off for long stretches, though since the time limits (progressive-odds stage 1) none runs for more than about 30 s, and the worst case measured left only 6 MB of cycles (see "The garbage collector" in `docs/architecture.md`). If that changes, consider `gc.freeze()` or a raised threshold instead of disabling it.
 - [ ] **[low]** The Lua panel does avoidable work every frame (`panel.lua:183-190`)
   - `refresh_panel` builds the model and encodes it twice per frame. `layout_key` is computed before the `key == panel_key` early return, so that work is wasted whenever nothing changed.
   - `panel_model`/`editor_model` call `builder_for` for every query every frame.

@@ -28,6 +28,48 @@ _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 _mutexes: list[int] = []  # held until the app exits
 
 
+class _MemoryCounters(ctypes.Structure):  # PROCESS_MEMORY_COUNTERS_EX
+    _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+        (name, ctypes.c_size_t) for name in (
+            "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+            "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage",
+            "PrivateUsage")]
+
+
+class _MemoryStatus(ctypes.Structure):  # MEMORYSTATUSEX
+    _fields_ = [("dwLength", wintypes.DWORD), ("dwMemoryLoad", wintypes.DWORD)] + [
+        (name, ctypes.c_ulonglong) for name in (
+            "ullTotalPhys", "ullAvailPhys", "ullTotalPageFile", "ullAvailPageFile", "ullTotalVirtual",
+            "ullAvailVirtual", "ullAvailExtendedVirtual")]
+
+
+_kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+_kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+_kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MemoryCounters), wintypes.DWORD]
+_kernel32.GlobalMemoryStatusEx.restype = wintypes.BOOL
+_kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MemoryStatus)]
+
+MEMORY_LIMIT = 2 * 2**30  # bytes the app may use at most, if the computer has twice that
+
+
+def memory_used() -> int:
+    """The bytes this process has committed (its private usage), or 0 if Windows won't say.
+    Python gives the memory a cancelled calculation used back to Windows as it unwinds."""
+    counters = _MemoryCounters(cb=ctypes.sizeof(_MemoryCounters))
+    if not _kernel32.K32GetProcessMemoryInfo(_kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        return 0
+    return counters.PrivateUsage
+
+
+def memory_limit() -> int:
+    """The most the app's calculations may make it use: MEMORY_LIMIT, or half the
+    computer's memory if that's less."""
+    status = _MemoryStatus(dwLength=ctypes.sizeof(_MemoryStatus))
+    if not _kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return MEMORY_LIMIT
+    return min(MEMORY_LIMIT, status.ullTotalPhys // 2)
+
+
 def exited(pid: int) -> Callable[[], bool]:
     """A check that's True once process `pid` has exited (at once if it can't be
     found). It holds a handle to the process, so a reused pid can't fool it."""

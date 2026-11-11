@@ -23,6 +23,15 @@ local function same_hand(cards)
     return true
 end
 
+-- The hand cards selected, as 0-based indices into `cards`.
+local function selection(cards)
+    local out = {}
+    for i, card in ipairs(cards) do
+        if card.highlighted then out[#out + 1] = i - 1 end
+    end
+    return out
+end
+
 local function is_selected(option, cards)
     local chosen = {}
     for _, i in ipairs(option) do chosen[cards[i + 1]] = true end
@@ -61,7 +70,7 @@ end
 function Calculatro.search(key)
     if not Calculatro.can_search() then return end
     local found = Calculatro.found
-    if found and found.key == key and same_hand(found.hand) then
+    if found and found.key == key and not found.gave_up and same_hand(found.hand) then
         local current = found.index > 0 and is_selected(found.options[found.index], found.hand)
         found.index = current and found.index % #found.options + 1 or 1
         Calculatro.select(found.options[found.index], found.hand)
@@ -91,7 +100,9 @@ end
 -- sold), so its options are dropped and the button asks again. A reply that
 -- arrives while the cards can't be selected for a discard (a Tarot is choosing
 -- its cards) is kept without selecting anything (index 0), and the button's
--- next click selects its first option.
+-- next click selects its first option. A search the app gave up on (its
+-- `mark`) has no options, and is kept as `gave_up` with the selection then,
+-- for the title row; the button asks again, and the app answers at once.
 function Calculatro.receive_search(reply)
     local found = Calculatro.found
     if found and not (type(reply) == 'table' and reply.nonce == found.nonce
@@ -102,7 +113,13 @@ function Calculatro.receive_search(reply)
     if type(reply) ~= 'table' or not searching or reply.nonce ~= searching.nonce then return end
     Calculatro.searching, Calculatro.request = nil, nil
     local options = reply.options or {}
-    if #options == 0 or not same_hand(searching.hand) then return end
+    if not same_hand(searching.hand) then return end
+    if type(reply.mark) == 'table' and reply.mark.state == 'final' then
+        Calculatro.found = { key = searching.key, nonce = searching.nonce, options = {}, index = 0,
+                             hand = searching.hand, gave_up = reply.mark, selection = selection(searching.hand) }
+        return
+    end
+    if #options == 0 then return end
     local apply = Calculatro.can_search()
     Calculatro.found = { key = searching.key, nonce = searching.nonce, options = options,
                          index = apply and 1 or 0, hand = searching.hand }
@@ -119,10 +136,18 @@ function Calculatro.check_search()
 end
 
 -- The title row's word on the search: while it runs, and while the selection
--- is one of its options ("2/3", or "Keep hand" for keeping it).
+-- is one of its options ("2/3", or "Keep hand" for keeping it). For a search
+-- given up on, "Too slow" and its mark (for the popup), until the selection
+-- changes.
 function Calculatro.search_message()
     if Calculatro.searching then return 'Searching...' end
     local found = Calculatro.found
+    if found and found.gave_up then
+        if same_hand(found.hand) and is_selected(found.selection, found.hand) then
+            return 'Too slow', found.gave_up
+        end
+        return nil
+    end
     if not found or found.index == 0 or not same_hand(found.hand)
         or not is_selected(found.options[found.index], found.hand) then
         return nil

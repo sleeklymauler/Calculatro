@@ -2,7 +2,12 @@
 
 Each payload echoes the id of the snapshot it answers, so the mod can tell
 current odds from ones for an older state. A snapshot is answered first with
-a `pending` payload, then with the odds once they're calculated.
+a `pending` payload, then with the odds as they're calculated: `partial`
+while some values are still to come, then all of them.
+
+A value (a row's `keep` or `discard`) that isn't exact odds has a mark beside
+it (`keep_mark`, `discard_mark`) saying what it is (`mark`). Without either,
+the row has no such value (nothing is selected, say).
 
 The mod owns the list of what's tracked and names its rows itself, so each
 row here is keyed by what the mod sent: a hand's name ("Three of a Kind", or
@@ -23,11 +28,12 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .report import Report
+from .report import Pending, Report, Value
 from .search import Search
 from .state import GameState
+from .worker import TooSlow
 
-SCHEMA = 5  # `odds_schema` in the mod's core.lua
+SCHEMA = 6  # `odds_schema` in the mod's core.lua
 
 # The panel fits 3 columns (`max_columns` in the mod's tracked.lua; a 4th reaches
 # the HUD sidebar) of 6 rows under the consumables. Target hands and card
@@ -66,31 +72,71 @@ def pending(state: GameState) -> dict[str, Any]:
     return {"schema": SCHEMA, "id": state.id, "pending": True}
 
 
+TOO_SLOW = "?"  # a value given up on
+
+
+def mark(value: Value) -> dict[str, Any] | None:
+    """What a value that isn't exact odds is, for the panel: still to come
+    (`{"state": "pending"}`), or given up on (`{"state": "final", "limit":
+    "time"}` or `"memory"`, shown as TOO_SLOW). None for exact odds."""
+    if isinstance(value, Pending):
+        return {"state": "pending"}
+    if isinstance(value, TooSlow):
+        return {"state": "final", "limit": value.limit}
+    return None
+
+
+def _put(out: dict[str, Any], name: str, value: Value) -> None:
+    """`value` as `out[name]`, with its mark as `out[name + "_mark"]` (see mark)."""
+    if isinstance(value, Fraction):
+        out[name] = percent(value)
+        return
+    if isinstance(value, TooSlow):
+        out[name] = TOO_SLOW
+    out[name + "_mark"] = mark(value)
+
+
+def _trend(keep: Value, discard: Value) -> int | None:
+    """Whether discarding does better (1) or worse (-1) than keeping, or the same
+    (0). None unless both are exact odds."""
+    if isinstance(keep, Fraction) and isinstance(discard, Fraction):
+        return (discard > keep) - (discard < keep)
+    return None
+
+
 def odds(state: GameState, report: Report | None) -> dict[str, Any]:
     """The panel's odds for `state`: none without a report (nothing tracked)."""
     payload: dict[str, Any] = {"schema": SCHEMA, "id": state.id, "targets": [], "cards": []}
     if report is None:
         return payload
+    if report.partial:
+        payload["partial"] = True
     for row in report.targets:
-        target: dict[str, Any] = {"key": row.name, "keep": percent(row.keep)}
+        target: dict[str, Any] = {"key": row.name}
+        _put(target, "keep", row.keep)
         if row.discard is not None:
-            target["discard"] = percent(row.discard)
-            target["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
+            _put(target, "discard", row.discard)
+            if (trend := _trend(row.keep, row.discard)) is not None:
+                target["trend"] = trend
         payload["targets"].append(target)
     for row in report.cards:
         # No keep value: the panel shows only the discard's, coloured by the trend.
         card: dict[str, Any] = {"key": row.query.text}
         if row.discard is not None:
-            card["discard"] = percent(row.discard)
-            card["trend"] = (row.discard > row.keep) - (row.discard < row.keep)
+            _put(card, "discard", row.discard)
+            if (trend := _trend(row.keep, row.discard)) is not None:
+                card["trend"] = trend
         payload["cards"].append(card)
     return payload
 
 
-def search(key: str, nonce: int, found: Search | None) -> dict[str, Any]:
+def search(key: str, nonce: int, found: Search | TooSlow | None) -> dict[str, Any]:
     """The result of the mod's search request `nonce` for the row `key`: the
     discards to cycle through, as hand indices (0-based), best first. No
-    options if there was nothing to search (`key` isn't tracked)."""
+    options if there was nothing to search (`key` isn't tracked), or if it was
+    given up on, which its `mark` says (see mark)."""
+    if isinstance(found, TooSlow):
+        return {"nonce": nonce, "key": key, "options": [], "mark": mark(found)}
     return {"nonce": nonce, "key": key, "options": found.options if found else []}
 
 

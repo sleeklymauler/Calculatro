@@ -7,7 +7,8 @@ the app work is in [architecture.md](architecture.md).
 ## Talking to the app
 
 The app answers each snapshot in `calculatro_odds.json` (same directory, atomic `os.replace`): first
-`{id, pending: true}`, then the odds, echoing the snapshot's `id`. `overlay.write` returns False
+`{id, pending: true}`, then the odds as they're found (`partial` until the last; see
+[the shapes](architecture.md#shapes)), echoing the snapshot's `id`. `overlay.write` returns False
 rather than raising if the file stays locked; `run_watch` then resends the latest payload every
 `RETRY` seconds until it's written or a newer one replaces it. The mod reads the file ~10×/sec (on its file thread) with
 a small JSON decoder.
@@ -21,6 +22,11 @@ tracked target with the odds for its key ('-' until there are some).
 
 - Odds whose `id` isn't the latest snapshot's are still shown, greyed with "Calculating..." after
   0.3 s.
+- So are the values a partial answer doesn't have yet (marked `pending`), each on its own: as it
+  arrives, `receive_odds` keeps each of them from the odds before (`merged`: a Discard value keeps
+  its trend too), and `panel_model` greys them (`keep_stale`, `discard_stale`) and says
+  "Calculating..." after 0.3 s, until the last answer. A Discard value still to come has its arrow
+  (`has_discard`), so the panel isn't rebuilt when it arrives.
 - With no reply at all for 2 s it says "Waiting for app", or "App didn't start" if Windows refused the
   start, there was nothing to start, or it has been restarted twice to no avail
   (`Calculatro.app_failed`).
@@ -64,8 +70,8 @@ from the label's own UIBox, `G.consumeables.children.area_uibox`, once it exists
 ## Building it without slowing the game
 
 - **Rebuilds.** The box is rebuilt only when its layout changes (`layout_key`: the model without the
-  odds values, their staleness and the title row's message), since a rebuild costs the game tens of
-  milliseconds. Otherwise the value text nodes (tagged `config.calculatro_value`) get the new text and
+  odds values, their staleness and the title row's message; popups are on cells, so they're layout),
+  since a rebuild costs the game tens of milliseconds. Otherwise the value text nodes (tagged `config.calculatro_value`) get the new text and
   colour in place and the box is laid out again (`update_values`, the game's `recalculate`). The new
   values come from a definition built without the suit icons' sprites (`widgets.without_sprites`),
   since the game keeps every `Sprite` made until it's removed.
@@ -95,6 +101,15 @@ and the editor's list, shows a popup while hovered (`card_name_cell`, `hover_pop
 `h_popup`, built anew on each hover) in the panel's colours (light text on `inset_colour`, deeper
 shadows) with the full label and what it means (`about`, written by `builder_about` when the query is
 added and kept with it; queries added before that have none). Mouse only for now.
+
+### Values given up on
+
+A value the app gave up on (over its time or memory limit, see
+[architecture.md](architecture.md#the-app)) shows "?", and hovering its cell shows a popup ("Too slow",
+then lines saying the exact odds would take too long or use too much memory, by its mark's `limit`;
+`TOO_SLOW` in `odds.lua`). The popup is on the whole value cell (`calculatro_keep:<key>`,
+`calculatro_discard:<key>`, `calculatro_card:<key>`), since a "?" alone is hard to hover. A Discard
+value is green or red only when both it and Keep are exact (the app sends no `trend` otherwise).
 
 ### The arrow
 
@@ -192,7 +207,8 @@ type, keeps the default. There's one so far:
   snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the odds and the
   best-discard search use ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
   With many face-down cards in wide windows (The House after its first discard, whose first sort is
-  kept), the odds can show "Calculating..." for a long time, or not finish.
+  kept), the odds can show "Calculating..." for up to the app's limits (30 s for each value), then
+  "?".
 
 ## Target editor
 
@@ -306,6 +322,11 @@ Clicking again cycles through the options (`Calculatro.found`) while the hand is
 search: the next if the selection is still the last one made, else the first. The title row shows
 "i/n" with several options and "Keep hand" when keeping is the only best; "Calculating..." and
 "Waiting for app" take priority.
+
+A search the app gave up on (30 s, or the memory limit) comes with no options and a `mark`. It
+selects nothing, and the title row says "Too slow", with a popup saying why (`SEARCH_TOO_SLOW`), until
+the selection changes (`found.gave_up`, `found.selection`). The button then asks again, and the app,
+which remembers it gave up until `search_basis` changes, answers at once.
 
 Buttons are inert outside `SELECTING_HAND`, or with no way left to throw cards away before the last
 hand (`search.can_redraw`/`Calculatro.can_search`: a discard, or a hand played as one with another

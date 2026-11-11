@@ -18,6 +18,7 @@ from calculatro.report import build_report
 from calculatro.rules import Rules
 from calculatro.search import Search
 from calculatro.state import SUIT_SHORT, SUITS, Card, GameState
+from calculatro.worker import TIME, TooSlow
 from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
 from test_watch import FakeSource
 
@@ -909,6 +910,144 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     mod.update(0.1)
     texts = panel_texts(rt)
     assert not any(t.endswith("@stale") for t in texts) and "Calculating...@muted" not in texts
+
+
+def app_payload(tmp_path) -> dict:
+    """The app's odds for the mod's latest state, for a test to change before writing."""
+    state = read_state(tmp_path)
+    return cli.calculate(state, *cli.tracked(state))[1]
+
+
+def write_payload(tmp_path, payload: dict) -> None:
+    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+
+
+def rows_of(payload: dict) -> dict[str, dict]:
+    return {r["key"]: r for r in payload["targets"] + payload["cards"]}
+
+
+def test_partial_odds_grey_only_the_values_still_to_come(lua, tmp_path):
+    """A partial answer's values are shown at once; those it doesn't have yet keep the ones before, greyed out after a
+    while, each on its own, and the title row says it's calculating until the rest arrive."""
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=("no face",))
+    mod.update(0.1)
+    assert "20.0%@light" in panel_texts(rt) and "100%@green" in panel_texts(rt)  # Trips: Keep, Discard
+    boxes = rt.eval("#BOXES")
+    rt.execute("G.hand.cards[1].highlighted = true")  # the Queen of Hearts too
+    mod.update(0.2)  # new snapshot
+    final = app_payload(tmp_path)
+    partial = json.loads(json.dumps(final))
+    partial["partial"] = True
+    trips, card = rows_of(partial)["Three of a Kind"], rows_of(partial)["no face"]
+    for row in (trips, card):
+        del row["discard"], row["trend"]
+        row["discard_mark"] = {"state": "pending"}
+    write_payload(tmp_path, partial)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert "Calculating...@muted" not in texts and not any(t.endswith("@stale") for t in texts)
+    def trips_row(texts):
+        return texts[texts.index("Trips@light"):][:4]
+    assert trips_row(texts) == ["Trips@light", "20.0%@light", "->@muted", "100%@green"]  # as before
+    mod.update(0.3)
+    texts = panel_texts(rt)
+    assert texts[3] == "Calculating...@muted"
+    assert trips_row(texts) == ["Trips@light", "20.0%@light", "->@muted", "100%@stale"]
+    assert sum(t.endswith("@stale") for t in texts) == 2  # Trips' and the card query's Discard
+    write_payload(tmp_path, final)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert not any(t.endswith("@stale") for t in texts) and "Calculating...@muted" not in texts
+    assert rt.eval("#BOXES") == boxes  # updated in place throughout
+
+
+def test_a_value_still_to_come_without_one_before_keeps_its_arrow(lua, tmp_path):
+    """A Discard value to come has its arrow already, so the panel isn't rebuilt when it arrives."""
+    rt, mod = lua
+    mod.update(1.0)
+    rt.execute("for _, c in ipairs(G.hand.cards) do c.highlighted = false end")
+    answer(lua, tmp_path, targets=("trips",), queries=())
+    mod.update(0.1)
+    assert "->@muted" not in panel_texts(rt)
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.2)
+    final = app_payload(tmp_path)
+    partial = {**final, "partial": True,
+               "targets": [{"key": "Three of a Kind", "keep": "20.0%", "discard_mark": {"state": "pending"}}]}
+    write_payload(tmp_path, partial)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    assert texts[texts.index("Trips@light"):][:4] == ["Trips@light", "20.0%@light", "->@muted", "-@light"]
+    boxes = rt.eval("#BOXES")
+    write_payload(tmp_path, final)
+    mod.update(0.1)
+    assert rt.eval("#BOXES") == boxes
+
+
+TOO_SLOW_POPUP = r"""
+return function(mod, popup)  -- the texts of the popup shown while hovering a cell with this one
+  UIElement = {hover = function(self) end}
+  local e = {config = {calculatro_popup = popup}}
+  mod.hover_popups(e)
+  e:hover()
+  return e.config.h_popup
+end
+"""
+
+
+def test_values_given_up_on_show_a_question_mark_with_a_popup(lua, tmp_path):
+    rt, mod = lua
+    mod.update(1.0)
+    answer(lua, tmp_path, queries=("no face",))
+    mod.update(0.1)
+    boxes = rt.eval("#BOXES")
+    payload = app_payload(tmp_path)
+    trips, card = rows_of(payload)["Three of a Kind"], rows_of(payload)["no face"]
+    trips.update(keep="?", keep_mark={"state": "final", "limit": "time"})
+    del trips["trend"]
+    card.update(discard="?", discard_mark={"state": "final", "limit": "memory"})
+    del card["trend"]
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    texts = panel_texts(rt)
+    trips_at = texts.index("Trips@light")
+    # Neither colour: a value given up on can't be compared.
+    assert texts[trips_at:trips_at + 4] == ["Trips@light", "?@light", "->@muted", "100%@light"]
+    assert "?@light" in texts[texts.index("In hand@muted"):]
+    assert rt.eval("#BOXES") > boxes  # the popups are on the cells: rebuilt
+    keep = find(rt, "calculatro_keep:Three of a Kind")
+    assert keep.config.collideable and keep.config.calculatro_popup.name == "Too slow"
+    popup = rt.execute(TOO_SLOW_POPUP)(mod, keep.config.calculatro_popup)
+    assert [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()] == [
+        "Too slow", "Working these odds out exactly", "would take too long, so the", "app has given up on them."]
+    popup = rt.execute(TOO_SLOW_POPUP)(mod, find(rt, "calculatro_card:no face").config.calculatro_popup)
+    assert [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()][1:3] == [
+        "Working these odds out exactly", "would use too much memory, so"]
+    assert find(rt, "calculatro_discard:Three of a Kind") is None  # exact values have none
+    assert all(len(t.split("@")[0]) <= 31 for t in rt.execute(TEXTS)(popup).values())
+
+
+def test_search_given_up_says_so_on_the_title_row(lua, tmp_path):
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    assert click(lua, "calculatro_search_Pair")
+    payload = app_payload(tmp_path)
+    payload["search"] = overlay.search("Pair", 1, TooSlow(TIME))
+    write_payload(tmp_path, payload)
+    mod.update(0.1)
+    assert message(rt) == "Too slow" and selected(rt) == [2, 3]  # nothing selected for it
+    popup = rt.execute(TOO_SLOW_POPUP)(mod, find(rt, "calculatro_message").config.calculatro_popup)
+    assert [t.split("@")[0] for t in rt.execute(TEXTS)(popup).values()] == [
+        "Too slow", "Comparing every discard would", "take too long, so the app has", "given up on this search."]
+    # Until the selection changes.
+    rt.execute("G.hand.cards[1].highlighted = true")
+    mod.update(0.1)
+    assert message(rt) is None and find(rt, "calculatro_message") is None
+    # The button asks again (the app answers at once).
+    assert click(lua, "calculatro_search_Pair")
+    assert read_state(tmp_path).search == ("Pair", 2) and message(rt) == "Searching..."
 
 
 def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):

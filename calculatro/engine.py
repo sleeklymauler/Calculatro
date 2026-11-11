@@ -1161,6 +1161,11 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
                     () if added_hidden or played is None else (played,) * copies, added_hidden)
 
 
+def discard_draws(state: GameState, discard: list[int]) -> int:
+    """How many cards are drawn after discarding the hand cards at `discard`."""
+    return _discard(state, discard).draws
+
+
 def rules_after(state: GameState, discard: list[int]) -> list[tuple[Rules, int]]:
     """The rules the final hand is judged under after discarding `discard`,
     each with how many of the equally likely ways lead to it.

@@ -18,7 +18,8 @@ from calculatro.hands import get_target
 from calculatro.log import open_log
 from calculatro.rules import Rules
 from calculatro.state import SCHEMA, SUITS, Card, GameState, Joker
-from calculatro.worker import Job
+from calculatro.worker import MEMORY, TIME, Control, Job, Limits, TooSlow, Watchdog, limited
+from test_report import taking
 
 
 def test_probability_cancelled():
@@ -97,7 +98,7 @@ def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str
 
 def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
     """Run the watch loop until `done(writes)`, returning everything it wrote."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (fake_odds(st, t, q, cancel), {}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (fake_odds(st, t, q, cancel), {}))
     writes: list[str] = []
     end = time.monotonic() + timeout
     cli.run_watch(source, writes.append, patience=0.05, poll_interval=0.005,
@@ -112,7 +113,7 @@ def test_no_odds_until_the_hand_settles(monkeypatch):
     calculated: list[str] = []
     source = FakeSource(state("A", game_state="DRAW_TO_HAND"), state("B", game_state="HAND_PLAYED"), state("C"))
     sent: list[dict] = []
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (
         calculated.append(st.blind) or f"odds {st.blind}", {"odds": st.blind}))
     writes: list[str] = []
     end = time.monotonic() + 5
@@ -150,7 +151,7 @@ def test_new_state_cancels_running_odds(monkeypatch):
     source = FakeSource(state("A"))
     cancelled = threading.Event()
 
-    def odds(st, t, q, cancel, known=None):
+    def odds(st, t, q, cancel, known=None, **_):
         if st.blind == "B":
             return "odds B"
         while not cancel.is_set():
@@ -173,7 +174,7 @@ def test_new_state_cancels_running_odds(monkeypatch):
 def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
     """A bug in the odds doesn't stop the app: it's logged (once while it repeats), the panel gets odds without
     values rather than waiting on them, and the next state is calculated as usual."""
-    def odds(st, t, q, cancel, known=None):
+    def odds(st, t, q, cancel, known=None, **_):
         if st.blind != "C":
             raise ValueError("boom")
         return "odds C", {"odds": "C"}
@@ -192,7 +193,7 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
 
 def failing_odds(monkeypatch, fail) -> list[dict]:
     """The panel's payloads from running the watch loop over states A, B, X and Y, whose odds call `fail`, then C."""
-    def odds(st, t, q, cancel, known=None):
+    def odds(st, t, q, cancel, known=None, **_):
         if st.blind == "C":
             return "odds C", {"odds": "C"}
         fail(st.blind)
@@ -258,7 +259,7 @@ BAD_STATES = {
 @pytest.mark.parametrize("bad", BAD_STATES.values(), ids=BAD_STATES.keys())
 def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsys, bad):
     """A state the loop can't handle doesn't stop the app, and the panel still gets the next one's odds."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (f"odds {st.blind}", {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (f"odds {st.blind}", {"odds": st.blind}))
     odds_file = tmp_path / "calculatro_odds.json"
     source, writes = FakeSource(bad(), state("B")), []
     end = time.monotonic() + 5
@@ -273,7 +274,7 @@ def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsy
 def test_bad_state_after_a_running_job_isnt_a_failed_calculation(monkeypatch, capsys):
     """A bad state has cancelled the running job by the time it fails: that's not the job failing, so no failed odds
     are reported or sent for the state before it."""
-    def odds(st, t, q, cancel, known=None):
+    def odds(st, t, q, cancel, known=None, **_):
         if st.blind == "A":
             cancel.wait(5)
             raise Cancelled
@@ -296,7 +297,7 @@ def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
                 raise OSError("boom")
             return super().poll()
 
-    def odds(st, t, q, cancel, known=None):
+    def odds(st, t, q, cancel, known=None, **_):
         release.wait(5)
         return "odds A"
 
@@ -307,7 +308,7 @@ def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
 
 def test_failure_printing_finished_odds_isnt_repeated(monkeypatch, capsys):
     """Odds that can't be printed are dropped, not printed again on every pass of the loop."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known: (f"odds {st.blind}", {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (f"odds {st.blind}", {"odds": st.blind}))
     attempts, writes = [], []
 
     def write(text):
@@ -370,11 +371,11 @@ def wait_for(cond, timeout=5.0):
         time.sleep(0.005)
 
 
-def watch_thread(source, sent, writes=None):
+def watch_thread(source, sent, writes=None, **kwargs):
     stopped = threading.Event()
     t = threading.Thread(target=cli.run_watch, args=(source, (writes if writes is not None else []).append,
                                                        sent.append),
-                         kwargs={"poll_interval": 0.005, "stop": stopped.is_set}, daemon=True)
+                         kwargs={"poll_interval": 0.005, "stop": stopped.is_set, **kwargs}, daemon=True)
     t.start()
     return stopped, t
 
@@ -691,3 +692,135 @@ def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
     expected = [call for _, step in steps for call in step]
     assert calls == expected
     assert answers[2]["targets"] == answers[0]["targets"] == answers[3]["targets"]
+
+
+# --- Limits ------------------------------------------------------------------
+
+
+def test_watchdog_stops_attempts_at_their_deadline_and_over_the_memory_limit():
+    used = [100]
+    watchdog = Watchdog(lambda: used[0], memory_limit=1000, period=3600)  # checked by hand after its first look
+    control = Control(watchdog)
+    with control.limited(3600) as long, control.limited(0) as due:
+        watchdog.check()
+        assert due.is_set() and due.reason == TIME and not long.is_set()
+        used[0] = 2000
+        watchdog.check()
+        assert long.is_set() and long.reason == MEMORY
+        # While the memory is given back, the next attempt isn't stopped for what the last one used...
+        with control.limited(3600) as after:
+            watchdog.check()
+            assert not after.is_set()
+            used[0] = 500
+            watchdog.check()
+            used[0] = 2000  # ...only for its own
+            watchdog.check()
+            assert after.is_set() and after.reason == MEMORY
+        # Or once the grace has passed, if the memory was never seen to fall.
+        with control.limited(3600) as unseen:
+            watchdog.check()
+            assert not unseen.is_set()
+            watchdog.grace = 0
+            watchdog.check()
+            assert unseen.is_set() and unseen.reason == MEMORY
+
+
+def test_limited_gives_up_at_a_limit_but_not_when_cancelled():
+    def until_stopped(cancel):
+        while not cancel.is_set():
+            time.sleep(0.001)
+        raise Cancelled
+
+    control = Control(Watchdog(period=0.005))
+    assert limited(control, 0.05, until_stopped) == TooSlow(TIME)
+    assert limited(control, 5, lambda cancel: 42) == 42
+    threading.Timer(0.05, control.cancel).start()
+    with pytest.raises(Cancelled):
+        limited(control, 5, until_stopped)
+    with pytest.raises(Cancelled):  # already cancelled
+        limited(control, 5, until_stopped)
+    assert limited(threading.Event(), 0.01, lambda cancel: 7) == 7  # no limits outside a job
+
+
+def no_nulls(value) -> bool:
+    """Whether a payload has no None anywhere (the mod's decoder has no null)."""
+    if isinstance(value, dict):
+        return all(no_nulls(v) for v in value.values())
+    if isinstance(value, list):
+        return all(no_nulls(v) for v in value)
+    return value is not None
+
+
+def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
+    hands = ["Pair", "Flush", "Straight Flush"]
+    first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=hands)
+    source, sent, writes = FakeSource(first), [], []
+    stopped, t = watch_thread(source, sent, writes, limits=Limits(quick=0.05, exact=0.4))
+    try:
+        wait_for(lambda: sent and "targets" in sent[-1] and not sent[-1].get("partial"))
+        # Pair, done in the quick pass, while Flush is worked out.
+        pending = {"state": "pending"}
+        assert {"key": "Flush", "keep_mark": pending, "discard_mark": pending} in sent[1]["targets"]
+        assert any({"key": "Pair", "keep": "50.0%", "discard": "33.3%", "trend": -1} in p["targets"]
+                   and {"key": "Flush", "keep_mark": pending, "discard_mark": pending} in p["targets"]
+                   for p in sent if p.get("partial"))
+        rows = {r["key"]: r for r in sent[-1]["targets"]}
+        assert rows["Flush"] == {"key": "Flush", "keep": "50.0%", "discard": "33.3%", "trend": -1}
+        too_slow = {"state": "final", "limit": "time"}
+        assert rows["Straight Flush"] == {"key": "Straight Flush", "keep": "?", "keep_mark": too_slow,
+                                          "discard": "?", "discard_mark": too_slow}  # no trend
+        assert all(no_nulls(p) for p in sent)
+        assert any("Straight Flush" in w and "?  ->        ?  (too slow)" in w for w in writes)
+        # Given up on until something they depend on changes: the same cards again are answered at once.
+        calls.clear()
+        final = sent[-1]
+        source.queue.append(replace(first, id="s:2"))
+        wait_for(lambda: sent[-1]["id"] == "s:2" and "targets" in sent[-1])
+        assert sent[-1]["targets"] == final["targets"]
+        assert calls == [] and not any(p.get("partial") for p in sent if p["id"] == "s:2")
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_all_quick_rows_send_no_partial_payload(monkeypatch):
+    monkeypatch.setattr(report, "evaluate_discard", taking({}))
+    source, sent = FakeSource(replace(hand_state(1, selected=(0,), search=None), tracked_hands=["Pair", "Flush"])), []
+    stopped, t = watch_thread(source, sent)
+    try:
+        wait_for(lambda: sent and "targets" in sent[-1])
+        assert not any(p.get("partial") for p in sent)
+    finally:
+        stopped.set()
+        t.join(5)
+
+
+def test_search_given_up_at_its_limit_and_answered_at_once_after(monkeypatch):
+    calls: list[str] = []
+
+    def search(state, target, cancel):
+        calls.append(state.id)
+        while not cancel.is_set():
+            time.sleep(0.001)
+        raise Cancelled
+
+    monkeypatch.setattr(cli, "best_discards", search)
+    source, sent, writes = FakeSource(hand_state(1)), [], []
+    stopped, t = watch_thread(source, sent, writes, limits=Limits(search=0.1))
+    try:
+        wait_for(lambda: sent and "search" in sent[-1])
+        gave_up = {"nonce": 1, "key": "Pair", "options": [], "mark": {"state": "final", "limit": "time"}}
+        assert sent[-1]["search"] == gave_up
+        assert "Best discard for Pair: too slow, given up on" in writes
+        # Asked for again: answered at once.
+        source.queue.append(hand_state(2, selected=(0,), search=("Pair", 2)))
+        wait_for(lambda: sent[-1].get("search", {}).get("nonce") == 2)
+        assert sent[-1]["search"] == {**gave_up, "nonce": 2} and calls == ["s:1"]
+        # Once what it depends on changes, it's searched again.
+        source.queue.append(hand_state(3, ranks=(9, 9, 5), search=("Pair", 3)))
+        wait_for(lambda: len(calls) == 2)
+    finally:
+        stopped.set()
+        t.join(5)

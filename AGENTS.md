@@ -42,7 +42,7 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 2. **Python app** (`calculatro/`): `source.py` polls the state file → `state.py` parses it →
    `engine.py` computes exact odds → `report.py` collects them → `__main__.py` formats them for the
    console and `overlay.py` for the mod. Odds and best-discard searches run in cancellable background
-   jobs (`worker.Job`).
+   jobs (`worker.Job`), whose parts stop at time and memory limits (`worker.Watchdog`).
 
 ## Read before changing
 

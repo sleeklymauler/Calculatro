@@ -19,11 +19,11 @@ from . import overlay, process
 from .cards import CardQuery, parse_query
 from .hands import Target, combine, get_target
 from .log import header, open_log
-from .report import Report, build_report, row_key
+from .report import Report, Value, build_report, row_key
 from .search import Search, best_card_discards, best_discards
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
-from .worker import Job
+from .worker import LIMITS, MEMORY, Control, Job, Limits, TooSlow, Watchdog, limited
 
 
 def summarize(state: GameState) -> str:
@@ -54,6 +54,15 @@ def _pct(p: Fraction) -> str:
     return f"{float(p) * 100:6.2f}%"
 
 
+def _too_slow(limit: str) -> str:
+    return "too slow (too much memory)" if limit == MEMORY else "too slow"
+
+
+def _value(p: Value) -> str:
+    """A value as `_pct` puts it, or "?" (as wide) for one given up on."""
+    return f"{'?':>7}" if isinstance(p, TooSlow) else _pct(p)
+
+
 def format_report(report: Report) -> str:
     """The report as text: target hands, then card queries under "In hand"."""
     hint = ("Select cards in game to see the odds after discarding them." if report.redraw
@@ -62,9 +71,12 @@ def format_report(report: Report) -> str:
     cards = [(row.query.label, row.keep, row.discard) for row in report.cards]
     width = max(len(name) for name, _, _ in rows + cards)
 
-    def lines_of(odds: list[tuple[str, Fraction, Fraction | None]]) -> list[str]:
-        return [f"  {name:<{width}}  {_pct(keep)}" + (f"  ->  {_pct(after)}" if after is not None else "")
-                for name, keep, after in odds]
+    def lines_of(odds: list[tuple[str, Value, Value | None]]) -> list[str]:
+        def line(name: str, keep: Value, after: Value | None) -> str:
+            slow = [v.limit for v in (keep, after) if isinstance(v, TooSlow)]
+            return (f"  {name:<{width}}  {_value(keep)}" + (f"  ->  {_value(after)}" if after is not None else "")
+                    + (f"  ({_too_slow(slow[0])})" if slow else ""))
+        return [line(*odds_row) for odds_row in odds]
 
     # Card queries count the final hand like targets, but are labelled apart.
     body = lines_of(rows) + (["  In hand:"] if rows and cards else []) + lines_of(cards)
@@ -106,9 +118,13 @@ def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
 
 
 def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
-              cancel: Event | None = None, known: dict | None = None) -> tuple[str, dict]:
-    """The odds as text, and as the payload for the mod's panel. `known`: see `build_report`."""
-    report = build_report(state, targets, queries, cancel, known)
+              cancel: Control | Event | None = None, known: dict | None = None, limits: Limits = LIMITS,
+              progress: Callable[[dict], None] | None = None) -> tuple[str, dict]:
+    """The odds as text, and as the payload for the mod's panel. `progress` is
+    given the partial payloads as values are found. `known`, `limits`: see
+    `build_report`."""
+    report = build_report(state, targets, queries, cancel, known, limits,
+                          None if progress is None else lambda partial: progress(overlay.odds(state, partial)))
     return (format_report(report) if report else ""), overlay.odds(state, report)
 
 
@@ -147,7 +163,9 @@ def odds_basis(state: GameState) -> tuple[GameState, Counter, tuple]:
     return replace(basis, hand=[], observed=()), Counter(basis.hand), by_id
 
 
-def format_search(state: GameState, key: str, found: Search) -> str:
+def format_search(state: GameState, key: str, found: Search | TooSlow) -> str:
+    if isinstance(found, TooSlow):
+        return f"Best discard for {key}: {_too_slow(found.limit)}, given up on"
     best = found.options[0]
     what = f"discard {' '.join(state.hand[i].short() for i in best)}" if best else "keep the hand"
     more = f" (1 of {len(found.options)} options)" if len(found.options) > 1 else ""
@@ -170,6 +188,7 @@ def settled(state: GameState) -> bool:
 
 
 RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
+PARTIAL_INTERVAL = 0.1  # seconds at least between payloads with some odds still to come (the mod reads ~10x/s)
 ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updates the in-game "
                    "panel: this one only shows the odds here.")
 
@@ -177,7 +196,8 @@ ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updat
 def run_watch(source: StateSource, write: Callable[[str], None],
               panel: Callable[[dict], object] = lambda payload: None, *,
               patience: float = 0.25, poll_interval: float = 0.05,
-              stop: Callable[[], bool] = lambda: False) -> None:
+              stop: Callable[[], bool] = lambda: False,
+              limits: Limits = LIMITS, watchdog: Watchdog | None = None) -> None:
     """Print each new state and the odds of what it tracks (`tracked`), calculating
     them in the background.
 
@@ -190,9 +210,16 @@ def run_watch(source: StateSource, write: Callable[[str], None],
 
     `panel` receives the payloads for the mod's odds panel: a `pending` one as
     soon as a state arrives, then its odds (only the pending one while the
-    hand isn't `settled`). It returns False if it couldn't
+    hand isn't `settled`): `partial` ones as values are found, at most one
+    every PARTIAL_INTERVAL seconds (none if they're all found sooner), then
+    all of them. It returns False if it couldn't
     deliver one; that payload is then sent again every RETRY seconds until it
     is, or a newer one replaces it.
+
+    Each odds value, and each search, stops at its `limits` (`build_report`),
+    or once `watchdog` finds the app using too much memory, and is given up on
+    (`worker.TooSlow`). A search given up on is answered at once when asked for
+    again, until what it depends on changes.
 
     A state asking for a best-discard search (`GameState.search`, with a number
     not seen before) starts one in a job of its own. Only a change to what it
@@ -210,13 +237,19 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     Any other error in the loop (a bad state that `GameState.from_json` didn't
     catch, say) is logged the same way, and the app carries on with the next state.
     """
+    if watchdog is None:
+        watchdog = Watchdog()  # time limits only
     job: Job[tuple[str, dict]] | None = None
     job_state: GameState | None = None  # the state the job is for
+    progress_sent = 0  # the job's progress last sent (`Control.updates`)
+    next_partial = 0.0
     known: dict = {}  # finished rows for `known_for`. A job keeps the one it started with, so an
     known_for: tuple | None = None  # older job can't add to a newer state's.
-    searching: Job[Search] | None = None
+    searching: Job[Search | TooSlow] | None = None
     search_for: tuple[GameState, GameState, str, int, Target | CardQuery | None] | None = None
     # basis, state, key, nonce, target
+    given_up: dict[object, TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
+    given_up_for: GameState | None = None
     found: dict | None = None  # the finished search's result, for the panel
     seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
     base: dict | None = None  # the latest payload, before the search's result goes on it
@@ -255,8 +288,10 @@ def run_watch(source: StateSource, write: Callable[[str], None],
         send({**payload, "search": found} if found else payload)
 
     def start_search(state: GameState) -> None:
-        nonlocal searching, search_for, found, seen
+        nonlocal searching, search_for, found, seen, given_up, given_up_for
         basis = search_basis(state)
+        if basis != given_up_for:
+            given_up, given_up_for = {}, basis
         if search_for is not None and (search_for[0] != basis
                                        or row_key(search_target(state, search_for[2])) != row_key(search_for[4])):
             # What it was worked out from has changed (or the row's target, as
@@ -277,10 +312,12 @@ def run_watch(source: StateSource, write: Callable[[str], None],
             searching.cancel()
         target = search_target(state, key)
         searching, search_for, found = None, (basis, state, key, nonce, target), None
-        if target is None:
-            found = overlay.search(key, nonce, None)
+        if target is None or row_key(target) in given_up:
+            found = overlay.search(key, nonce, None if target is None else given_up[row_key(target)])
         else:
-            searching = Job(lambda cancel, state=state, target=target: find_best(state, target, cancel))
+            searching = Job(lambda control, state=state, target=target:
+                            limited(control, limits.search, lambda cancel: find_best(state, target, cancel)),
+                            watchdog)
 
     while not stop():
         try:
@@ -304,21 +341,25 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                     basis = odds_basis(state)
                     if basis != known_for:
                         known, known_for = {}, basis
-                    job = Job(lambda cancel, state=state, targets=targets, queries=queries, known=known:
-                              calculate(state, targets, queries, cancel, known))
+                    job = Job(lambda control, state=state, targets=targets, queries=queries, known=known:
+                              calculate(state, targets, queries, control, known=known, limits=limits,
+                                        progress=control.progress), watchdog)
                     deadline = time.monotonic() + patience
+                    progress_sent, next_partial = 0, time.monotonic() + PARTIAL_INTERVAL
                 else:
                     write(pending + ("\n" + NOTHING_TRACKED if state.in_run else ""))
                     show(overlay.odds(state, None))
                     pending = ""
             if searching is not None and searching.wait(0):
-                _, searched, key, nonce, _ = search_for
+                _, searched, key, nonce, target = search_for
                 try:
                     result = searching.result()
                 except Exception as e:
                     failed(f"Best discard search for {key}", e)
                     result = None
                 searching, found = None, overlay.search(key, nonce, result)
+                if isinstance(result, TooSlow):
+                    given_up[row_key(target)] = result
                 if result is not None:
                     write(format_search(searched, key, result))
                 if base is not None:
@@ -344,9 +385,14 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                         write(out)
                 finally:
                     show(payload)  # the panel's answer doesn't depend on the console's
-            elif pending and time.monotonic() >= deadline:
-                write(pending + "\n" + CALCULATING)
-                pending = ""
+            else:
+                control = job.control
+                if control.updates != progress_sent and time.monotonic() >= next_partial:
+                    progress_sent, next_partial = control.updates, time.monotonic() + PARTIAL_INTERVAL
+                    show(control.latest)
+                if pending and time.monotonic() >= deadline:
+                    write(pending + "\n" + CALCULATING)
+                    pending = ""
         except Exception as e:
             # Something the mod would never send got past `GameState.from_json`, or
             # printing failed. Skip it like a malformed snapshot: the next one recovers.
@@ -398,7 +444,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Game process {args.game_pid} isn't running or can't be opened: exiting.", file=sys.stderr)
         print(f"Watching {source.path} (Ctrl+C to stop)")
         try:
-            run_watch(source, lambda text: print(text, flush=True), panel, stop=stop)
+            run_watch(source, lambda text: print(text, flush=True), panel, stop=stop,
+                      watchdog=Watchdog(process.memory_used, process.memory_limit()))
         except KeyboardInterrupt:
             pass
     return 0

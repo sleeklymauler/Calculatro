@@ -37,10 +37,36 @@ function Calculatro.banned_hands()
     return banned
 end
 
+-- A value's mark (see overlay.mark), if it's of this state.
+local function mark_state(o, field)
+    local mark = o[field .. '_mark']
+    return type(mark) == 'table' and mark.state or nil
+end
+
+-- What a value given up on shows in its popup, by what stopped it (the
+-- mark's limit): lines broken by hand, in ASCII, like the settings'.
+local TOO_SLOW = {
+    time = { 'Working these odds out exactly', 'would take too long, so the', 'app has given up on them.' },
+    memory = { 'Working these odds out exactly', 'would use too much memory, so', 'the app has given up on them.' },
+}
+-- And a best-discard search given up on, on the title row.
+local SEARCH_TOO_SLOW = {
+    time = { 'Comparing every discard would', 'take too long, so the app has', 'given up on this search.' },
+    memory = { 'Comparing every discard would', 'use too much memory, so the app', 'has given up on this search.' },
+}
+
+-- The popup of something given up on (`mark`), with `lines` by its limit.
+local function too_slow_popup(mark, lines)
+    return { name = 'Too slow', text = lines[mark.limit] or lines.time }
+end
+
 -- What the odds panel shows: a row for each tracked target hand ("Any
 -- target" first when there are several) and card query, with the odds the
 -- app keyed by them ('-' until it has). Odds for an older state stay up until
--- the new ones arrive, greyed out if that takes longer than `patience`.
+-- the new ones arrive, greyed out if that takes longer than `patience`. So do
+-- the values a partial answer doesn't have yet (`keep_stale`,
+-- `discard_stale`), each on its own. A value given up on ("?") has its mark
+-- (`keep_mark`, `discard_mark`), for its popup.
 -- Hands the boss won't let score are `banned` (struck out, odds still shown);
 -- "Any target" is too when all of them are.
 function Calculatro.panel_model()
@@ -52,8 +78,9 @@ function Calculatro.panel_model()
         return model
     end
     local odds = Calculatro.odds
+    local waited = Calculatro.clock - Calculatro.changed_at
+    local late = false  -- the values still to come are greyed out
     if not (odds and odds.id == Calculatro.state_id) then
-        local waited = Calculatro.clock - Calculatro.changed_at
         -- With no snapshot written yet, there's nothing for the app to answer.
         local unanswered = not Calculatro.state_id or Calculatro.ack_id ~= Calculatro.state_id
         if unanswered and waited >= Calculatro.timeout then
@@ -62,8 +89,25 @@ function Calculatro.panel_model()
             model.message = 'Calculating...'
         end
         model.stale = model.message ~= nil or nil
+    elseif odds.partial and waited >= Calculatro.patience then
+        model.message, late = 'Calculating...', true
     end
-    model.message = model.message or Calculatro.search_message()
+    if not model.message then
+        local message, mark = Calculatro.search_message()
+        model.message = message
+        model.message_popup = mark and too_slow_popup(mark, SEARCH_TOO_SLOW)
+    end
+    -- Whether a value is still to come and greyed out, and the popup of one given up on.
+    local function stale(o, field)
+        return late and mark_state(o, field) == 'pending' or nil
+    end
+    local function popup(o, field)
+        local mark = o[field .. '_mark']
+        return mark_state(o, field) == 'final' and too_slow_popup(mark, TOO_SLOW) or nil
+    end
+    local function has_discard(o)
+        return (o.discard ~= nil or o.discard_mark ~= nil) or nil
+    end
     local hand_odds, card_odds = {}, {}
     if odds then
         for _, o in ipairs(odds.targets or {}) do hand_odds[o.key] = o end
@@ -78,17 +122,20 @@ function Calculatro.panel_model()
     end
     local function hand(key, name, removable, is_banned)
         local o = hand_odds[key] or {}
-        model.targets[#model.targets + 1] = { key = key, name = name, keep = o.keep, discard = o.discard,
-                                              trend = o.trend, removable = removable, banned = is_banned or nil,
-                                              search = search_state(key) }
+        model.targets[#model.targets + 1] = {
+            key = key, name = name, keep = o.keep, discard = o.discard, trend = o.trend,
+            keep_stale = stale(o, 'keep'), discard_stale = stale(o, 'discard'),
+            keep_popup = popup(o, 'keep'), discard_popup = popup(o, 'discard'), has_discard = has_discard(o),
+            removable = removable, banned = is_banned or nil, search = search_state(key) }
     end
     if #t.hands > 1 then hand('Any target', 'Any target', nil, all_banned) end
     for _, h in ipairs(t.hands) do hand(h, SHORT_NAMES[h] or h, true, banned[h]) end
     for _, c in ipairs(t.cards) do
         local o = card_odds[c.query] or {}
-        model.cards[#model.cards + 1] = { key = c.query, name = c.label, about = c.about, discard = o.discard,
-                                          trend = o.trend, search = search_state(c.query),
-                                          editable = Calculatro.builder_for(c.query) and true or nil }
+        model.cards[#model.cards + 1] = {
+            key = c.query, name = c.label, about = c.about, discard = o.discard, trend = o.trend,
+            discard_stale = stale(o, 'discard'), discard_popup = popup(o, 'discard'), has_discard = has_discard(o),
+            search = search_state(c.query), editable = Calculatro.builder_for(c.query) and true or nil }
     end
     return model
 end
@@ -134,11 +181,17 @@ end
 local function sections(model, colours)
     local C = G.C
     -- Odds values carry an id (config.calculatro_value), by which
-    -- refresh_panel updates them in place.
-    local function value(text, colour, id)
-        local node = label(text or '-', model.stale and colours.stale or colour)
+    -- refresh_panel updates them in place. In a cell `w` wide, with its
+    -- popup while hovered (see hover_popups) if it was given up on: on the
+    -- whole cell, since a "?" alone is hard to hover.
+    local function value(w, text, colour, id, stale, popup)
+        local node = label(text or '-', (model.stale or stale) and colours.stale or colour)
         node.config.calculatro_value = id
-        return node
+        local out = cell(w, 'cr', node)
+        if popup then
+            out.config.id, out.config.collideable, out.config.calculatro_popup = 'calculatro_' .. id, true, popup
+        end
+        return out
     end
     -- Discard values are green when better than keeping the hand, red when worse.
     local function trend_colour(t)
@@ -152,9 +205,9 @@ local function sections(model, colours)
             name.config.calculatro_strike = t.banned
             return row({
                 cell(NAME_W, 'cl', name),
-                cell(VALUE_W, 'cr', value(t.keep, C.UI.TEXT_LIGHT, 'keep:' .. t.key)),
-                t.discard and arrow(colours.muted) or blank(ARROW_CELL_W),
-                cell(DISCARD_VALUE_W, 'cr', value(t.discard, colour, 'discard:' .. t.key)),
+                value(VALUE_W, t.keep, C.UI.TEXT_LIGHT, 'keep:' .. t.key, t.keep_stale, t.keep_popup),
+                t.has_discard and arrow(colours.muted) or blank(ARROW_CELL_W),
+                value(DISCARD_VALUE_W, t.discard, colour, 'discard:' .. t.key, t.discard_stale, t.discard_popup),
                 search_cell(t, colours),
                 t.removable and remove_cell(t.key, { 'remove_hand', t.key }) or blank(REMOVE_W),
             }, { calculatro_anim = 'hand:' .. t.key })
@@ -164,7 +217,7 @@ local function sections(model, colours)
         cards[#cards + 1] = function()
             return row({
                 card_name_cell(c, CARD_NAME_W - EDIT_W),
-                cell(DISCARD_W, 'cr', value(c.discard, trend_colour(c), 'card:' .. c.key)),
+                value(DISCARD_W, c.discard, trend_colour(c), 'card:' .. c.key, c.discard_stale, c.discard_popup),
                 search_cell(c, colours),
                 edit_cell(c, colours),
                 remove_cell(c.key, { 'remove_card', c.key }),
@@ -272,7 +325,12 @@ function Calculatro.definition(model, per)
     if #list > 0 then
         local message_w = math.max(width - TITLE_W - PLUS_W - GEAR_W, MESSAGE_W)
         message.config.calculatro_value = 'message'
-        body[1] = row({ title(), plus, gear, cell(message_w, 'cr', message) }, TITLE_ROW)
+        local message_cell = cell(message_w, 'cr', message)
+        if model.message_popup then  -- a search given up on
+            message_cell.config.id, message_cell.config.collideable = 'calculatro_message', true
+            message_cell.config.calculatro_popup = model.message_popup
+        end
+        body[1] = row({ title(), plus, gear, message_cell }, TITLE_ROW)
         body[2] = inset(column_nodes)
     else
         body[1] = row({ title(), plus, gear }, TITLE_ROW)

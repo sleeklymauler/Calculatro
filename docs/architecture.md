@@ -85,9 +85,33 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready.
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
   when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
-- **Odds already worked out.** `build_report` stores each row's odds in `known` as soon as they're
-  done, by the row and the cards selected, so going back to an earlier selection calculates nothing,
-  and rows finished before a job was cancelled aren't lost. `run_watch` starts a new `known` whenever
+- **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in two
+  passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s), then
+  those that didn't finish, from the start, with `Limits.exact` (30 s) each. The order in each pass is
+  the panel's, Keep then Discard. The job reports each partial `Report` (`Control.progress`), and
+  `run_watch` sends it to the panel as a `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s),
+  none if every value is found sooner. The console prints only the finished report.
+- **Limits.** A job's function gets a `worker.Control`, which is the engine's `cancel` (an Event's
+  `is_set` and `wait`) and runs parts with limits (`Control.limited`, `worker.limited`): each part is an
+  `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
+  sets, saying which (`reason`: `TIME`, `MEMORY`, or the job's). One `worker.Watchdog` thread checks
+  them every 20 ms: a deadline passed, or the app's committed memory (`process.memory_used`) over
+  `process.memory_limit` (2 GB, or half the computer's if that's less), which stops every running
+  attempt, of both jobs. A part stopped by a limit is `worker.TooSlow`; one stopped by a new state still
+  raises `Cancelled`. Python gives a stopped calculation's memory back to Windows as it unwinds (2 GB in
+  about 0.4 s), so the limit is on the app's memory, not its growth; the watchdog stops nothing for
+  memory again until it falls below the limit or 2 s pass (`grace`), so another job's next part isn't
+  stopped for the memory of the one before. A search is one part, with `Limits.search` (30 s). The
+  engine needs nothing for any of this: it raises `Cancelled` as before.
+- **The garbage collector.** `engine._gc_paused` turns it off while any search runs, and with the
+  limits none runs for more than about 30 s. The worst case measured (the 9 GB face-down case, stopped
+  at 2 GB after 18 s) left 6 MB of cycles for the collector once it was back on, so pausing it doesn't
+  let memory grow.
+- **Odds already worked out.** `build_report` stores each value in `known` as soon as it's
+  done, or given up on (`TooSlow`), by the row and the cards selected, so going back to an earlier
+  selection calculates nothing, and values finished before a job was cancelled aren't lost. A value
+  given up on isn't tried again until `known` starts afresh, nor a search given up on until its
+  `search_basis` changes: asked for again, it's answered at once. `run_watch` starts a new `known` whenever
   `odds_basis` changes (`search_basis` without the hand's order, since sorting the hand doesn't change
   the odds, `test_odds_do_not_depend_on_the_hands_order`). A row's key uses the cards, not their
   positions, and `row_key`: a query's text, not the query, since two parses of one may not be equal. There's no size limit:
@@ -168,6 +192,13 @@ game's numbers as floats or `null`. The message isn't repeated while the same er
 ### Shapes
 
 - The odds file never contains `null` (the Lua decoder doesn't support it).
+- The odds file (`odds_schema` 6) answers a snapshot with `{id, pending: true}`, then with its odds as
+  they're found: `partial: true` until the last. Each row is `{key, keep, discard, trend}`, card rows
+  without `keep`. A value that isn't exact odds has a mark beside it, `keep_mark` or `discard_mark`:
+  `{state: "pending"}` with no value for one still to come, or `{state: "final", limit: "time"}` (or
+  `"memory"`) with the value `"?"` for one given up on (`overlay.mark`). A row has no such value
+  (nothing selected) when it has neither. `trend` is there only when both values are exact. A search
+  given up on is answered with `options: []` and the same `mark` (`overlay.search`).
 - The snapshot also sends `select_limit` (`G.hand.config.highlighted_limit`) and the latest `search`
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`
