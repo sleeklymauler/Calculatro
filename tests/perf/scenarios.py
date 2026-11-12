@@ -150,10 +150,11 @@ class Situation:
     gone: int = 0  # of the face-down cards, those discarded face down after the sorts (_sorted)
     earlier: tuple[tuple[str, tuple[str, ...]], ...] = ()  # sorts seen before those, as (mode, cards) (_sorted)
     discard: tuple[int, ...] | None = None  # the hand indices to discard, if not the known cards not kept
+    hand: tuple[str, ...] = tuple(HAND)
 
     @property
     def unknown(self) -> int:
-        return self.hidden - self.gone + (len(HAND) - self.hidden - self.kept)
+        return self.hidden - self.gone + (len(self.hand) - self.hidden - self.kept)
 
 
 KEEP_3 = Situation("Keep 3, draw 5", kept=3, hidden=0)
@@ -174,6 +175,12 @@ SORTED_2_BOTH = Situation("7 unknown: 2 face-down, draw 5, sorted both ways", ke
 # The House's first hand, kept: a sort of face-down cards only says nothing about what they are.
 THE_HOUSE_SORTED = Situation("8 unknown: The House (all face-down), sorted by rank", kept=0, hidden=8,
                              sorts=("desc",))
+# Sorted by suit too, the two sorts together say how the cards split into suits: no shortcut, and no face-up
+# card to narrow down the deals (posterior.summed). In three suits, the suit sort's runs are 3, 2 and 3 (K Q 5,
+# J 7, 9 8 3), as in a hand seen in game whose odds took 6-17 s each. (HAND's four suits, in runs of 2, 3, 1
+# and 2, leave far fewer deals: under a second.)
+THE_HOUSE_BOTH = Situation("8 unknown: The House (all face-down), sorted both ways", kept=0, hidden=8,
+                           sorts=("desc", "suit desc"), hand=("KS", "QS", "JH", "9C", "8C", "7H", "5S", "3C"))
 # After The House's first discard, the face-down cards kept have face-up neighbours: a long run.
 HOUSE_AFTER = Situation("5 unknown: 5 face-down kept, sorted by rank", kept=3, hidden=5, sorts=("desc",))
 # Then one of the face-down cards discarded face down: still in the sorts, where it bounds the other.
@@ -249,20 +256,22 @@ class Scenario:
     def state(self) -> tuple[GameState, list[int]]:
         """The game state and the hand indices selected for discarding."""
         cards = {(c.rank_id, c.suit): c for c in deck(self.deck)}
-        hand_cards = [cards.pop(_parse(t)) for t in HAND]
+        hand_cards = [cards.pop(_parse(t)) for t in self.situation.hand]
         for _, texts in self.situation.earlier:  # played or discarded face up since: not unseen
             for t in texts:
-                if t not in HAND and not t.startswith("?"):
+                if t not in self.situation.hand and not t.startswith("?"):
                     cards.pop(_parse(t), None)
         if self.situation.blind == "The Mark":
             hand_cards.sort(key=lambda c: c.rank_id in (11, 12, 13))
-        known = len(HAND) - self.situation.hidden
+        known = len(hand_cards) - self.situation.hidden
         hand = hand_cards[:known] + [Card(hidden=True)] * self.situation.hidden
         if self.situation.blind == "Cerulean Bell" and "forced" in Card.__dataclass_fields__:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
         state = GameState(
-            in_run=True, hand_size=len(HAND) - self.situation.gone, hands_left=4, discards_left=self.situation.discards,
-            **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone, self.situation.earlier, tuple(HAND)),
+            in_run=True, hand_size=len(hand_cards) - self.situation.gone, hands_left=4,
+            discards_left=self.situation.discards,
+            **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone, self.situation.earlier,
+                      self.situation.hand),
             **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
         )
@@ -423,6 +432,7 @@ def _scenarios() -> list[Scenario]:
                 for t in (("Pair",), ("Flush",), ("Straight",), ("Full House",), ("Full House", "Straight Flush"))]
         out += [Scenario(s, t, jokers) for s in (THE_HOUSE_SORTED, MARK_SORTED)
                 for t in (("Flush",), ("Straight Flush",), ("Full House", "Straight Flush"))]
+    out += [Scenario(THE_HOUSE_BOTH, t, "No jokers") for t in (("Pair",), ("Straight Flush",))]
     out += [Scenario(s, t, "No jokers") for s in (SORTED_2_HOOK, SORTED_2_BELL)
             for t in (("Pair",), ("Full House",), ("Straight Flush",))]
     out += [Scenario(HOUSE_AFTER_HOOK, t, "No jokers") for t in (("Pair",), ("Flush",))]

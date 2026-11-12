@@ -760,6 +760,18 @@ a minute. The estimate covers them all in about 1 s. Not measured: DNA's
 copies of a face-down card (branched on with every unseen card), which the
 estimate covers too (`test_estimates_hold_the_exact_odds`).
 
+Found in game (2026-11-12): **The House's first hand sorted both ways**, kept.
+Two sorts with no face-up card say how the cards split into suits, so
+`_says_nothing_here` doesn't apply, and nothing narrows the deals down. With
+the suit sort in runs of 3, 2 and 3 (`THE_HOUSE_BOTH`): Pair 6.4 s, Straight
+Flush 17 s. Building the estimate's sampler of deals took 1.2 s, once for each
+value, and with its 1 s of drawing that went over the estimate's 2 s limit, so
+most rows had no estimate, and the first one came after 12 s. The sampler is
+now built once for every value of a state (`engine._deals_for`) and counted in
+the estimate's time: the first estimate comes after 3.9 s, and every row has
+one after 9.6 s (all of them holding the exact odds), where it took 91 s for
+every row to show anything.
+
 ## Tests
 
 - **Mod** (lupa). The state machine's cases are in `tests/test_hint.py` from

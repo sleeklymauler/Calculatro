@@ -79,6 +79,8 @@ SLOW = {
       for t in ("Full House", "Straight Flush")),
     *(f"standard | 5 unknown: 5 face-down kept, sorted by rank, The Hook, 1 played | {t} | No jokers"
       for t in ("Pair", "Flush")),
+    *(f"standard | 8 unknown: The House (all face-down), sorted both ways | {t} | No jokers"
+      for t in ("Pair", "Straight Flush")),
 }
 
 

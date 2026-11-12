@@ -994,6 +994,29 @@ def test_estimates_from_deals_drawing_hands_hold_the_exact_odds(monkeypatch, see
     assert drawn
 
 
+def test_estimates_share_one_sampler_of_deals(monkeypatch):
+    """Every value estimated for a state draws from one sampler of deals, built once (it can take a second), and
+    the estimates are the same as with a sampler built for each. A sampler built answers `usable` too."""
+    rng = random.Random(42)
+    case = random_case(rng, latent=(3, 3))
+    state = case.state()
+    values = [(target, discard) for discard in some_discards(rng, case) for target in TARGETS]
+
+    def fresh(target, discard):
+        engine._deals.clear()
+        return engine.estimate_discard(state, target, discard, seconds=60)
+    want = [fresh(t, d) for t, d in values]
+
+    built = []
+    monkeypatch.setattr(engine, "deals", lambda *args: built.append(1) or deals(*args))
+    engine._deals.clear()
+    engine._usable.clear()
+    got = [engine.estimate_discard(state, t, d, seconds=60) for t, d in values]
+    assert got == want
+    assert len(built) == 1
+    assert engine._usable[engine._evidence_key(state)] is True
+
+
 def test_estimate_from_draws_without_evidence():
     """With nothing the sorts say here, the estimate is from draws of final hands, of today's odds."""
     case = random_case(random.Random(3))

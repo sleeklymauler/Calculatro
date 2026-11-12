@@ -566,6 +566,8 @@
  "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Flush | Four Fingers + Shortcut": "1511863/2913680",
  "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Straight Flush | Four Fingers + Shortcut": "146193/582736",
  "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) | Four Fingers + Shortcut": "7971/24080",
+ "standard | 8 unknown: The House (all face-down), sorted both ways | Pair | No jokers": "889/970",
+ "standard | 8 unknown: The House (all face-down), sorted both ways | Straight Flush | No jokers": "0",
  "standard | 7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played | Pair | No jokers": "115079689/129331917",
  "standard | 7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played | Full House | No jokers": "2748082/43110639",
  "standard | 7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played | Straight Flush | No jokers": "52093/69307056",

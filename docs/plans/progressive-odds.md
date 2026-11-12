@@ -95,7 +95,7 @@ A job works through its rows in three passes:
    `EXACT_LIMIT` (about 30 s) for each row.
 
 A row the quick pass cancels loses at most `QUICK` seconds of work. The
-engine's caches that live between calls (`_usable`, the windows cache)
+engine's caches that live between calls (`_usable`, the windows cache, the estimates' samplers of deals)
 survive it. It's simpler and safer than estimating the cost of each row
 beforehand. Estimating it might come later if measurements show the waste
 matters.

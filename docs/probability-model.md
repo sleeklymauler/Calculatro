@@ -190,8 +190,11 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   random hands under jokers and bosses.
 - **Face-down cards in the hand's sorts** (`how: "sample"`): an estimate, from deals of the latent
   cards drawn at random, each exactly as likely as its weight in the posterior (`posterior.deals`). It's
-  `summed` telling no deals apart (quick even for The House's first hand, as `usable` is), keeping how
-  it reached each partial state, so a deal is drawn from the last card back. Each deal's odds are then
+  `summed` telling no deals apart, keeping how it reached each partial state, so a deal is drawn from
+  the last card back. That's usually quick, but with no face-up card to narrow down the deals it can
+  take a second (The House's first hand sorted both ways, 36 MB), so it's built once for every value
+  of a state and kept (`engine._deals_for`, the latest 2), and the estimate's time includes it, with at
+  least a quarter left for drawing. A sampler built also answers `usable`. Each deal's odds are then
   exact and quick, every face-down card turned up, and deals alike in what the odds see of them share
   an evaluation (`_labels`), so the estimate is off only by which deals were drawn
   (`engine._estimate`). Where a deal's exact odds are slow too (Four Fingers + Shortcut), they're given
@@ -206,7 +209,8 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   every deal is turned up. `test_deals_are_drawn_by_their_posterior_weight` checks the draws against
   the oracle, and `test_estimates_hold_the_exact_odds` (in `test_posterior.py` and `test_report.py`)
   each estimate's range against the exact odds, under the bosses and DNA too;
-  `test_estimates_from_deals_drawing_hands_hold_the_exact_odds` does it with every deal drawing hands.
+  `test_estimates_from_deals_drawing_hands_hold_the_exact_odds` does it with every deal drawing hands,
+  and `test_estimates_share_one_sampler_of_deals` checks the sampler is built once.
 - **Any other target value** (`how: "draws"`): an estimate from final hands drawn at random, the share
   of them that make the target (`engine._estimate_draws`), for what's slow however few the face-down
   cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as

@@ -75,7 +75,7 @@ from .hands import (
     forced_patterns,
     suit_keys,
 )
-from .posterior import Branch, Label, Posterior, Window, deals, printed, sort_value, summed, windows
+from .posterior import Branch, Deals, Label, Posterior, Window, deals, printed, sort_value, summed, windows
 from .rules import Rules
 from .state import SUITS, Card, GameState
 
@@ -1206,6 +1206,15 @@ _USABLE_KEPT = 16  # states whose evidence was checked: build_report and the sea
 _usable: OrderedDict[tuple, bool] = OrderedDict()
 _usable_lock = Lock()
 _ignored: set[tuple] = set()  # observations no deal fits, already logged
+# Samplers of deals (_deals_for), shared by every value estimated for a state. Each can take tens of
+# MB (36 MB for The House's first hand sorted both ways), so only the latest few are kept.
+_DEALS_KEPT = 2
+_deals: OrderedDict[tuple, Deals | None] = OrderedDict()
+
+
+def _evidence_key(state: GameState) -> tuple:
+    """What `usable` and `_deals_for` depend on: the sorts, the unseen cards, and what `_allowed` lets through."""
+    return state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and state.rules.pareidolia
 
 
 def _allowed(state: GameState) -> Callable[[Card], bool]:
@@ -1231,7 +1240,7 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
     """
     if not any(o.latent for o in state.observed):
         return True
-    key = (state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and state.rules.pareidolia)
+    key = _evidence_key(state)
     with _usable_lock:
         if key in _usable:
             _usable.move_to_end(key)
@@ -1256,6 +1265,29 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
 
 def _nothing(hand: int | None, card: Card) -> None:
     return None
+
+
+def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], None]) -> Deals | None:
+    """posterior.deals for `state`'s evidence, with the face-down cards at hand
+    indices `extra`; None if no deal fits. Built once for every value an
+    estimate is made of (`build_report` estimates each row, Keep and Discard),
+    as it can take a second (The House's first hand sorted both ways). A deal
+    that fits makes the evidence usable, so `usable` is answered too."""
+    key = (*_evidence_key(state), extra)
+    with _usable_lock:
+        if key in _deals:
+            _deals.move_to_end(key)
+            return _deals[key]
+    found = deals(state.observations, state.observed, state.unseen, _allowed(state), extra, check)
+    with _usable_lock:
+        _deals[key] = found
+        while len(_deals) > _DEALS_KEPT:
+            _deals.popitem(last=False)
+        if found is not None:
+            _usable[_evidence_key(state)] = True
+            while len(_usable) > _USABLE_KEPT:
+                _usable.popitem(last=False)
+    return found
 
 
 def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = (),
@@ -1711,15 +1743,19 @@ def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], ob
 
     The range counts a deal at 0 and a deal at 1 besides those drawn, so a
     few deals all alike can't make it look certain.
+
+    `seconds` includes building the sampler of deals (_deals_for), but the
+    drawing gets at least a quarter of it.
     """
-    if (_says_nothing_here(state, discard) or not any(o.latent for o in state.observed)
-            or not usable(state, cancel)):
+    start = monotonic()
+    if _says_nothing_here(state, discard) or not any(o.latent for o in state.observed):
         return None
     check = _checker(cancel)
     dna = _dna_branch(state, discard)
     in_hand = {o.hand for o in state.observed if o.hand is not None}
     extra = () if dna is None or dna in in_hand else (dna,)
-    found = deals(state.observations, state.observed, state.unseen, _allowed(state), extra, check)
+    # None as well if the evidence is set aside (`usable`): no deal fits it.
+    found = _deals_for(state, extra, check)
     if found is None:
         return None
     label = _labels(state, discard, dna, classes)
@@ -1750,7 +1786,8 @@ def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], ob
                     exact = False
             slow[key] = hands(resolve(branch))
         return float(slow[key](rng))
-    return _sampled(sample, check, seconds, ESTIMATE_SAMPLES if hands is None else DRAW_SAMPLES)
+    left = max(seconds / 4, seconds - (monotonic() - start))
+    return _sampled(sample, check, left, ESTIMATE_SAMPLES if hands is None else DRAW_SAMPLES)
 
 
 def estimate_discard(state: GameState, target: Target, discard: list[int], cancel: Event | None = None,
