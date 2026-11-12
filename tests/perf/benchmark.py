@@ -85,6 +85,30 @@ class PeakMemory:
         self.peak = max(self.peak, memory_used())
 
 
+class Progress:
+    """A "[3/40] " prefix for each scenario's line and, on a terminal, a line naming the scenario
+    being run, written over by its result (or by the next one, if it prints none)."""
+
+    def __init__(self, total: int, width: int):
+        self.total = total
+        self.digits = len(str(total))
+        self.done = 0
+        self.live = sys.stdout.isatty()
+        self.blank = 2 * self.digits + 3 + width + 4  # the longest running line
+
+    def prefix(self) -> str:
+        return f"[{self.done:>{self.digits}}/{self.total}] "
+
+    def start(self, id: str) -> None:
+        self.done += 1
+        if self.live:
+            print(f"{self.prefix()}{id} ...".ljust(self.blank), end="\r", flush=True)
+
+    def clear(self) -> None:
+        if self.live:
+            print(" " * self.blank, end="\r", flush=True)
+
+
 def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> dict:
     """Timings of up to `repeat` runs; `timed_out` if a run hit `timeout`. Also the
     peak memory over the runs (`peak_mb`, the whole process's, as the app's
@@ -143,18 +167,20 @@ def estimates(scenarios: list[Scenario | BestDiscard], seconds: float) -> None:
     width = max((len(s.id) for s in scenarios), default=0)
     errors = []
     losses = []
+    scenarios = [s for s in scenarios if isinstance(s, (Scenario, BestDiscard))]
+    progress = Progress(len(scenarios), width)
     for s in scenarios:
+        progress.start(s.id)
         if isinstance(s, BestDiscard):
             s.prepare()
             found, elapsed, picked = s.estimate(LIMITS.search_estimate)
-            line = f"{s.id:<{width}}  {fmt(elapsed):>8}  {float(picked) * 100:6.2f}% {found.options[0]}"
+            line = (f"{progress.prefix()}{s.id:<{width}}  {fmt(elapsed):>8}  "
+                    f"{float(picked) * 100:6.2f}% {found.options[0]}")
             if s.id in expected:
                 best = Fraction(expected[s.id].split()[0])
                 losses.append(float(best - picked))
                 line += "  the best" if picked == best else f"  {float(best - picked) * 100:.2f} points below the best"
             print(line, flush=True)
-            continue
-        if not isinstance(s, Scenario):
             continue
         s.prepare()
         start = time.perf_counter()
@@ -162,8 +188,9 @@ def estimates(scenarios: list[Scenario | BestDiscard], seconds: float) -> None:
         elapsed = time.perf_counter() - start
         if found is None:
             continue
-        line = (f"{s.id:<{width}}  {fmt(elapsed):>8}  {found.mean * 100:6.2f}% ({found.low * 100:.2f} to "
-                f"{found.high * 100:.2f}, {found.samples} {'hands' if found.draws else 'deals'})")
+        line = (f"{progress.prefix()}{s.id:<{width}}  {fmt(elapsed):>8}  "
+                f"{found.mean * 100:6.2f}% ({found.low * 100:.2f} to {found.high * 100:.2f}, "
+                f"{found.samples} {'hands' if found.draws else 'deals'})")
         if s.id in expected:
             exact = float(Fraction(expected[s.id]))
             errors.append(abs(found.mean - exact))
@@ -171,6 +198,7 @@ def estimates(scenarios: list[Scenario | BestDiscard], seconds: float) -> None:
             if not found.low <= exact <= found.high:
                 line += "  OUTSIDE ITS RANGE"
         print(line, flush=True)
+    progress.clear()
     if errors:
         print(f"{len(errors)} estimates: off by {statistics.fmean(errors) * 100:.2f} points on average, "
               f"{max(errors) * 100:.2f} at most.")
@@ -276,9 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     expected = load_expected()
     width = max((len(s.id) for s in scenarios), default=0)
     wrong = 0
+    progress = Progress(len(scenarios), width)
     for s in scenarios:
+        progress.start(s.id)
         r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
-        line = f"{s.id:<{width}}  {cell(r):>22}  runs={r['runs']}  peak={r['peak_mb']:.0f} MB (+{r['growth_mb']:.0f})"
+        line = (f"{progress.prefix()}{s.id:<{width}}  {cell(r):>22}  "
+                f"runs={r['runs']}  peak={r['peak_mb']:.0f} MB (+{r['growth_mb']:.0f})")
         if before is not None:
             line += f"  before={cell(before.get(s.id), spread=False)}"
             b = before.get(s.id)
