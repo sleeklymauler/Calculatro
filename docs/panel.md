@@ -201,6 +201,16 @@ the game's Reduced Motion setting. `tests/test_animation.py` runs it on hand-bui
 Give new panel rows a unique `calculatro_anim` key, or they'll move with their column/inset instead
 of gliding.
 
+### Bouncing text
+
+"Calculating..." and "Searching..." on the title row float like the game's text (`DynaText`'s `float`,
+as on the blind's name and the hand being scored): the letters bob in a wave running left to right,
+each 0.4 s behind the one before, every ~2.4 s (`uibox.float`, the game's formula). The message node's `config.calculatro_bounce` (from `BOUNCING` in
+`odds.lua`) says whether it bounces; `update_values` copies it in place with the text, and
+`bounce_text` reads it as it draws, letter by letter with its own shadow. It isn't a `DynaText`: the
+game keeps those in its lists of objects until removed, and the definitions built only for their
+values (`without_sprites`) would leak them. Still with the game's Reduced Motion setting, like the game's.
+
 ## Settings
 
 The gear after the title's `+` (`settings_cell`) opens the settings page (`settings.lua`:

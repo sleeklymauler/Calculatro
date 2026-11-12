@@ -79,6 +79,82 @@ local function strike_through(e)
 end
 Calculatro.strike_through = strike_through
 
+-- The game's floating text (DynaText's `float`, as on the blind's name and
+-- the hand being scored): the letters bob in a wave that runs left to right,
+-- each 0.4 s behind the one before, every ~2.4 s. For text nodes with
+-- config.calculatro_bounce set (the title row's
+-- "Calculating..." and "Searching..."), checked as they're drawn, since
+-- update_values turns it on and off in place. Off with Reduced Motion, like
+-- the game's. Drawn here letter by letter rather than with a DynaText, which
+-- the game keeps in its lists of objects until removed: definitions built
+-- only for their values (without_sprites) would leak them.
+local FLOAT_RATE = 2.666
+
+-- How far letter `i` is lifted at `now`, in DynaText's units (see
+-- draw_bouncing), for text at `scale` in a font of `fontscale`.
+local function float(scale, fontscale, i, now)
+    return math.sqrt(scale) * (2 + fontscale / G.TILESIZE * 2000 * math.sin(FLOAT_RATE * now + 200 * i))
+end
+
+-- A text node's letters, each as a drawable and its x in font pixels,
+-- made again only when its text changes.
+local function letters(e)
+    local c = e.config
+    local text, font = tostring(c.text), c.lang.font
+    local cache = e.calculatro_letters
+    if cache and cache.text == text and cache.font == font then return cache end
+    cache = { text = text, font = font }
+    for i = 1, #text do  -- panel text is ASCII
+        cache[i] = { drawable = love.graphics.newText(font.FONT, text:sub(i, i)), x = font.FONT:getWidth(text:sub(1, i - 1)) }
+    end
+    e.calculatro_letters = cache
+    return cache
+end
+
+-- Draws the text where the game's draw_self would, each letter lifted by
+-- float, with a shadow at SHADOW_DEPTH like deepen_shadows'.
+local function draw_bouncing(e)
+    local c = e.config
+    local font = c.lang.font
+    local k = c.scale * font.FONTSCALE / G.TILESIZE
+    local now = G.TIMERS.REAL
+    local list = letters(e)
+    local passes = {}
+    if G.SETTINGS.GRAPHICS.shadows == 'On' then
+        passes[1] = { { 0, 0, 0, 0.3 * c.colour[4] }, -e.shadow_parrallax.x * SHADOW_DEPTH / G.TILESIZE,
+                      -e.shadow_parrallax.y * SHADOW_DEPTH / G.TILESIZE }
+    end
+    passes[#passes + 1] = { c.colour, 0, 0 }
+    for _, pass in ipairs(passes) do
+        prep_draw(e, 1)
+        love.graphics.setColor(pass[1])
+        for i, letter in ipairs(list) do
+            local lift = 0.5 * float(c.scale, font.FONTSCALE, i, now) * font.FONTSCALE / G.TILESIZE
+            love.graphics.draw(letter.drawable, (font.TEXT_OFFSET.x + letter.x * font.squish) * k + pass[2],
+                               font.TEXT_OFFSET.y * k - lift + pass[3], 0, k * font.squish, k)
+        end
+        love.graphics.pop()
+    end
+end
+
+local function bounce_text(e)
+    if e.UIT == G.UIT.T and e.config.calculatro_bounce ~= nil then
+        local draw_self = e.draw_self
+        function e:draw_self()
+            local c = self.config
+            if c.calculatro_bounce and self.states.visible and c.colour and c.colour[4] > 0.01 and c.lang
+                    and not G.SETTINGS.reduced_motion then
+                draw_bouncing(self)
+            else
+                draw_self(self)
+            end
+        end
+    end
+    for _, child in pairs(e.children or {}) do
+        if type(child) == 'table' and child.UIT then bounce_text(child) end
+    end
+end
+
 local function ui_children(e)
     local out = {}
     for _, child in ipairs(e.children or {}) do
@@ -188,6 +264,7 @@ end
 
 return {
     ui_children = ui_children, deepen_shadows = deepen_shadows, strike_through = strike_through,
+    bounce_text = bounce_text, float = float,
     steady_buttons = steady_buttons, register_once = register_once, hover_popups = hover_popups,
     remove_box = remove_box,
 }

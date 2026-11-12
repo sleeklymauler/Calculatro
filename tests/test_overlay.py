@@ -604,6 +604,39 @@ def test_panel_shows_current_odds(lua, tmp_path):
 
 
 
+MESSAGE_BOUNCES = r"""
+return function(node)  -- whether the title row's message bounces (config.calculatro_bounce)
+  local function walk(n)
+    if n.config and n.config.calculatro_value == 'message' then return n.config.calculatro_bounce end
+    for _, c in ipairs(n.nodes or {}) do
+      local found = walk(c)
+      if found ~= nil then return found end
+    end
+  end
+  return walk(node)
+end
+"""
+
+
+def message_bounces(rt) -> bool:
+    return bool(rt.execute(MESSAGE_BOUNCES)(rt.eval("BOXES[#BOXES]").definition))
+
+
+def test_float_waves_left_to_right(lua):
+    """The game's floating text (DynaText's float): each letter bobs up and down in a cycle of 2.36 s, 0.4 s behind
+    the one before it."""
+    rt, _ = lua
+    rt.execute("G.TILESIZE = 20")  # the game's
+    float_lift = rt.eval("require('calculatro.uibox').float")
+    times = [t / 100 for t in range(236)]
+    for i in (1, 2, 3):
+        lifts = [float_lift(0.272, 0.1, i, t) for t in times]
+        assert max(lifts) > 0 > min(lifts)
+    peak = [max(times, key=lambda t, i=i: float_lift(0.272, 0.1, i, t)) for i in (1, 2, 3)]
+    assert (peak[1] - peak[0]) % 2.36 == pytest.approx(0.4, abs=0.05)  # the next letter, 0.4 s later
+    assert (peak[2] - peak[1]) % 2.36 == pytest.approx(0.4, abs=0.05)
+
+
 def test_new_odds_update_the_panel_in_place(lua, tmp_path):
     """Rebuilding the panel takes the game tens of milliseconds, a hitch each time the odds change: when only the odds
     values or the title row's message change, the panel keeps its box and lays it out again."""
@@ -619,10 +652,12 @@ def test_new_odds_update_the_panel_in_place(lua, tmp_path):
     mod.update(0.2)  # new snapshot
     mod.update(0.4)  # no answer yet
     assert panel_texts(rt)[3] == "Calculating...@muted"
+    assert message_bounces(rt)  # bouncing, turned on in place
     answer(lua, tmp_path, queries=())
     mod.update(0.1)
     after = panel_texts(rt)
     assert "Calculating...@muted" not in after and after != before
+    assert not message_bounces(rt)
     assert rt.eval("#BOXES") == boxes  # the same box throughout
     assert rt.eval("RECALCULATED") >= 1
     assert after == rebuilt_panel_texts(lua)
@@ -2012,7 +2047,7 @@ def test_search_selects_the_best_discard(lua, tmp_path):
     assert click(lua, "calculatro_search_Three of a Kind")
     assert read_state(tmp_path).search == ("Three of a Kind", 1)  # sent at once
     # Busy until the app answers.
-    assert message(rt) == "Searching..."
+    assert message(rt) == "Searching..." and message_bounces(rt)
     assert not click(lua, "calculatro_search_Three of a Kind")
     sounds = rt.eval("SOUNDS")
     found = reply_search(tmp_path)

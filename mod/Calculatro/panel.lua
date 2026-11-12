@@ -13,7 +13,7 @@ require('calculatro.settings')
 require('calculatro.anim')
 
 local array, encode = json.array, json.encode
-local deepen_shadows, strike_through = uibox.deepen_shadows, uibox.strike_through
+local deepen_shadows, strike_through, bounce_text = uibox.deepen_shadows, uibox.strike_through, uibox.bounce_text
 local steady_buttons, hover_popups = uibox.steady_buttons, uibox.hover_popups
 local register_once, remove_box = uibox.register_once, uibox.remove_box
 
@@ -75,6 +75,7 @@ local function build_panel(definition)
     if panel.UIRoot then
         deepen_shadows(panel.UIRoot)
         strike_through(panel.UIRoot)
+        bounce_text(panel.UIRoot)  -- last: it draws in place of the others when bouncing
         steady_buttons(panel.UIRoot)
         hover_popups(panel.UIRoot)
     end
@@ -138,7 +139,7 @@ local function update_values(panel, definition)
             if now.text ~= config.text then
                 now.text, changed = config.text, true
             end
-            now.colour = config.colour
+            now.colour, now.calculatro_bounce = config.colour, config.calculatro_bounce
         end
     end
     for id, config in pairs(cells) do

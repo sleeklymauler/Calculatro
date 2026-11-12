@@ -200,6 +200,9 @@ local PLUS_W, COLUMN_GAP = 0.35, 0.2
 -- Fits "Calculating..." and "Waiting for app" beside the title and its +
 -- and gear. A column leaves more than this, enough for "App didn't start".
 local MESSAGE_W = 1.5
+-- Messages that bounce like the game's text while the app works (see
+-- bounce_text); the rest stay still.
+local BOUNCING = { ['Calculating...'] = true, ['Searching...'] = true }
 
 -- The arrow between Keep and Discard, drawn in boxes the size of the font's
 -- pixels: a 2-pixel shaft like its '-' and a stepped head, 9 by 8 pixels.
@@ -382,6 +385,7 @@ function Calculatro.definition(model, per)
     if #list > 0 then
         local message_w = math.max(width - TITLE_W - PLUS_W - GEAR_W, MESSAGE_W)
         message.config.calculatro_value = 'message'
+        message.config.calculatro_bounce = BOUNCING[model.message] or false
         local message_cell = cell(message_w, 'cr', message)
         if model.message_popup then  -- a search given up on
             message_cell.config.id, message_cell.config.collideable = 'calculatro_message', true
