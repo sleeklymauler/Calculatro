@@ -93,7 +93,9 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
   when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
 - **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in three
-  passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s); then
+  passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s), unless
+  a try before it ran out of time still checking the hand's sorts, which it would check first too
+  (`engine.evidence_unchecked`); then
   an estimate of each that didn't finish, if it has one, in about `Limits.approx` (1 s); then those,
   from the start, with `Limits.exact` (30 s) each. The order in each pass is
   the panel's, Keep then Discard, but with "Any target" after the hands. The job reports each partial

@@ -770,7 +770,9 @@ most rows had no estimate, and the first one came after 12 s. The sampler is
 now built once for every value of a state (`engine._deals_for`) and counted in
 the estimate's time: the first estimate comes after 3.9 s, and every row has
 one after 9.6 s (all of them holding the exact odds), where it took 91 s for
-every row to show anything.
+every row to show anything. Then the quick pass stopped trying values once one
+had run out of time checking the sorts, which every other one would too
+(`engine.evidence_unchecked`): 1.7 s to the first estimate, 7.4 s to the last.
 
 ## Tests
 

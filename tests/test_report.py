@@ -306,6 +306,22 @@ def test_a_slow_value_shows_its_estimate_until_its_exact_odds(monkeypatch):
     assert again.targets[1].keep == replace(estimate, limit=TIME)
 
 
+def test_no_more_quick_tries_once_one_ran_out_checking_the_sorts(monkeypatch):
+    """Once a quick try has run out of time before the hand's sorts were checked, the values that check them first
+    skip theirs, as they'd run out too: they go straight to their estimates. The others still get theirs."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
+    monkeypatch.setattr(report, "estimate_discard", estimating({}, calls))
+    monkeypatch.setattr(report, "evidence_unchecked", lambda state, discard: not discard)  # Keep uses the sorts
+    targets = [get_target("Flush"), get_target("Straight")]
+    build_report(selecting(STATE, 0), targets, cancel=Control(Watchdog(period=0.005)),
+                 limits=Limits(quick=0.05, approx=0.05, exact=0.05))
+    quick = calls[:calls.index(("estimate", "Flush", 0))]
+    # The Keeps after the first skipped ("Any target"'s too), the Discards tried.
+    assert quick == [("Flush", 0), ("Flush", 1), ("Straight", 1), ("Flush / Straight", 1)]
+    assert calls[len(quick):len(quick) + 4] == [("estimate", t, n) for n in (0, 1) for t in ("Flush", "Straight")]
+
+
 def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
     """"Any target"'s estimate is shown rather than its bounds, but within them, which are certain."""
     calls: list[tuple] = []

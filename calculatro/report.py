@@ -17,6 +17,7 @@ from .engine import (
     estimate_discard,
     evaluate_cards,
     evaluate_discard,
+    evidence_unchecked,
 )
 from .hands import Target, combine
 from .search import can_redraw
@@ -259,11 +260,19 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         found_more()  # what's known already, as when the same cards are selected again
 
     def attempt(seconds: float, before: Slow | None) -> None:
+        # In the quick pass: a try ran out of time before the hand's sorts were checked, which every value
+        # that uses them does first, so those would too (The House's first hand sorted both ways: 0.9 s).
+        unchecked = False
         for k, (row, discard) in todo:
             if known.get(k) is not before or isinstance(value(row, discard), Fraction):
                 continue  # done, or its bounds met
+            if unchecked and evidence_unchecked(state, discard):
+                known[k] = SLOW
+                continue
             found = limited(cancel, seconds, lambda c, row=row, discard=discard: evaluate(row, discard, c))
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
+            if before is None and isinstance(found, TooSlow) and evidence_unchecked(state, discard):
+                unchecked = True
             found_more()
 
     # The quick pass tries what hasn't been tried (a value found slow before

@@ -1290,6 +1290,18 @@ def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], Non
     return found
 
 
+def evidence_unchecked(state: GameState, discard: list[int]) -> bool:
+    """Whether the odds of discarding `discard` (evaluate_discard's or
+    evaluate_cards') start by checking the hand's sorts (`usable`), and that
+    isn't done for `state` yet. Every such odds checks the same thing, so once a
+    try at one has run out of time with this still true, a try at another with
+    as little time would too (`build_report`'s quick pass)."""
+    if not any(o.latent for o in state.observed) or _says_nothing_here(state, discard):
+        return False
+    with _usable_lock:
+        return _evidence_key(state) not in _usable
+
+
 def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = (),
               label: Label | None = None, skip: frozenset[int] = frozenset()) -> Posterior | None:
     """What the face-down cards in `state.observations` are, as a posterior

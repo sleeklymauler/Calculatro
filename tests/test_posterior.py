@@ -1017,6 +1017,25 @@ def test_estimates_share_one_sampler_of_deals(monkeypatch):
     assert engine._usable[engine._evidence_key(state)] is True
 
 
+def test_evidence_unchecked_until_usable_is_known():
+    """The odds start by checking the sorts until `usable` has, for that state; not where the sorts say nothing
+    (The House's first hand sorted once, kept), or there are none."""
+    from tests.perf.scenarios import THE_HOUSE, THE_HOUSE_BOTH, THE_HOUSE_SORTED, Scenario
+
+    def state(situation):
+        return Scenario(situation, ("Pair",), "No jokers").state()[0]
+    engine._usable.clear()
+    engine._deals.clear()
+    assert not engine.evidence_unchecked(state(THE_HOUSE), [])
+    once = state(THE_HOUSE_SORTED)
+    assert not engine.evidence_unchecked(once, [])
+    assert engine.evidence_unchecked(once, [0])  # thrown away, it's the higher or the lower cards
+    both = state(THE_HOUSE_BOTH)
+    assert engine.evidence_unchecked(both, [])
+    engine.usable(both)
+    assert not engine.evidence_unchecked(both, [])
+
+
 def test_estimate_from_draws_without_evidence():
     """With nothing the sorts say here, the estimate is from draws of final hands, of today's odds."""
     case = random_case(random.Random(3))

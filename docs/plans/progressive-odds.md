@@ -88,7 +88,10 @@ A job works through its rows in three passes:
 1. **Quick pass.** Each row's exact odds, cancelled after `QUICK` seconds
    (about 0.25 s, just under the mod's `patience`, so a quick row never
    greys out). Most rows finish here, so they never show an approximation,
-   and the panel doesn't flicker.
+   and the panel doesn't flicker. Once a row runs out of time before the
+   hand's sorts were checked (`engine.usable`, 0.9 s for The House's first
+   hand sorted both ways), the rows that check them first are skipped: they'd
+   run out the same way (`engine.evidence_unchecked`).
 2. **Approximations** for the rows the quick pass didn't finish, each with a
    limit of its own (about 1 s).
 3. **Exact pass.** Each remaining row's exact odds from the start, with
