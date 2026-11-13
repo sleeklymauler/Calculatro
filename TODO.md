@@ -1,269 +1,251 @@
-- [ ] add progress bar/meter for benchmark.py
-- [ ] improve face-down card probabilities by looking at their "windows"
-  - The plan (`docs/plans/face-down-windows.md`) now works from ordered "observations" rather than per-card windows (since 2026-10-15). Consider renaming the file and this item. The review found it consistent with the information-hiding contract and with the current code.
-  - Also fixes several DNA copies of a face-down card, which count as separate unseen cards for now. The plan's "Evaluation" section says what it needs, and `test_dna_several_copies_of_a_face_down_card` pins today's behaviour until then.
-- [ ] remove python terminal part?
-- [ ] Before the public release, finalise the mod's Steamodded listing (`mod/Calculatro/Calculatro.json`)
-  - Replace the placeholder icon, `assets/1x/icon.png` (34×34) and `assets/2x/icon.png` (68×68, the 1x scaled with no smoothing).
-  - Set the release version (it must match `pyproject.toml`, `lovely.toml` and `calculatro/__init__.py`) and the author name to show.
+# Code review (2026-11-12)
 
-# Code review (2026-11-02)
+A read-through of the whole project at `d993a13`: the app (`calculatro/`), the mod (`mod/Calculatro/`),
+the tests, the scripts, CI and the docs. `editor.lua`, `widgets.lua` and `anim.lua` were only skimmed,
+and the tests were read for structure, not line by line.
 
-Every reviewer that tested a claim confirmed it with a scratch reproducer, unless the item says "unverified". Severity: **[high]**, **[med]**, **[low]**. At review time the suite passed (1869 tests) and `ruff` was clean.
+Nothing here was reproduced. Each item says how sure it is:
 
-## Bugs
+- **seen**: the code is as described; whether it matters is for you to judge.
+- **guess**: a suspicion from reading, which may turn out to be nothing.
+- **carried**: from the review of 2026-11-02, and still as it was in the code.
 
-### Odds / search correctness
+Severity is **[high]**, **[med]** or **[low]**. Line numbers are as of this commit.
 
-- [x] **[med]** Keep counts refill draws that never happen when the hand is short (`engine.py` `_discard`: `draws = hand_size - len(kept)` even with no discard)
-  - The game only draws after a play or discard, at round start, or when The Manacle is disabled. Using a consumable never refills the hand.
-  - How the hand ends up short while selecting: Hanged Man, Immolate, Grim/Familiar/Incantation, or a hand-size joker gained mid-blind (Judgement or Wraith giving Juggler, Troubadour or Turtle Bean).
-  - Repro: hand 2♠ 5♥ 9♣, hand_size 8, rest of the deck unseen. Keep Pair shows 86.5% (5 draws); in game it's 0%. `best_discards` then favours "Keep hand" too often.
-  - Odds only run while settled, so the "first deal fills the hand" case these draws were meant for never applies. Decide whether it was intended. If not, Keep should draw nothing once the hand is settled (except Serpent edge cases).
-  - Update `report.py:20` ("drawing only to refill it"), `test_short_deck_limits_draws` and `test_serpent_keeping_a_short_hand_draws_nothing`.
-- [x] **[low]** A Stone card's hidden base rank shows up in best-discard options (`search.py` `_identity` ~276, `_order` ~301)
-  - Two Stones that look identical in game are offered as separate options, and `_order` sorts Stones by `rank_id`.
-  - Repro: hand [Stone 5♥, Stone 9♣, A♠, K♦], target Pair, only Stones left to draw → options `[[], [0], [1], [3], [2], …]`.
-  - Fix: treat Stones as rank 0 with no suit in `_identity`/`_order`, or stop exporting their rank and suit (see the Stone item under Information hiding).
-- [x] **[med]** The builder can make queries that never match: the "Stone" special together with rank or suit chips (`calculatro.lua` `build_options` ~313)
-  - `at least 1 stone queen` always shows 0% (100% for at most/none), since Stone cards have no rank or suit.
-  - Fix: grey out rank and suit chips while Stone is chosen (or the reverse), or have the app reject the query.
-  - `test_builder_queries_parse_as_labelled` only checks plain cards, which is why it passes. Assert that every builder query can match at least one possible card.
-- [x] **[low]** Rule changes partway through a blind aren't modelled
-  - [x] Crimson Heart: after a hand played as a discard (no discards left), the game re-enables the debuffed joker and debuffs another. Now modelled (`engine.rules_after`).
-  - The Mark: if Pareidolia is gained or lost mid-blind, `_mark_split`'s face-down face cards were flipped under different rules. Documented as a known limitation in `docs/blinds.md`, not fixed (it would need the observation tracking of `docs/plans/face-down-windows.md`).
-- [x] **[low]** DNA isn't modelled when a hand is played as the discard (`docs/jokers.md`)
-  - Now modelled (`engine._dna_copies`, the mod's `dna_copies`, commit 2177da4): a lone card played as the round's first hand comes back as copies instead of being replaced by a draw, so its odds normally equal Keep's. Counts Blueprint and Brainstorm chains, and doesn't fire under The Psychic. It wasn't rare: using every discard before the first hand is enough.
-  - Not yet checked in game.
-  - Known limitations:
-    - Several copies of a face-down card count as separate unseen cards, though they're the same card (see the windows item above).
-    - With a joker face down (Amber Acorn), only DNA itself counts, since the jokers' order is hidden. This can undercount the copies.
+Each item has a label, a letter for its section and a number: **B** bugs, **R** app robustness, **M** mod,
+**P** performance, **A** architecture, **T** tests, **C** tooling and CI, **D** docs, **I** ideas.
 
-### App robustness (Python)
+## Recommended order
 
-- [x] **[low-med]** Some malformed snapshots got past `GameState.from_json` and crashed `run_watch`, so the app exited and the panel said "Waiting for app" for the rest of the session
-  - The mod can't produce these shapes, so it took a hand-edited file or a mod bug. Crashes confirmed:
-    - a non-string `id` together with a `search` request → `AttributeError` in `.split`;
-    - a non-string joker `key` → `TypeError` in `summarize`;
-    - a list `rank` or `suit` → unhashable `TypeError` in `rank_counts`/`suit_counts`/`short()`;
-    - a lone surrogate in a string → `UnicodeEncodeError` when printing or writing the odds file.
-  - Fixed: `run_watch` logs any error on its main loop through `failed()` and carries on, and `from_json` rejects non-string `id`, `state`, `blind`, `rank`, `suit` and joker `key` (`state._text`). Numbers aren't checked, since the encoder can write the game's as floats or `null`.
-- [x] **[med]** `FileStateSource.read` only caught `JSONDecodeError`
-  - `UnicodeDecodeError` (invalid UTF-8) and `RecursionError` (deep nesting) escaped and stopped the app. Invalid UTF-8 is reachable: the Lua encoder writes bytes ≥128 unchanged (`calculatro.lua:51`).
-  - A permanently bad file (a BOM, for example) wasn't cached in `_last_key`, so it was re-read 20 times a second forever without a message.
-  - Fixed: a file that can't be decoded raises `MalformedState`, so it's reported once and not read again until it changes. `read` no longer returns None for a partial file; the mod replaces the file whole, so it never sees one.
-- [x] **[low]** Any instance claimed the global `Local\Calculatro` mutex, whatever `--file` it watched
-  - A by-hand `watch --file some\other.json` (for example, reproducing a bug report) already running when the game launched made the game's own app exit, and the panel stayed on "Waiting for app". Started after the game's app, it wrongly said "already running" and wrote no odds file.
-  - Fixed: the mutex is named after a hash of the resolved state path (`process.instance_name`).
-- [x] **[med]** `calculatro.log` was opened with `"w"`, so restarting the game erased the traceback the README and issue template ask players for
-  - `failed()` also deduplicated on the full traceback text, so a message with changing values, or odds and search errors alternating, logged a traceback with every snapshot.
-  - Fixed: `log.open_log` appends, moving a log over 256 KB to `calculatro.log.1` at startup (not during a session, so there's no strict cap), each session starts with a header (`log.header`), and the home folder is written as `~`, since it holds the player's username. `failed()` logs each exception type and stack once per session, and a failure to log no longer stops the app.
-- [x] **[low]** Startup failures under pythonw went nowhere
-  - Fixed: a log that can't be opened no longer stops the app (it runs without one), and a game process that can't be found or opened is logged before the app exits.
-  - Won't fix: `APPDATA` unset and argparse errors. The app inherits the game's environment and the mod hardcodes the arguments, so neither is realistic, and the panel's "App didn't start" and the mod's log line cover them, like a failed import of the package.
-- [ ] **[low]** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s forever (`overlay.py:328-342`, `__main__.py:232`)
-  - Separate `PermissionError` from other errors, and stop retrying on errors that won't go away (missing directory).
-- [ ] **[low]** `source.poll` stats the file before reading it, so if the file is replaced in between, the newer content is delivered under the older key, and again on the next poll (`source.py:71-85`)
-  - The only cost is a restarted odds job. Fix: stat again after reading, or deduplicate on the snapshot `id`.
+Ten steps, each a batch that fits in one or two changes. The order puts what's cheap and certain first, then
+what makes the later steps safer, and leaves the large refactors and the performance work until tests cover
+them. Within a step, the items are in the order to take them. Every item is in exactly one step.
 
-### Mod (Lua)
+1. **Docs that are wrong today.** D1, D2, D5, D9, D10, D3, D11.
+   - No code changes and no risk, and D1 and D2 mislead anyone reading the code now. D3 takes longest: each
+     dead hash has to be matched to a commit by its message.
+2. **Tooling.** C2, C3, C4, C1.
+   - Small script and workflow edits. C1 comes last so it tests the build script with C2 and C3 already in
+     it. All four should be done before the first public release.
+3. **Test layout.** T1 (which covers T2), T10, T6, C5, then C6.
+   - Every later step adds tests, so the fixtures should be in `conftest.py` first. C6 (`pytest-xdist`) comes
+     after T1 and T6: shared helpers and timing-dependent tests are what break under parallel runs. A faster
+     suite then pays back on every step after this one.
+4. **Small, certain fixes, each with its test.** B1, B2, T7, B9, B10, B11, R1, R2, R3, B8, M2.
+   - All are seen in the code, need no design, and touch a few lines. T7 goes with B1 and B2, whose tests it
+     lists.
+5. **Settle the guesses.** B3, B12, M4, P8, P3, P4, P7, B6.
+   - Reproduce or time each before changing anything, and delete the ones that come to nothing. B3 and B12
+     could be real bugs, so they go first. P3, P4, P7 and P8 need only a profiler and a benchmark run; fix
+     the ones that show up here, while the measurements are fresh. Save a benchmark baseline before starting.
+6. **A safety net for the refactors.** T4, T3, T5, T8, T9.
+   - T4 is the test A3 asks for, and T3 is what would catch a mistake in step 8. T9's scenarios give the
+     performance work in step 9 something to measure.
+7. **Small cleanups.** A9 (the decision only), P13, A6, A4 with P6, P5, P9, A8.
+   - Decide A9 first: without the terminal output, P13 goes away and A1 gets smaller. A6 bumps the state
+     schema, so do it together with anything else that changes the snapshot. A4 and P6 are one change.
+8. **Refactors.** A3, A5, A2, A1, A7, then B13.
+   - Behaviour shouldn't change, which steps 3 and 6 let the tests show. A3 and A5 first, since they decide
+     where A2's lines are cut. B13 (a hung app) is easier to add once A1 has split the loop up.
+9. **Performance.** P10, P11, P12, then P1, which settles B4, B5 and P2; D4 last.
+   - Parallelism (P1) is the largest item in the file and changes how jobs, limits and memory are handled,
+     so it wants the split-up loop from step 8. Look at B4, B5 and P2 again only after it: a search in its
+     own process may remove all three. Re-measure `benchmarks.md` (D4) once, at the end.
+10. **What the player sees, and the README.** M1, M3, B7 with I1, then D6, D7, D8.
+    - The README goes last so it describes the panel as it ends up. M1 and M3 need trying in game.
 
-- [ ] **[high, verify release build]** The mod couldn't read or write its files when the Windows user path has non-ASCII characters
-  - `love.filesystem.getSaveDirectory()` is UTF-8, but `io.open`/`os.remove`/`os.rename` go through the C runtime in the ANSI code page (`Balatro.exe`'s manifest has no `activeCodePage`).
-  - Reproduced with the mod in the game's own `lua51.dll` and `love.dll`, with `APPDATA` set to a non-ASCII folder: no state file, no app started, nothing logged, and the panel on "Calculating..." forever.
-  - Fixed: files go through `love.filesystem`, and `Calculatro.replace_file` (FFI `MoveFileExW`) replaces the state file in one step, closing the remove-then-rename gap. A state file that can't be written is logged after 10 snapshots in a row. With no snapshot written, the panel no longer says "Calculating...".
-  - The same setup with the fix: the app starts and the odds come back, in `Luké`-style and `Łukasz光`-style folders (LÖVE 11.5, LuaJIT 2.0.5). `love.filesystem.append` works while the app holds the log open.
-  - Checked in game (2026-11-03) with `APPDATA` set to a non-ASCII folder, running the venv's Python through `launch.txt`. Not yet checked: a release build's bundled Python running from such a folder. Close this once it has been.
-- [x] **[med]** Nothing restarted the app, and the player wasn't told why it was missing
-  - The mod launched the app only on its first frame. After a crash, or after a by-hand instance holding the mutex was closed, the panel said "Waiting for app" until the game restarted.
-  - A failed `ShellExecuteW` (stale `launch.txt`, a missing `python` folder, a renamed mod folder) and `guard` errors only `print`ed to the Lovely console.
-  - Fixed: `check_app` starts the app again after 5, 15 and 45 seconds of silence, counted afresh once it answers. The title row says "App didn't start" if Windows refused the start or nothing could be started (neither is retried), or after the second restart. Mod errors go to `calculatro.log` with the home folder as `~`.
-  - Real launches checked outside the game through LuaJIT's FFI (kill the app, the mod restarts it). Not yet checked in game.
-  - Known limitation: a schema mismatch (mod not reinstalled after an update) also says "App didn't start", though the app is running and rejecting the snapshots; the log has its message.
-- [x] **[low]** The mod only worked from a folder named exactly `Calculatro` (`launch_command` hardcoded `Mods/Calculatro/…`)
-  - Lovely loads a mod from a folder of any name, so a renamed folder got "App didn't start". This doesn't cover the zip extracted to Explorer's suggested destination: that's one folder too deep for Lovely, so no mod code runs. The zip keeps its top-level `Calculatro` folder.
-  - Fixed: `Calculatro.mod_folder` looks in `Mods` for the folder whose `lovely.toml` registers `calculatro.core`, skipping any with a `.lovelyignore`. With several copies it prefers `Calculatro` and logs a warning.
-  - Not yet checked in game, including what several copies do when Lovely loads them all.
-- [ ] **[low-med]** A search reply with an out-of-range index freezes the panel (`search.lua:26-28, 95`)
-  - `{"nonce":1,"options":[[9]]}` → `chosen[nil] = true` → "table index is nil" every frame until the hand changes.
-  - Python never sends this today, so it's hardening. Fix: drop options whose indices aren't integers in `0..#hand-1` in `receive_search`.
-- [x] **[low-med]** `ffi.cdef` of `MultiByteToWideChar`/`ShellExecuteW`/`GetCurrentProcessId` could fail with "attempt to redefine" if another mod declared them first
-  - Not a bug: on the game's LuaJIT 2.0.5, functions can be declared again, even with other spellings of the types (`LPCWSTR`, `DWORD`). Only struct clashes raise it, and the mod declares only functions.
-- [ ] **[low]** The editor closes, losing what was being edited, whenever the panel is hidden briefly (pause menu, Run Info, View Deck; `panel.lua:26, 183`)
-  - Keep the editor's state until the blind ends rather than clearing it whenever `G.OVERLAY_MENU` is set.
+The remaining ideas (I2 to I10) come after all of this, in whatever order suits. I10 (`calculatro odds FILE`)
+is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves slow reports as they are.
 
-## Information hiding
+## Bugs and correctness
 
-- [x] **[low]** Stone cards' `rank`, `rank_id` and `suit` are exported (`calculatro.lua` `card_info` ~632-680)
-  - The player can't see a Stone card's base rank. The engine ignores it for odds, but it breaks the "nothing a player couldn't see" rule and does reach best-discard option identity and order (see Bugs).
-  - Omit them for Stone cards.
-- [ ] **[low]** The `flipped_cards` challenge modifier (random face-down cards) breaks `_mark_split`'s assumption that face-down cards under The Mark are face cards
-  - Only `docs/plans/face-down-windows.md` mentions it. Add it to `docs/blinds.md` as a known limitation, and consider disabling The Mark's split in that challenge.
+- [ ] **B1** **[low-med] (carried)** A search reply with an out-of-range index breaks the panel until the hand changes (`search.lua:35-42`)
+  - `is_selected` does `chosen[cards[i + 1]] = true`, which raises "table index is nil" for an index past the hand. `Calculatro.select` already guards with `if card`.
+  - The app never sends one today. Drop options with indices outside `0..#hand-1` in `receive_search`.
+- [ ] **B2** **[low] (seen)** The mod ignores an odds file of another schema without saying so (`files.lua:163`)
+  - After a partial update (new mod, old app, or the reverse) the panel says "Waiting for app" then "App didn't start", and nothing is logged on the mod's side. `report()` it once, as the app does for a state schema it can't read.
+- [ ] **B3** **[low] (guess)** `probability` and `count_probability` clamp the draws differently under The Mark (`engine.py:109`, `engine.py:2183`)
+  - `probability` clamps to `len(pool)`, `count_probability` to `len(pool) - marked + marked_kept`. In `_mark_split`, `comb(n - marked, d)` is 0 when `d > n - marked`, which would be a division by zero.
+  - `_discard` seems to keep the draws within range for real states, so this may be unreachable. DNA's `added_hidden` with The Mark is the case to check.
+- [ ] **B4** **[low] (guess)** A value can be given up on for memory another job used (`worker.py:111-114`, `report.py:273`)
+  - The watchdog stops every running attempt when the process is over the limit. An odds value in its exact pass that was stopped because a best-discard search filled the memory is stored as `TooSlow(MEMORY)` until `odds_basis` changes.
+  - Possible fix: retry a value stopped for memory once, after the other job has ended.
+- [ ] **B5** **[low] (guess)** Time limits are wall-clock, but the odds job and a search share one interpreter lock (`worker.py`, `__main__.py:366`)
+  - With a search running, a value's quick try (0.25 s) gets about half the work done, so which values show as slow depends on what else is running. The same goes for the 30 s limits.
+  - See P1: a search in its own process would fix both.
+- [ ] **B6** **[low] (guess)** With many slow rows, the first approximation may be late (`report.py:281-290`)
+  - Every value gets its quick try (0.25 s each) before any estimate is made. A full panel has up to 36 values, so in the worst case that's about 9 s of "Calculating..." before the first asterisked value.
+  - `unchecked` only shortens this for the hand's sorts. Consider estimating a value straight after its quick try fails, or a budget for the whole quick pass.
+- [ ] **B7** **[low] (seen)** When every choice ties, a best-discard search returns every discard (`search.py:187`, `search.py:236`)
+  - For a target that can't be made (0% whatever is thrown away), the options are every distinct discard: over 200 for 8 cards, about 1000 for 11. The panel then shows "1/219".
+  - "Keep hand" is first, since options are ordered by size. Consider returning only that when the best odds equal Keep's, or capping the list.
+- [ ] **B8** **[low] (seen)** The hint over a face-down card isn't refreshed when the rules change (`hint.lua:271`)
+  - Its key is the observations and the piles' sizes. Selling Pareidolia, or Chicot or Luchador disabling The Mark, changes `only_face_cards()` but not the key, so the box stays as it was until another card is hovered.
+- [ ] **B9** **[low] (seen)** Snapshot numbers aren't coerced (`state.py:312-328`)
+  - `select_limit` of `null` becomes `None` and fails in `min()` in the search. A float `hand_size` would fail in `comb`. The mod writes neither today, and `run_watch` logs and carries on, but every state would fail the same way.
+  - `int()` the numeric fields in `_parse`, falling back to the default.
+- [ ] **B10** **[low] (seen)** `tracked()` compares a query's raw text with the stripped text of those already parsed (`__main__.py:132`)
+  - `"queen"` and `"queen "` both get rows. The builder never sends padded text.
+- [ ] **B11** **[low] (seen)** A payload can carry `"id": null` (`overlay.py:74`, `overlay.py:142`)
+  - Only for a hand-written state file without an `id`, but it breaks the "no `null` in the odds file" rule. Leave the key out.
+- [ ] **B12** **[low] (guess)** The file thread may outlive a restart of the game's Lua state (`worker.lua`)
+  - If Balatro restarts through `love.event.quit('restart')`, the old thread may keep running on the same named channels, beside the new one: two writers of the same `.tmp` file, and results read by either. Check what LÖVE does with threads on restart.
+- [ ] **B13** **[low] (guess)** Nothing recovers from an app that hangs without exiting
+  - The mod starts it again, but the new one finds the mutex held and exits. A heartbeat in the odds file, or the mod ending a silent app's process, would cover it. No hang is known.
+
+## App robustness (Python)
+
+- [ ] **R1** **[low] (carried)** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s for good (`overlay.py:183-197`, `__main__.py:329`)
+  - Tell `PermissionError` from the rest, and stop retrying what won't go away (a missing folder, a full disk).
+- [ ] **R2** **[low] (carried)** `FileStateSource.poll` stats the file before reading it (`source.py:71-93`)
+  - A file replaced in between is delivered under the older key, then again on the next poll. The cost is one restarted job. Stat again after reading, or deduplicate on the snapshot's `id`.
+- [ ] **R3** **[low] (seen)** `engine._ignored` grows without limit (`engine.py:1208`)
+  - One entry per set of observations no deal fits. Small, but the other caches beside it are bounded.
+
+## Mod (Lua)
+
+- [ ] **M1** **[low] (carried)** The editor and the settings page close whenever the panel is hidden for a moment (`panel.lua:202`)
+  - The pause menu, Run Info and View Deck all set `G.OVERLAY_MENU`. Looking at the deck while building a card query loses the query. Keep the state until the blind ends.
+- [ ] **M2** **[low] (seen)** The builder's counts stop at 8 (`builder.lua:45-50`)
+  - Hands of 10 or 11 cards are reachable (Juggler, Troubadour, Turtle Bean). Take the largest count from the hand size, or raise it.
+- [ ] **M3** **[low] (seen)** `Calculatro.visible` isn't saved
+  - There's a settings file now (`calculatro_settings.json`), so the panel's shown or hidden state could go in it.
+- [ ] **M4** **[low] (seen)** The hint's search runs on the game's thread, up to 20000 steps in one frame (`hint.lua:23`)
+  - Worth timing in LuaJIT for the worst hand (eight face-down cards sorted both ways). If it's more than a few milliseconds, spread it over frames.
 
 ## Performance
 
-- [x] **[med]** Cache odds between snapshots
-  - Each row's odds are kept until `odds_basis` changes (`build_report`'s `known`), so going back to an earlier selection is instant (a 2 s row took 0.08 ms), including after sorting the hand. Rows finished before a job is cancelled are kept; one cancelled midway starts again.
-  - Keep rows turned out to be cheap (a full face-up hand draws nothing), so the gain is in Discard rows.
-  - Not yet checked in game.
-  - Not done: a best-discard search's result isn't stored, so the row it selects is calculated again.
-- [ ] **[med]** Consider parallelism
-  - Each target's rows, "Any target", the `_union_by_suit` terms and best-discard choices are independent, but all run on one thread under the GIL.
-  - A persistent process pool (patterns built per worker, cancel through a shared event) could scale with cores. The docs never discuss it.
-  - Don't retry conditioning on drawn Wild Cards: the docs record it was tried twice and dropped.
-- [x] **[med]** "Any target" best-discard was slow when the best odds are 1
-  - Now `engine.can_miss` looks for one draw that makes none of the hands, which rules a choice out once odds of 1 are known. The 11-card hand went from 3.46 s to 0.54 s, and Four Fingers + Shortcut on 8 cards from 2.39 s to 0.23 s, with the same results in all 91 search scenarios.
-  - Not used under The Mark, Cerulean Bell or The Hook, whose draws aren't uniform; those still work out the exact odds.
-- [ ] **[med]** "Any target" best-discard is still slow on big hands when the best odds are below 1 (`search.py`)
-  - Random 11-card hands with Flush + Straight + Full House and no jokers take 4.3–4.6 s, as long as the case above did before its fix, and these hands are as common (2 of 4 random ones). The sum bound is 1 for over 400 of about 1000 choices, and each exact union costs about 10 ms. Scenario: "Best discard: 11 cards, holding no target".
-  - Hands of 10–11 cards are reachable (Juggler, Troubadour, Turtle Bean).
-  - Tighter bounds from pairs of hands were tried and don't pay; see "What's still slow" in `docs/performance/best-discard.md`. Cheaper exact unions, or parallelism below, are what's left.
-- [ ] **[low]** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:199-200`)
-  - Use the same condition as `_groups`/`evaluate_discard`. The gain is small today.
-- [ ] **[low]** `engine._gc_paused` turns the garbage collector off for the whole process while any job runs
-  - Nested pauses are counted. With overlapping long searches, it can stay off for long stretches, though since the time limits (progressive-odds stage 1) none runs for more than about 30 s, and the worst case measured left only 6 MB of cycles (see "The garbage collector" in `docs/architecture.md`). If that changes, consider `gc.freeze()` or a raised threshold instead of disabling it.
-- [ ] **[low]** The Lua panel does avoidable work every frame (`panel.lua:183-190`)
-  - `refresh_panel` builds the model and encodes it twice per frame. `layout_key` is computed before the `key == panel_key` early return, so that work is wasted whenever nothing changed.
-  - `panel_model`/`editor_model` call `builder_for` for every query every frame.
-  - About 77 µs per unchanged frame in LuaJIT with 5 hands and 5 queries: small, but it's allocation churn on a heap that has already hit GC trouble.
-  - Fix: compute `layout_key` after the early return, and store `editable` on the tracked entry when it's added or replaced.
-- [ ] **[low]** Each changed snapshot is encoded twice, once without its `id` and once with it (`files.lua:74-78`)
-  - About 150 µs each with a full deck. Splice the `id` into the first encoding instead.
+- [ ] **P1** **[med] (carried)** Consider parallelism
+  - Rows, "Any target", `_union_by_suit`'s terms and a search's choices are independent, but everything runs on one thread. A persistent process pool, or at least the search in its own process, would also make the time limits mean the same thing whatever else is running.
+- [ ] **P2** **[med] (carried)** "Any target" best-discard on 10 or 11 cards when the best odds are below 1 (`search.py`)
+  - See "What's still slow" in `docs/performance/best-discard.md`. It now ends in estimates after 30 s rather than never, but it's still the slowest common case.
+- [ ] **P3** **[low-med] (guess)** Large pattern tuples are hashed again and again as cache keys
+  - `_split_by_suit(patterns)` and `_interchangeable(patterns)` are `@cache`d on the tuple (`engine.py:277`, `291`), and `probability` calls the first every time. `_layout`'s key and `reuse.necessary`'s include it too (`engine.py:355`, `498`), and so does `_merged`'s (`engine.py:2013`).
+  - A tuple's hash isn't stored, and `Requirement` is a dataclass, so each lookup hashes every requirement. With Four Fingers and Shortcut a flush-type target has thousands of patterns, and a search or a posterior calls `probability` hundreds of times.
+  - Time it first. If it shows, key these by the tuple's identity (the tuples come from `_patterns`' cache, so they're already unique), or wrap them in an object with a stored hash.
+- [ ] **P4** **[low-med] (guess)** `_evidence_key` builds and hashes `tuple(state.unseen)` on every call (`engine.py:1215`)
+  - `usable` is called two or three times for each value (`_windows_for`, `posterior`, `evidence_unchecked`), and `_windows_for` builds its own key the same way. `Card`'s hash isn't stored either. This only runs with face-down cards in the sorts, which are the slow states anyway.
+  - Work the key out once per state (a field set in `GameState._parse`, or a small cache by `id(state)`).
+- [ ] **P5** **[low] (seen)** `GameState.rules` is worked out on every access (`state.py:366`)
+  - It's read in `_allowed`, `_evidence_key`, `_rule_classes`, `_final_hands` and elsewhere. `functools.cached_property` doesn't work on a frozen dataclass with these fields as is, so set it in `_parse` or cache `Rules.from_jokers` by the jokers' tuple.
+- [ ] **P6** **[low] (seen)** `_can_miss` tests each draw with a slow loop over every pattern (`engine.py:2076-2087`)
+  - `_holds_test` (`engine.py:1918`) does the same much faster and is already cached by `_target_test`.
+- [ ] **P7** **[low] (seen)** Caches that are never emptied count towards the memory limit
+  - `hands._patterns`, `_bell_parts`, `_forced_patterns` (one entry per forced class), `engine._memberships`, `_forced_group`, `_split_by_suit`, `_interchangeable` and `posterior.orders` are plain `@cache`. Each set of tracked hands and each set of joker rules adds entries, and "Any target"'s can be large.
+  - The watchdog reads the process's private bytes, so what these hold comes out of every calculation's allowance. Measure a long session with the targets changed often, then use `lru_cache` with a size where it matters.
+- [ ] **P8** **[low] (guess)** Building patterns can't be cancelled or timed out (`hands.py:59-65`)
+  - `Target.patterns` holds a lock while `_minimal` runs, and neither checks `cancel`. A value's quick try can overrun its 0.25 s, and a cancelled job keeps the lock from the next.
+  - Time the worst build (Four Fingers with Shortcut, "Any target" over the flush-type hands). If it's well under 0.25 s, leave it.
+- [ ] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
+- [ ] **P10** **[low] (carried)** `engine._gc_paused` turns the collector off for the whole process while any search runs (`engine.py:251`)
+- [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
+  - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.
+- [ ] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)
+  - `sorted_cards` also encodes every unseen card for each snapshot, changed or not (`snapshot.lua:102-109`).
+- [ ] **P13** **[low] (seen)** The game-started app formats console text nobody reads (`__main__.py:380`, `143-145`)
+  - With `--game-pid`, stdout is the null device, but `summarize`, `format_report` and `format_search` still run for every state. It's cheap. It's also one more reason to decide what the console half is for.
 
-## Architecture / cleanup
+## Architecture and cleanup
 
-- [x] **[med]** Split `calculatro.lua` (2644 lines) into modules
-  - Now `core`, `json`, `tracked`, `builder`, `snapshot`, `search`, `files`, `log`, `app`, `widgets`, `uibox`, `anim`, `odds`, `editor`, `panel` and `calculatro.lua` for the hooks; none over about 350 lines. Each is registered in `lovely.toml` as `calculatro.<file>`, since `package.preload` is shared with other mods.
-  - They still share one `Calculatro` table, which kept the tests' use of the mod nearly unchanged and the move verbatim, but require each other without cycles, so each loads on its own (`tests/test_mod_modules.py`). The tests load the mod from `lovely.toml`, so a file missing there fails them.
-  - `Calculatro.definition`, `cards_tab` and `refresh_panel` are broken up.
-  - Ran in the game's own `lua51.dll` (LuaJIT 2.0.5), registered as Lovely's `module.rs` does, against the mocked game. Not yet checked in game.
-- [x] **[med]** Slim `CLAUDE.md` (about 5k words, loaded into every agent session; the "Odds panel" item alone was one 1,335-word line)
-  - Now `AGENTS.md` (about 1k words: commands, a short architecture, must-not-break rules, tests, and which doc to read for what), which `CLAUDE.md` and `GEMINI.md` import.
-  - The details moved to `docs/architecture.md`, `docs/panel.md` and `docs/probability-model.md`.
-  - Not yet checked with the other agents' own tools (Codex, Cursor, Gemini CLI, Copilot); that they read these files comes from their docs.
-- [ ] **[low]** Remove `dump_lua = true` from `lovely.toml` in releases
-  - It makes Lovely write dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
-- [x] **[low]** Engine tidy-ups
-  - `_Layout` is a dataclass built explicitly, so renaming a local in `_layout` can't break it silently.
-  - `_search`'s setup moved to `_initial_parts`, `_join_tables` and `_class_signatures`, and pruning to `_drop_implied`. The recursion (`ways`) stays a closure for speed, so `_search` is still about 185 lines.
-  - `hands.disjoint_groups` is now the greedy grouping behind `_at_least`, `_bound`, `_disjoint_groups` and `_cards_within`. `hands._disjoint` doesn't use it: it splits a pattern into an OR of patterns, which isn't grouping.
-  - `count_probability`'s loop variable is now `a`, as in `_mark_split`.
-  - All 559 benchmark scenarios gave their expected results, with total time unchanged (100.4 s before, 99.9 s after, adding each scenario's fastest run).
-- [x] **[low]** Dead or loose Python code
-  - Removed `FileStateSource.watch()`, its `poll_interval`, and `read`/`watch` from the `StateSource` protocol. `FileStateSource.read` stays, since `poll` uses it.
-  - Removed `__main__.odds()`; its tests now go through `calculate()`.
-  - Added the missing blank lines between `settled()` and `RETRY`.
-  - `_search` in `state.py` ignores a request with `nonce=true`.
-  - `_strings` rejects anything but a list, so `"Pair"` or a non-empty object makes the snapshot malformed. An empty Lua table (`{}`) still means an empty list.
+- [ ] **A1** **[med] (seen)** `run_watch` is one 215-line function with about 18 variables shared by its closures (`__main__.py:239-453`)
+  - The odds job, the search job, resending and failure logging are each a small state machine. A class for the odds side and one for the search side would make each testable on its own, and the loop a dozen lines.
+- [ ] **A2** **[med] (seen)** `engine.py` is 2276 lines doing four jobs
+  - The counting search (`probability` to `_bound`, about 1000 lines), the discard model (`_discard`, `rules_after`, The Hook, Cerulean Bell, card queries), what the hand's sorts say (`usable` to `_split`), and the estimates (`_sampled` to `_holds_test`). They'd split along those lines with few imports between them.
+- [ ] **A3** **[med] (seen)** The game's rules for a final hand are written twice (`engine.py:1832-1905` and `2019-2035`)
+  - `_final_hands` "mirrors `_discard_odds` and what it calls": The Hook, The Mark, DNA, Cerulean Bell and Crimson Heart each have an exact version and a sampled one. A rule added to one and not the other gives estimates that disagree with the exact odds, without failing anything.
+  - At least add a test that, for a small state under each boss and with DNA, `_final_hands`' share over many draws agrees with `_evaluate_discard` (T4).
+- [ ] **A4** **[low] (seen)** Three functions answer "do these cards make one of these patterns" (`_holds` at `engine.py:141`, `holds` inside `_can_miss` at `2076`, `_holds_test` at `1918`)
+  - Keep `_holds_test` and build the others on it.
+- [ ] **A5** **[low] (seen)** The engine keeps state in module globals (`_usable`, `_deals`, `_windows`, `_ignored`, `_gc_searches`; `engine.py:246-248`, `1205-1212`, `1545`)
+  - Tests share them between cases, and nothing ties them to a session. An object passed down (as `Reuse` is) would hold them.
+- [ ] **A6** **[low] (seen)** Dead or unused
+  - `cards._has_rank` (`cards.py:57`) is never called.
+  - `GameState.played` and `discards_used` are exported, parsed and never read. Drop them from the contract (a schema bump), or note in `docs/architecture.md` what they're kept for.
+  - `json.lua:93`: `list(open, close, item)` never uses `open`. (carried)
+- [ ] **A7** **[low] (seen)** `report.build_report`'s closures call each other in a loop (`value` → `bounds` → `value`) and rebuild the whole report after each value (`report.py:205-254`)
+  - It works, and the sizes are small. It's the hardest part of the file to follow; a small class holding `known` with `value()` and `bounds()` as methods would read better.
+- [ ] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules
+  - The rank labels (`builder.lua` `ranks_label`, `cards._ranks_label`), the panel's capacity (`tracked.lua`, `overlay.columns_needed`), the sort order (`observe.lua` `sort_key`, `posterior.sort_value`), The Mark's face cards (`hint.lua`, `engine.flipped_by_mark`) and the memory limit (`memory.lua`, `process.memory_limit`).
+  - Some have a test that they agree (`test_builder_queries_parse_as_labelled`). Check each pair has one.
+- [ ] **A9** **[low] (carried)** Decide whether to keep the terminal output at all
 
-## Tooling / CI / release
+## Tests
 
-- [ ] **[med]** CI never builds the release until a tag is pushed
-  - Run `build_release.ps1` on PRs touching `scripts/`, `mod/` or `calculatro/`.
-  - [x] A pytest that the versions match (`test_versions_match`, which also covers `calculatro/__init__.py`).
-- [ ] **[low]** Pin or bound the dev dependencies (`ruff`, `pytest`, `lupa`) and add `cache: pip` to CI
-  - Unpinned, a new ruff rule or a lupa release without Windows `luajit21` wheels would break CI with no change in the repo.
-  - Dependabot only watches GitHub Actions; add pip.
-  - `release.yml` runs tests but not ruff, and tests on "3.14" rather than the bundled 3.14.8.
-- [ ] **[low]** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which doesn't exist in Windows PowerShell 5.1
-  - Under 5.1 the mod is copied, then the script throws before writing `launch.txt`. Add `#Requires -Version 7`, or use `[IO.File]::WriteAllText` as `build_release.ps1` does.
-- [x] **[low]** `build_release.ps1:101`: `Copy-Item mod\Calculatro\* $mod` has no `-Recurse`, so a future mod subfolder (assets, localisation) would ship empty
-  - Fixed with the Steamodded icon's `assets` folder.
-- [ ] **[low]** The plain test suite takes about 3.5 minutes; consider `pytest-xdist` (`-n auto`) as a dev dependency
-  - The slowest single test is 6.8 s (`test_matches_trying_every_discard_with_jokers[jokers1]`). The time is spread over many brute-force and Lua tests that would parallelise well.
-  - LuaJIT runtimes are per-test, so check that the `lua` fixture is safe across worker processes.
+- [ ] **T1** **[med] (seen)** The test modules import from each other, and there's no `tests/conftest.py`
+  - `test_state.py` holds the `lua` fixture, `MOCK_G`, `load_mod` and `new_lua`, which six other files import (with `F401` and `F811` silenced). `test_hint` imports from `test_overlay`, `test_observations` from `test_hint`, `test_posterior` from `test_engine` and `test_search`, `test_watch` from `test_report`, `test_settings` from three files.
+  - Importing a test module to get a helper also makes its autouse fixtures apply (`no_estimates`). Move the fixtures to `conftest.py` and the helpers (`card`, `Game`, `FakeSource`, `TEXTS`, the mocked game) to plain modules beside `game_order.py`.
+- [ ] **T2** **[low] (carried)** `test_state.py`'s module-level `importorskip("lupa")` also skips its pure-Python tests of `GameState` and `FileStateSource`
+  - T1's split fixes this too.
+- [ ] **T3** **[med] (carried)** Seeded fuzz tests against brute force, as a `-m fuzz` tier
+  - `random_card` only deals ranks 9 to 14, into decks of 8 to 12 cards (`test_engine.py:191-219`). Small hands, `select_limit` of 0 or 1, empty decks, and modifiers under The Mark or The Hook aren't reached.
+- [ ] **T4** **[med] (seen)** A test that the sampled model agrees with the exact one
+  - See A3. `test_posterior.py` checks `estimate_discard` on a few states; nothing goes through every boss and DNA with `_estimate_draws` against `_evaluate_discard`.
+- [ ] **T5** **[low] (seen)** Cancelling is only tested with the event already set (`test_search.py:249`, `364`)
+  - Add one that sets it partway through a heavy scenario and checks how long the job takes to end. (carried)
+- [ ] **T6** **[low] (carried)** `test_watch.py` depends on fake jobs finishing within `patience=0.05` s (`:105`, `:121`, `:186`)
+  - Likely to flake on a busy CI runner. Raise it, or drive the loop with a fake clock.
+- [ ] **T7** **[low] (carried)** Lua tests still missing
+  - The encoder's edge cases (NaN and infinity as `null`, control characters, `2^60`).
+  - The decoder rejecting trailing commas, `null` and truncated input.
+  - A search reply with bad indices (B1).
+  - An odds file of another schema (B2).
+- [ ] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
+- [ ] **T9** **[low] (carried)** Perf scenarios to add: The Serpent (none today), and a single odds row under The Hook without the sorts
+- [ ] **T10** **[low] (seen)** `tests/perf/*.py` put their folder on `sys.path` by hand (`benchmark.py:50`, `test_expected.py:15`, `test_perf.py:20`)
+  - A `pythonpath` entry in `pyproject.toml`'s pytest options would do it for the tests.
 
-## Tests to add / change
+## Tooling, CI and releases
 
-- [ ] **[med]** Seeded fuzz tests against brute force for the engine and search, as a `-m fuzz` tier or a time-boxed default
-  - The review's fuzzers ran about 13k `probability` cases (ranks 2–14, all 16 rule sets), about 210k Reuse-against-alone cases, and about 2k best-discard states against every subset. They found only a Bell + Royal Flush bug (about 1e-4), gone with Royal Flush.
-  - Existing brute-force tests mostly use `random_card`'s ranks 9–14 and fixed 10–14-card decks. They miss `select_limit` 0/1, hands of 1–3 cards, empty or tiny decks, The Mark + Pareidolia, and modifiers with The Mark/The Hook.
-  - 100 random best-discard states take about 5 s.
-- [ ] **[med]** Python app robustness tests
-  - [x] `run_watch` surviving bad snapshots on the main loop.
-  - [x] `poll` with invalid UTF-8, a BOM, or a permanently corrupt file.
-  - The normal `main(--game-pid)` path: log created, stdout to devnull, loop stopping when the game exits. Only the "already running" exit is tested.
-- [ ] **[med]** Lua tests
-  - Encoder edge cases: NaN/inf → `null`, control characters/DEL → `\u00xx`, `2^60`. They behave correctly today but nothing asserts it.
-  - Decoder rejection: trailing commas, `null`, truncated input.
-  - [x] `write_state` failing: the snapshot is retried, and repeated failures are reported once. `seq`/`round_seq` staying right is still untested.
-  - Malformed or out-of-range search replies.
-  - [x] Non-ASCII save directory (with a stand-in for `love.filesystem`; the real one was only checked by hand).
-  - Optional: a test that `refresh_panel` with an unchanged model returns early.
-- [ ] **[low]** Split `tests/test_state.py`
-  - Its module-level `importorskip("lupa")` also skips the pure-Python `GameState` tests when lupa is missing. Separate the parse tests from the Lua tests.
-- [ ] **[low]** `test_fast_odds_print_with_summary` (`tests/test_watch.py:122-126`) is likely flaky
-  - It depends on a fake job finishing within `patience=0.05` s. Raise it.
-  - `watch_thread` tests leave `run_watch` threads running if an assertion fails.
-- [ ] **[low]** Lines no test reaches
-  - `engine.py:151-152` (Mark fallback when fewer face cards are unseen than face down).
-  - `engine.py:788-791` (788 may be dead, since `_union_by_suit` checks first).
-  - `engine.py:1162` (Bell with an empty final hand).
-  - `hands.py:324`.
-  - Cancellation is only tested with the event already set. Add a mid-search latency test; it measured 4–62 ms on the heaviest scenarios.
-- [ ] **[low]** Widen `test_shared_work_gives_the_same_odds` (6 fixed setups) to cover Serpent, Shortcut alone and Smeared+Bell, or make it randomized
-- [ ] **[low]** Card query tests
-  - Pin the poker-notation readings that are right today but untested: `as` → A♠, `ts` → T♠, `10 s` → at least 10 spades, `2 c` → at least 2 clubs.
-  - [x] Add Stone + rank/suit builder queries (see Bugs).
-- [ ] **[low]** Perf scenarios to add
-  - The Serpent (none today).
-  - A single Hook odds row (only best-discard ones exist).
-  - [x] The 11-card "Any target" case (see Performance).
-  - `benchmarks.md` was last updated 2026-10-11, but the engine changed on 10-13 and 10-15; re-run it.
-
-## Query parser (terminal input)
-
-- [ ] **[low]** Normalise whitespace in `parse_query`/`parse_filter` (`cards.py:175, 331`)
-  - `"red  cards"` (two spaces) fails: the `(?<!red)\s+cards?$` lookbehind sees `"ed "`. `"2 + queens"` fails while `"2+queens"` works.
-- [ ] **[low]** Make the grammar consistent
-  - Negation works for suits and modifiers but not ranks: `not queen`, `not face`, `not 5`, `not red cards` fail, though the app's own labels say `not 5/9/K`.
-  - Missing forms: `red`, `black`, `red queens`, `queen of red`, `evens`/`odds`, `plain` (the app's own name for "not enhanced"), and `stone of hearts` (a modifier, "of", then suits).
-  - `no edition` means "count is zero" while the label `No Edition card` means the negation. Same for seals.
-  - `at least 2 of clubs` fails with `unknown card filter 'of clubs'`.
-  - `0+ queens` and `at least 100 queens` are accepted silently.
+- [ ] **C1** **[med] (carried)** CI doesn't build the release until a tag is pushed
+  - A broken `build_release.ps1` is found on release day. Run it on pull requests that touch `scripts/`, `mod/` or `calculatro/`.
+- [ ] **C2** **[low] (carried)** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 doesn't have
+  - The mod is copied, then the script fails before `launch.txt` is written. Add `#Requires -Version 7`, or write the file as `build_release.ps1` does.
+- [ ] **C3** **[low] (carried)** `dump_lua = true` ships in releases (`lovely.toml:3`)
+  - Lovely then writes its dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
+- [ ] **C4** **[low] (carried)** The dev dependencies are unpinned, and Dependabot only watches the Actions
+  - A new ruff rule, or a `lupa` release without a Windows `luajit21` wheel, breaks CI with no change in the repo. Add upper bounds, a `pip` entry in `dependabot.yml`, and `cache: pip` to the workflows.
+  - `release.yml` runs the tests but not ruff.
+- [ ] **C5** **[low] (seen)** `calculatro/process.py` loads `kernel32` on import, so 7 test files can't be collected on Linux
+  - `AGENTS.md` documents it as a limit for cloud agents. Loading the DLL on first use (or `sys.platform` checks around the definitions) would let the engine-independent ones run there: `test_log`, `test_state`'s parsing tests, most of `test_watch`.
+- [ ] **C6** **[low] (carried)** The suite takes about 3.5 minutes; try `pytest-xdist`
 
 ## Docs
 
-- [ ] **[med]** Every commit hash the perf docs cite (`7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac`) no longer exists, since history was rewritten
-  - In: `docs/performance/README.md:116`, `benchmarks.md` (19, 22, 112, 115, 197, 364, 418, 445), `best-discard.md:121`. The "Comparing with an older version" `git worktree add … 7d2af71` recipe fails.
-  - Map each to its current hash (e.g. Four Fingers perf work → `ff937b7`), or name the commit by message.
-- [ ] **[med]** Broken anchor: `CONTRIBUTING.md:24` and `.github/ISSUE_TEMPLATE/config.yml` link `README.md#installation`, but the heading's anchor is `#installation-users`
-- [ ] **[med]** README Usage says everything twice (`README.md:59-80`)
-  - A bullet list, then a prose block that restates it, with stray blank lines and an overlong leftover line. Merge them.
-- [ ] **[med]** Add a "Known limitations" section to the README
-  - Best discard looks only at this discard and draw, not the round's later discards ("optimal" overstates it).
-  - Four Fingers + Shortcut Straight Flush searches take seconds.
-  - The Psychic under 5 cards.
-  - Windows only.
-  - Steamodded and other mods are untested (custom suits and ranks, `rank_id` > 14, modded enhancements and bosses aren't handled).
-- [ ] **[low]** README:9 "Find the optimal discard selection for a target hand" leaves out that card query rows can be searched too
-- [ ] **[low]** `docs/blinds.md:33` lists Serpent, Mark and Bell as checking `blind_disabled`, but leaves out `GameState.hook`, which does too
-- [ ] **[low]** `docs/jokers.md`: Splash is tagged `rule` (legend line ~123, table ~217), but its own section and `rules.RULE_JOKERS` treat it as not changing hand types. Untag it or make it `cond`
-- [ ] **[low]** Stale or misplaced comments
-  - `uibox.lua:107-110`: the card-name popup paragraph is merged into `register_once`'s comment; it belongs above `hover_popups` at 140.
-  - `search.lua:4`: "each target hand's search button" (card rows have them too).
-  - `json.lua:93`: `list(open, close, item)` never uses `open`.
-  - `engine.py:77, 1064`: stray line breaks in docstrings.
-  - `tests/perf/scenarios.py:246`: "The Mark" comment sits above the Bell scenarios.
-  - `report.py:21, 28`: `discard` is also None on the last hand with no discards.
-  - Document that under Cerulean Bell the Discard column always shows "discard the forced card", since it's always highlighted.
-- [ ] **[low]** Bug report template: also ask for `calculatro_odds.json` (or a screenshot taken at the same moment) to tell app bugs from panel bugs
+- [ ] **D1** **[med] (seen)** Fourteen references to `docs/plans/face-down-windows.md` and `docs/plans/progressive-odds.md`, which are deleted in the working tree
+  - `engine.py:1203`, `1675`; `posterior.py:3`; `search.py:23`; `state.py:140`; `observe.lua:15`, `360`; `tests/game_order.py:3`; `tests/perf/scenarios.py:56`; `test_observations.py:4`; `test_posterior.py:2`, `915`; `test_search.py:404`; `docs/jokers.md:112`.
+  - If the plans are done, point these at `docs/probability-model.md` (and check it has what the code comments lean on: the snapshot's shape for observations, the tie rules, the tests' reference).
+- [ ] **D2** **[med] (seen)** `docs/jokers.md:112` still calls several DNA copies of a face-down card a known limitation
+  - The engine branches on what the card is now (`engine._dna_branch`), and `docs/probability-model.md:156` says so. The two pages disagree.
+- [ ] **D3** **[med] (carried)** The perf docs cite commits that no longer exist
+  - `7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac` aren't in the history. They're in `docs/performance/README.md:140-143`, `benchmarks.md` (19, 22, 112, 115, 197, 364, 418, 445) and `best-discard.md:146`. The "Comparing with an older version" recipe fails as written.
+- [ ] **D4** **[med] (carried)** `docs/performance/benchmarks.md` was measured on 2026-10-07 to 10-11
+  - The engine has changed a lot since (the sorts, windows, estimates, the last two commits). Re-run it, or mark the tables as historical.
+- [ ] **D5** **[med] (carried)** Broken anchor: `CONTRIBUTING.md:29` and `.github/ISSUE_TEMPLATE/config.yml:4` link `#installation`; the heading is "Installation (Users)", so `#installation-users`
+- [ ] **D6** **[med] (carried)** The README's Usage section says everything twice (`README.md:61-95`)
+  - A bullet list with screenshots, then prose that repeats it, with stray blank lines. Merge them.
+- [ ] **D7** **[low] (guess)** Check the README covers what's been added since it was written
+  - The settings page (the gear, face-down hints, the memory limit), approximate values (`*`), values given up on (`?`, "Too slow"), and what an estimated best discard means. The Usage section mentions none of them.
+- [ ] **D8** **[low] (carried)** Add "Known limitations" to the README
+  - Best discard looks one discard ahead. Windows only. Other mods (custom ranks, suits, enhancements, bosses) are untested. The slowest odds end as estimates.
+- [ ] **D9** **[low] (carried)** `docs/jokers.md:130`, `224`: Splash is tagged `rule`, but `rules.RULE_JOKERS` doesn't have it and its own section says it changes no hand
+- [ ] **D10** **[low] (seen)** Small ones
+  - `search.lua:4`: "each target hand's search button"; card rows have one too. (carried)
+  - `posterior.py:434`: `Deals` says it draws "exactly, not approximately", but `_table` turns the weights into floats for `bisect`. True to about 1e-16; say so or drop "exactly".
+  - `report.py:174`: "Share it only between states with the same `__main__.odds_basis`" has the lower module naming the upper one. `odds_basis` could live in `report.py`.
+  - `core.lua:8-9` and `worker.py:26`: the mod's patience (0.3 s) and the app's quick limit (0.25 s) depend on each other by a comment on one side only.
+- [ ] **D11** **[low] (carried)** The bug report template could also ask for `calculatro_odds.json`, to tell the app's bugs from the panel's
 
-## Feature ideas (roughly by value to a player)
+## Ideas
 
-- [ ] Look ahead across all remaining discards: "odds by the end of the round if you play your discards well", and a best discard aimed at that
-  - Today's search optimises this discard only, which can be the wrong move with 2+ discards left. Expensive; would probably need a depth limit or approximations.
-- [ ] Show that a best "discard" is really a play when no discards are left, and account for its side effects
-  - It can win the blind outright, and triggers play-only boss penalties: The Ox ($0), The Arm (hand level down), The Tooth ($1/card), The Psychic (needs 5 cards). At least show "Play i/n", or skip such bosses.
-- [ ] Presets for jokers' per-round targets
-  - The Idol's card, Mail-In Rebate's rank, Castle's and Ancient Joker's suit, To Do List's hand. All are public (shown on the joker, in `G.GAME.current_round`); this needs a small export plus builder presets or auto-suggested targets.
-- [ ] Show Keep for card queries when the hand has face-down cards
-  - It's only 0%/100% with a full face-up hand. Under The House, The Wheel, The Fish and The Mark it's a real probability, which `evaluate_cards` computes and `overlay.odds` (`overlay.py:80-85`) throws away.
-- [ ] Targets for joker conditions (`cond` in `docs/jokers.md`)
-  - Flush in a given suit (Castle, Ancient, Bloodstone), Flower Pot's four suits, Seeing Double, Square Joker's exactly-4-card hand, Blackboard's all-black hand. Some can already be written as card queries; first-class presets would make them discoverable.
-- [ ] Keep search options tied to card objects rather than positions, so sorting the hand doesn't lose the "i/n" cycle (`search_basis` would need to ignore hand order too)
-- [ ] Send the panel's visibility with the snapshot, so the app can skip calculating while it's hidden
-- [ ] Remember the panel's shown/hidden state between sessions (`Calculatro.visible` isn't saved)
-- [ ] Make the `C` hotkey configurable; add controller support for the panel's buttons (mouse only today)
-- [ ] CLI: a one-shot `calculatro odds FILE [--target …]` that prints a report and exits, to reproduce a bug report's state file; and `--version`, with the mod sending its version so a mismatch beyond the schema number is logged
-- [ ] Linux/macOS/Steam Deck (Proton) support: needs alternatives to `%APPDATA%`, `ShellExecuteW` and the Windows mutex
+Not findings, and none of them new since the last review except the first two.
+
+- [ ] **I1** Say when a best-discard option doesn't beat keeping the hand (B7)
+- [ ] **I2** A budget for a whole report's exact pass, so 36 slow values don't mean 18 minutes of a busy core for odds the player has stopped looking at
+- [ ] **I3** Look ahead across the remaining discards
+- [ ] **I4** Show a best "discard" as a play when no discards are left, with its side effects (The Ox, The Arm, The Tooth, The Psychic)
+- [ ] **I5** Presets for jokers' per-round targets (The Idol, Mail-In Rebate, Castle, Ancient Joker, To Do List)
+- [ ] **I6** Show Keep for card queries when the hand has face-down cards (`overlay.py:155-162` drops it)
+- [ ] **I7** Search options tied to cards, not positions, so sorting the hand keeps the "i/n" cycle
+- [ ] **I8** Send the panel's visibility with the snapshot, so the app can idle while it's hidden
+- [ ] **I9** A configurable hotkey, and controller support for the panel's buttons
+- [ ] **I10** `calculatro odds FILE` to print one report and exit, for reproducing a bug report's state file; `--version`
