@@ -4,8 +4,9 @@ The final hand is the kept known cards plus `m` cards drawn uniformly without
 replacement from the unseen pool: the undrawn deck plus any face-down cards
 in hand or discarded, which are equally unknown to the player. Kept face-down cards are
 modelled as part of that draw, since by symmetry it's the same distribution.
-The Mark's face-down cards are known to be face cards, so there the draw is
-weighted by how many face cards it has; see _mark_split. Face-down cards whose
+The face-down cards The Mark drew as face cards (`Card.marked`) are known to be
+face cards, so there the draw is weighted by how many face cards it has; see
+_mark_split. Face-down cards whose
 place in the hand's sorts says what they can be aren't like that: the odds
 average over what they are, by the posterior (`posterior`, _averaged).
 
@@ -50,7 +51,7 @@ import gc
 import sys
 from bisect import bisect_left
 from collections import Counter, OrderedDict, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from fractions import Fraction
@@ -78,7 +79,7 @@ from .hands import (
 )
 from .posterior import Branch, Deals, Label, Posterior, Window, deals, printed, sort_value, summed, windows
 from .rules import Rules
-from .state import SUITS, Card, GameState
+from .state import SUITS, Card, GameState, ObservedCard
 
 
 class Cancelled(Exception):
@@ -92,9 +93,10 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     """P(kept + `draws` random cards from `pool` contains `target` under `rules`).
 
     With The Mark, `marked` of the pool's cards are face down (in hand or
-    discarded), so they
-    are known to be face cards (`flipped_by_mark`), and `marked_kept` of them
-    are among the `draws`. The other draws come from the rest of the pool.
+    discarded) and known to be face cards (`Card.marked`, `flipped_by_mark`),
+    and `marked_kept` of them are among the `draws`. The other draws, face-down
+    cards drawn while Pareidolia was held among them, come from the rest of the
+    pool.
 
     With Cerulean Bell, `forced` is a card in hand besides `kept` that must be
     part of the hand played (`hands.forced_patterns`).
@@ -130,7 +132,7 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
 
     with _gc_paused():
         split_faces = _window_split(pool, draws, windows) if windows else _marks(
-            _mark_split(pool, draws, rules, marked, marked_kept))
+            _mark_split(pool, draws, marked, marked_kept))
         if split_faces is None:
             return Fraction(favourable(), comb(len(pool), draws))
         # One search for every number of face cards, with the weights scaled to integers.
@@ -146,12 +148,14 @@ def _holds(patterns: Sequence[Pattern], cards: Sequence[Card], rules: Rules) -> 
                for pattern in patterns)
 
 
-def flipped_by_mark(card: Card, rules: Rules) -> bool:
-    """Whether The Mark draws `card` face down: `Card:is_face(true)`, which ignores debuffs."""
-    return rules.pareidolia or (not card.is_stone and card.rank_id in (11, 12, 13))
+def flipped_by_mark(card: Card) -> bool:
+    """Whether The Mark draws `card` face down without Pareidolia: `Card:is_face(true)`,
+    which ignores debuffs. With Pareidolia it draws every card face down, and those
+    aren't marked (`Card.marked`), so this is what a marked card can be."""
+    return not card.is_stone and card.rank_id in (11, 12, 13)
 
 
-def _mark_split(pool: list[Card], draws: int, rules: Rules, marked: int,
+def _mark_split(pool: list[Card], draws: int, marked: int,
                 marked_kept: int) -> tuple[list[bool], list[tuple[int, Fraction]]] | None:
     """How The Mark's face-down cards skew the unseen cards in the final hand.
 
@@ -164,14 +168,19 @@ def _mark_split(pool: list[Card], draws: int, rules: Rules, marked: int,
     the sum over a of (favourable draws with exactly a face cards) times
     C(f - marked, k) / (C(N - marked, d) C(f, a)), the C(nf, d - k) cancelling.
 
+    The face-down cards that aren't marked (drawn while Pareidolia was held,
+    every card face down) are among the d: with the marked ones a uniform
+    sample of the face cards, the rest of the deal is a uniform sample of
+    what's left, whichever of it is face down.
+
     Returns which pool cards are face cards and those (a, weight) pairs, or
-    None when the draw is uniform: no face-down cards, or every card a face
-    card (Pareidolia). Also None if fewer pool cards are face cards than are
-    face down, which only a rank changed while face down can cause.
+    None when the draw is uniform: no marked cards. Also None if fewer pool
+    cards are face cards than are marked, which only a rank changed while face
+    down can cause.
     """
-    if not marked or rules.pareidolia:
+    if not marked:
         return None
-    faces = [flipped_by_mark(c, rules) for c in pool]
+    faces = [flipped_by_mark(c) for c in pool]
     f, n = sum(faces), len(pool)
     if f < marked:
         return None
@@ -1123,9 +1132,15 @@ class _Discard:
     draws: int
     pool: list[Card]  # unseen cards: undrawn deck + face-down cards in hand or discarded
     marked: int  # face-down cards known to be face cards (The Mark): in hand, discarded now or before
+    marked_kept: int = 0  # of `hidden_kept`, the marked ones
     hooked: int = 0  # kept cards The Hook throws away at random before the draw
     added: tuple[Card, ...] = ()  # DNA's copies in the final hand, which The Hook can't take
     added_hidden: int = 0  # DNA's copies of a face-down card
+    added_marked: bool = False  # and it's marked
+
+    def marked_held(self, marked_kept: int) -> int:
+        """The marked cards in the final hand: `marked_kept` kept, and a marked card DNA copies."""
+        return marked_kept + (self.added_hidden if self.added_marked else 0)
 
 
 def _hooked(state: GameState, discard: list[int]) -> int:
@@ -1170,10 +1185,11 @@ def _discard(state: GameState, discard: list[int]) -> _Discard:
     # are the same unknown card, so evaluate_discard branches on what it is
     # (_posterior_for) and they arrive here as known cards.
     added_hidden = copies if played is not None and played.hidden else 0
-    marked = state.hidden + state.discarded_hidden if state.mark else 0
     return _Discard([state.hand[i] for i in sorted(discard_set)], kept_known,
-                    len(kept) - len(kept_known), draws, state.unseen, marked, hooked,
-                    () if added_hidden or played is None else (played,) * copies, added_hidden)
+                    len(kept) - len(kept_known), draws, state.unseen, state.marked,
+                    sum(c.hidden and c.marked for c in kept), hooked,
+                    () if added_hidden or played is None else (played,) * copies, added_hidden,
+                    bool(added_hidden) and played.marked)
 
 
 def discard_draws(state: GameState, discard: list[int]) -> int:
@@ -1230,15 +1246,19 @@ _deals: OrderedDict[tuple, Deals | None] = OrderedDict()
 
 
 def _evidence_key(state: GameState) -> tuple:
-    """What `usable` and `_deals_for` depend on: the sorts, the unseen cards, and what `_allowed` lets through."""
-    return state.observations, state.observed, tuple(state.unseen), state.mark, state.mark and state.rules.pareidolia
+    """What `usable` and `_deals_for` depend on: the sorts, the unseen cards, and the marked cards in none."""
+    return state.observations, state.observed, tuple(state.unseen), state.marked
 
 
-def _allowed(state: GameState) -> Callable[[Card], bool]:
-    """Which unseen cards a face-down card can be: under The Mark only face cards
+def _slots(state: GameState, observed: Sequence[ObservedCard], extra: Sequence[int],
+           skip: Collection[int] = ()) -> tuple[tuple[ObservedCard, ...], int]:
+    """The face-down cards at hand indices `extra` as the posterior takes them, and
+    `marked_rest`: how many marked face-down cards are neither those nor latent in
+    `observed` (bar the ids in `skip`). A marked one is a face card
     (`flipped_by_mark`), as in _mark_split."""
-    rules = state.rules
-    return lambda card: not state.mark or flipped_by_mark(card, rules)
+    cards = tuple(ObservedCard(hand=i, marked=state.hand[i].marked) for i in extra)
+    enumerated = sum(o.marked for i, o in enumerate(observed) if o.latent and i not in skip)
+    return cards, state.marked - enumerated - sum(c.marked for c in cards)
 
 
 def _checker(cancel: Event | None) -> Callable[[], None]:
@@ -1263,8 +1283,9 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
             _usable.move_to_end(key)
             return _usable[key]
     # Telling no deals apart, the sum is one branch: quick even for The House's first hand.
-    found = summed(state.observations, state.observed, state.unseen, _allowed(state), (), _nothing,
-                   _checker(cancel)).total > 0
+    _, rest = _slots(state, state.observed, ())
+    found = summed(state.observations, state.observed, state.unseen, flipped_by_mark, (), _nothing,
+                   _checker(cancel), marked_rest=rest).total > 0
     if not found:
         failure = state.observations, state.observed
         with _usable_lock:
@@ -1293,12 +1314,13 @@ def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], Non
     estimate is made of (`build_report` estimates each row, Keep and Discard),
     as it can take a second (The House's first hand sorted both ways). A deal
     that fits makes the evidence usable, so `usable` is answered too."""
-    key = (*_evidence_key(state), extra)
+    cards, rest = _slots(state, state.observed, extra)
+    key = (*_evidence_key(state), cards)
     with _usable_lock:
         if key in _deals:
             _deals.move_to_end(key)
             return _deals[key]
-    found = deals(state.observations, state.observed, state.unseen, _allowed(state), extra, check)
+    found = deals(state.observations, state.observed, state.unseen, flipped_by_mark, cards, check, rest)
     with _usable_lock:
         _deals[key] = found
         while len(_deals) > _DEALS_KEPT:
@@ -1331,8 +1353,8 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
     Branches are summed by `label`, what the caller sees of each card (see
     posterior.summed); without it each deal is its own branch. The latent
     cards with ids in `skip` are left out.
-    Under The Mark the face-down cards are face cards (`_allowed`). Observations
-    no deal fits are set aside (`usable`).
+    Marked face-down cards are face cards (`_slots`). Observations no deal fits
+    are set aside (`usable`).
     Raises Cancelled soon after `cancel` is set.
     """
     observations, observed = state.observations, state.observed
@@ -1342,7 +1364,9 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
     extra = tuple(i for i in extra if i not in in_hand)
     if not any(o.latent for i, o in enumerate(observed) if i not in skip) and not extra:
         return None
-    found = summed(observations, observed, state.unseen, _allowed(state), extra, label, _checker(cancel), skip)
+    cards, rest = _slots(state, observed, extra, skip)
+    found = summed(observations, observed, state.unseen, flipped_by_mark, cards, label, _checker(cancel), skip,
+                   marked_rest=rest)
     # No card it can be: only a rank changed under The Mark does that, with DNA's copies alone.
     return found if found.total else None
 
@@ -1417,9 +1441,12 @@ def _says_nothing_here(state: GameState, discard: list[int]) -> bool:
     are: every set of cards can be sorted. So it only matters once they meet
     different fates (kept, copied by DNA, or gone: thrown away now or discarded
     face down before), as those are then the higher or the lower ones, or if
-    Cerulean Bell forces one of them.
+    Cerulean Bell forces one of them. Or if only some of them are marked: then
+    which are the higher ones says something about which are face cards.
     """
     if len(state.observations) != 1 or not all(o.latent for o in state.observed):
+        return False
+    if len({o.marked for o in state.observed}) > 1:
         return False
     thrown = set(discard)
     copied = thrown if _dna_copies(state, discard) else set()
@@ -1446,7 +1473,10 @@ def _resolver(state: GameState) -> Callable[[Branch], GameState]:
     places: dict[Card, list[int]] = {}
     for j, card in enumerate(state.unseen):
         places.setdefault(card, []).append(j)
-    hidden = [i for i, c in enumerate(state.discard) if c.hidden]
+    # Those discarded face down take the place of a hidden card of the discard pile marked alike: the
+    # branch's are the observed ones, in order (or, without marks, any).
+    hidden = {mark: [i for i, c in enumerate(state.discard) if c.hidden and c.marked == mark] for mark in (False, True)}
+    kinds = [o.marked for o in state.observed if o.discarded]
     # A card turned up in the hand keeps its slot's selection and Cerulean Bell's mark.
     # A branch turns up a handful of the few unseen cards, so each is made once.
     turned: dict[tuple[int, Card], Card] = {}
@@ -1465,8 +1495,11 @@ def _resolver(state: GameState) -> Callable[[Branch], GameState]:
                 made = turned[i, card] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
             hand[i] = made
         discard = list(state.discard)
-        for i, card in zip(hidden, branch.discarded):
-            discard[i] = card
+        used = {False: 0, True: 0}
+        for j, card in enumerate(branch.discarded):
+            mark = j < len(kinds) and kinds[j]
+            discard[hidden[mark][used[mark]]] = card
+            used[mark] += 1
         unseen = [c for j, c in enumerate(state.unseen) if j not in gone]
         return replace(state, hand=hand, unseen=unseen, discard=discard, observations=(), observed=())
     return resolve
@@ -1476,16 +1509,15 @@ def _rule_classes(state: GameState, discard: list[int],
                   test: Callable[[Card, Rules], object]) -> Callable[[Card], object]:
     """What the odds see of a resolved card: `test` (its class, or whether it
     matches a query) under each set of rules the final hand may be judged under,
-    and under The Mark whether it's a face card."""
+    and with marked cards whether it's a face card."""
     rule_sets = list(dict.fromkeys([state.rules, *(rules for rules, _ in rules_after(state, discard))]))
-    mark = state.rules if state.mark else None
+    marked = state.marked > 0
     seen: dict[Card, object] = {}
 
     def classes(card: Card) -> object:
         found = seen.get(card)
         if found is None:
-            found = seen[card] = (tuple(test(card, rules) for rules in rule_sets),
-                                  mark is not None and flipped_by_mark(card, mark))
+            found = seen[card] = (tuple(test(card, rules) for rules in rule_sets), marked and flipped_by_mark(card))
         return found
     return classes
 
@@ -1586,7 +1618,7 @@ def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card],
 
     A window's cards must all meet one fate, all kept or all gone, as only then
     does what the final hand holds depend on how many of its cards the draw
-    has. Under The Mark the draw is already weighed (_mark_split), and The Hook
+    has. With marked cards the draw is already weighed (_mark_split), and The Hook
     and Cerulean Bell pick from the final hand at random; DNA's copies of a
     face-down card are branched on. None of those take windows. Of the rest,
     those whose cards the odds tell apart (`classes`) are taken, the most told
@@ -1599,7 +1631,7 @@ def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card],
     fewer than the deals `summed` would go through: that's the second list,
     with each window's ids and its ways.
     """
-    if (state.mark or state.bell or _hooked(state, discard) or _dna_copies(state, discard)
+    if (state.marked or state.bell or _hooked(state, discard) or _dna_copies(state, discard)
             or _says_nothing_here(state, discard) or not usable(state, cancel)):
         return [], []
     key = (state.observations, state.observed, tuple(state.unseen))
@@ -1608,7 +1640,7 @@ def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card],
         if found is not None:
             _windows.move_to_end(key)
     if found is None:
-        found = windows(state.observations, state.observed, state.unseen, _allowed(state), _checker(cancel))
+        found = windows(state.observations, state.observed, state.unseen, flipped_by_mark, _checker(cancel))
         with _usable_lock:
             _windows[key] = found
             while len(_windows) > _WINDOWS_KEPT:
@@ -1864,8 +1896,8 @@ def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callab
     It mirrors _discard_odds and what it calls: the rules the final hand is
     judged under (`rules_after`), drawn by their weight; The Hook's kept cards
     taken at random (_after_hook); the face-down kept cards and the draw a
-    uniform sample of the pool, but under The Mark its face-down cards a
-    uniform sample of the pool's face cards and the draw from the rest
+    uniform sample of the pool, but the marked face-down cards a uniform
+    sample of the pool's face cards and the rest from what's left
     (_mark_split); DNA's copies of a face-down card, all of one unknown card;
     and Cerulean Bell's forced card, a random one of the final hand
     (_bell_after_draw), or the forced card kept.
@@ -1882,9 +1914,10 @@ def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callab
         forced = state.hand[state.forced]  # keeping the hand keeps its forced card
         known = [c for i, c in enumerate(state.hand) if i != state.forced and not c.hidden]
     copied = 1 if d.added_hidden else 0  # DNA's copies of a face-down card are one unknown card
+    copied_marked = copied and d.added_marked
     faces: list[int] = []
-    if d.marked and not state.rules.pareidolia:
-        faces = [j for j, c in enumerate(pool) if flipped_by_mark(c, state.rules)]
+    if d.marked:
+        faces = [j for j, c in enumerate(pool) if flipped_by_mark(c)]
         if len(faces) < d.marked:
             faces = []  # as _mark_split: only a rank changed while face down does that
     keys = [([card_key(c, rules) for c in pool], [card_key(c, rules) for c in known],
@@ -1903,17 +1936,22 @@ def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callab
     def final(rng: Random) -> bool:
         r = rng.choices(range(len(rule_sets)), cum_weights=weights)[0] if len(rule_sets) > 1 else 0
         pool_keys, hand, added, forced_key = keys[r]
-        hidden = d.hidden_kept
+        hidden, marked = d.hidden_kept, d.marked_kept
         if d.hooked:
-            slots = len(hand) + hidden
-            taken = set(rng.sample(range(slots), d.hooked))
+            # The kept cards in order: known, then face down, the marked ones first.
+            known = len(hand)
+            taken = set(rng.sample(range(known + hidden), d.hooked))
             hand = [k for i, k in enumerate(hand) if i not in taken]
-            hidden -= sum(1 for i in taken if i >= slots - hidden)
+            hidden -= sum(1 for i in taken if i >= known)
+            marked -= sum(1 for i in taken if known <= i < known + marked)
         if faces:
-            down = rng.sample(faces, d.marked)  # the face-down cards: kept, copied, then gone
+            down = rng.sample(faces, d.marked)  # the marked face-down cards: kept, copied, then gone
             gone = set(down)
             rest = [j for j in everything if j not in gone]
-            picks = down[:hidden + copied] + rng.sample(rest, min(d.draws, len(rest)))
+            others = hidden - marked  # the kept face-down cards that aren't marked, from the rest
+            drawn = rng.sample(rest, min(others + (copied - copied_marked) + d.draws, len(rest)))
+            copy = down[marked:marked + 1] if copied_marked else drawn[others:others + copied]
+            picks = down[:marked] + drawn[:others] + copy + drawn[others + copied - copied_marked:]
         else:
             picks = rng.sample(everything, min(hidden + copied + d.draws, len(pool)))
         cards = hand + added + [pool_keys[j] for j in picks]
@@ -2049,6 +2087,7 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
     if d.hooked:
         return _after_hook(target, d, rules, cancel, reuse)
     hidden = d.hidden_kept + d.added_hidden
+    marked_kept = d.marked_held(d.marked_kept)
     known = d.kept_known + list(d.added)
     unseen = hidden + d.draws
     if state.bell and bell_matters(target, rules):
@@ -2058,7 +2097,8 @@ def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Disc
             kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
             return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
         return _bell_after_draw(target, known, d.pool, unseen, rules, cancel, reuse)
-    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, hidden, reuse=reuse, windows=windows)
+    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, marked_kept, reuse=reuse,
+                       windows=windows)
 
 
 def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200,
@@ -2119,11 +2159,11 @@ def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
     """P(`target`) when The Hook throws away `d.hooked` of the kept cards, uniformly
     at random, before the draw (`Blind:press_play`): the average over which ones.
     Kept cards of the same class give the same odds, so it goes by how many of
-    each class (face-down cards being one) it takes."""
+    each class (face-down cards being two: marked or not) it takes."""
     groups: dict[object, list[Card]] = {}
     for c in d.kept_known:
         groups.setdefault(card_key(c, rules), []).append(c)
-    sizes = [len(g) for g in groups.values()] + [d.hidden_kept]
+    sizes = [len(g) for g in groups.values()] + [d.marked_kept, d.hidden_kept - d.marked_kept]
     total = Fraction(0)
 
     def taken(i: int, left: int) -> Iterator[tuple[int, ...]]:
@@ -2140,9 +2180,9 @@ def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
         for size, k in zip(sizes, counts):
             weight *= comb(size, k)
         kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]] + list(d.added)
-        hidden = d.hidden_kept - counts[-1] + d.added_hidden
-        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked, hidden,
-                                      reuse=reuse)
+        hidden = d.hidden_kept - counts[-2] - counts[-1] + d.added_hidden
+        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked,
+                                      d.marked_held(d.marked_kept - counts[-2]), reuse=reuse)
     return total / comb(sum(sizes), d.hooked)
 
 
@@ -2201,14 +2241,13 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
     `pool` satisfies `query`).
 
     With The Mark, `marked` of the pool's cards are face down (in hand or
-    discarded), so they
-    are known to be face cards, and `marked_kept` of them are among the
-    `draws`. The other draws come from the rest of the pool; see _mark_split.
+    discarded) and known to be face cards, and `marked_kept` of them are among
+    the `draws`. The other draws come from the rest of the pool; see _mark_split.
     Windows of face-down cards skew the draw instead (_window_split).
     """
     draws = max(0, min(draws, len(pool) - marked + marked_kept))
     split = _window_split(pool, draws, windows) if windows else _marks(
-        _mark_split(pool, draws, rules, marked, marked_kept))
+        _mark_split(pool, draws, marked, marked_kept))
     if split is not None:
         faces, weights = split
         marks = max(len(a) for a, _ in weights) if weights else 0
@@ -2289,14 +2328,15 @@ def _card_odds(query: CardQuery, d: _Discard, rules: Rules, windows: Sequence[Ma
     added = sum(query.filter.test(c, rules) for c in d.added)
     if not d.hooked:
         hidden = d.hidden_kept + d.added_hidden
-        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden, have + added, windows)
-    # Of the kept cards, only whether each matches matters, or that it's face down.
-    sizes = (have, len(d.kept_known) - have, d.hidden_kept)
+        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, d.marked_held(d.marked_kept),
+                                 have + added, windows)
+    # Of the kept cards, only whether each matches matters, or that it's face down, marked or not.
+    sizes = (have, len(d.kept_known) - have, d.marked_kept, d.hidden_kept - d.marked_kept)
     total = Fraction(0)
     for taken in product(*(range(min(n, d.hooked) + 1) for n in sizes)):
         if sum(taken) == d.hooked:
-            hidden = d.hidden_kept - taken[2] + d.added_hidden
+            hidden = d.hidden_kept - taken[2] - taken[3] + d.added_hidden
             weight = prod(comb(n, k) for n, k in zip(sizes, taken))
-            total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked, hidden,
-                                                have - taken[0] + added)
+            total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked,
+                                                d.marked_held(d.marked_kept - taken[2]), have - taken[0] + added)
     return total / comb(sum(sizes), d.hooked)

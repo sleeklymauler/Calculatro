@@ -9,7 +9,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 15
+SCHEMA = 16
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -36,6 +36,9 @@ class Card:
     seal: str | None = None
     debuff: bool = False
     hidden: bool = False  # face down in hand or discarded face down: identity unknown to the player
+    # A hidden card The Mark drew face down as a face card (Pareidolia not held then), so known to be
+    # one (`engine.flipped_by_mark`). Set by when it was drawn, never by what it is.
+    marked: bool = False
     highlighted: bool = False  # selected in hand
     forced: bool = False  # Cerulean Bell: part of every play and discard
     # A face-down hand card in the observations: its id there (`GameState.observed`),
@@ -54,6 +57,7 @@ class Card:
             seal=d.get("seal"),
             debuff=bool(d.get("debuff", False)),
             hidden=bool(d.get("hidden", False)),
+            marked=bool(d.get("hidden", False)) and d.get("marked") is True,
             highlighted=bool(d.get("highlighted", False)),
             forced=bool(d.get("forced", False)),
         )
@@ -138,6 +142,7 @@ class ObservedCard:
     stone: bool = False
     hand: int | None = None  # 0-based index into `GameState.hand`, of a hidden card
     discarded: bool = False
+    marked: bool = False  # a latent card known to be a face card (`Card.marked`)
 
     @property
     def latent(self) -> bool:
@@ -173,12 +178,14 @@ def _observed_card(raw: Any, hand: list[Card]) -> tuple[int, ObservedCard]:
     if kinds[0] in ("stone", "discarded"):
         if raw[kinds[0]] is not True:
             raise ValueError(f"observed card {card_id} has {kinds[0]} {raw[kinds[0]]!r}")
-        return card_id, ObservedCard(stone=True) if kinds == ["stone"] else ObservedCard(discarded=True)
+        if kinds == ["stone"]:
+            return card_id, ObservedCard(stone=True)
+        return card_id, ObservedCard(discarded=True, marked=raw.get("marked") is True)
     if kinds == ["hand"]:
         index = _int(raw["hand"], "an observed card's hand index")
         if not 0 <= index < len(hand) or not hand[index].hidden:
             raise ValueError(f"observed card {card_id} is at hand index {index}, which isn't a face-down card")
-        return card_id, ObservedCard(hand=index)
+        return card_id, ObservedCard(hand=index, marked=hand[index].marked)
     rank_id = _int(raw.get("rank_id"), "an observed card's rank_id")
     suit = raw.get("suit")
     if not 2 <= rank_id <= 14 or suit not in SUITS:
@@ -229,8 +236,11 @@ def _observations(raw: Any, hand: list[Card],
     hands = [card.hand for card in observed if card.hand is not None]
     if len(set(hands)) != len(hands):
         raise ValueError("two observed cards are at the same hand index")
-    if sum(card.discarded for card in observed) > sum(card.hidden for card in discard):
-        raise ValueError("more observed cards discarded face down than the discard pile has")
+    for marked in (False, True):
+        if (sum(card.discarded and card.marked == marked for card in observed)
+                > sum(card.hidden and card.marked == marked for card in discard)):
+            raise ValueError(f"more observed cards discarded face down{' marked' if marked else ''} "
+                             "than the discard pile has")
     return tuple(observations), tuple(observed)
 
 
@@ -350,11 +360,6 @@ class GameState:
         return self.blind == "The Serpent" and not self.blind_disabled
 
     @property
-    def mark(self) -> bool:
-        """Whether The Mark is in play: face cards are drawn face down, so face-down cards are face cards."""
-        return self.blind == "The Mark" and not self.blind_disabled
-
-    @property
     def bell(self) -> bool:
         """Whether Cerulean Bell is in play: one hand card is forced into every play and discard."""
         return self.blind == "Cerulean Bell" and not self.blind_disabled
@@ -393,6 +398,11 @@ class GameState:
     def discarded_hidden(self) -> int:
         """How many cards were discarded face down: the game doesn't turn them up."""
         return sum(c.hidden for c in self.discard)
+
+    @property
+    def marked(self) -> int:
+        """How many face-down cards, in hand or discarded, are known to be face cards (`Card.marked`)."""
+        return sum(c.hidden and c.marked for c in (*self.hand, *self.discard))
 
     @property
     def deck_size(self) -> int:

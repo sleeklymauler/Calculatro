@@ -85,8 +85,17 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [ ] **B7** **[low] (seen)** When every choice ties, a best-discard search returns every discard (`search.py:187`, `search.py:236`)
   - For a target that can't be made (0% whatever is thrown away), the options are every distinct discard: over 200 for 8 cards, about 1000 for 11. The panel then shows "1/219".
   - "Keep hand" is first, since options are ordered by size. Consider returning only that when the best odds equal Keep's, or capping the list.
-- [ ] **B8** **[low] (seen)** The hint over a face-down card isn't refreshed when the rules change (`hint.lua:271`)
+- [x] **B8** **[low] (seen)** The hint over a face-down card isn't refreshed when the rules change (`hint.lua:271`)
   - Its key is the observations and the piles' sizes. Selling Pareidolia, or Chicot or Luchador disabling The Mark, changes `only_face_cards()` but not the key, so the box stays as it was until another card is hovered.
+  - Not a bug as written: disabling The Mark turns the hand's face-down cards up, and selling Pareidolia
+    doesn't change what the cards already drawn can be. Trying it in game found the real one: the hint and
+    the odds both took every face-down card under The Mark to be a face card by the rules *now*, so after
+    selling Pareidolia every hint was empty, and the odds were wrong (gaining it via Judgement too).
+  - Done: the mod notes whether The Mark drew each face-down card as a face card when it was drawn, and
+    exports it (`marked`, schema 16). The engine counts only those as face cards, and the posterior weighs
+    each deal by how many ways the marked cards in no sort can still be face cards. Tested in `test_hint`,
+    `test_state`, `test_observations`, `test_engine`, `test_search`, and against the oracle in
+    `test_posterior` (`test_pareidolia_sold_under_the_mark*`).
 - [x] **B9** **[low] (seen)** Snapshot numbers aren't coerced (`state.py:312-328`)
   - `select_limit` of `null` becomes `None` and fails in `min()` in the search. A float `hand_size` would fail in `comb`. The mod writes neither today, and `run_watch` logs and carries on, but every state would fail the same way.
   - `int()` the numeric fields in `_parse`, falling back to the default.

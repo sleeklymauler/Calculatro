@@ -137,6 +137,22 @@ def test_a_played_card_is_shown_and_a_discarded_one_stays(two_sorts):
     assert exported(g) == before
 
 
+def test_a_card_the_mark_drew_says_so_once_discarded(game):
+    # Which of the discard pile's face-down cards it is isn't said, but whether it's a marked one is.
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}")
+    high, down, low = game.card("KH"), game.card("QC", "back"), game.card("6S")
+    game.deal([high, down, low], [game.card("2C")])
+    assert exported(game)[0]["cards"][1] == {"id": 1, "hand": 1}
+    assert parsed(game).observed[1] == ObservedCard(hand=1, marked=True)
+    down.ability.wheel_flipped = True
+    game.set_area("hand", [high, low])
+    game.set_area("discard", [down])
+    game.frame()
+    assert exported(game)[0]["cards"][1] == {"id": 1, "discarded": True, "marked": True}
+    state = parsed(game)
+    assert state.observed[1] == ObservedCard(discarded=True, marked=True) and state.marked == 1
+
+
 def test_earlier_sorts_go_out_in_the_order_recorded(game):
     # Sorted by rank, by suit, then a discard and a draw sorted by suit again.
     nine, left, right, six = game.card("9H"), game.card("8C", "back"), game.card("7C", "back"), game.card("6S")

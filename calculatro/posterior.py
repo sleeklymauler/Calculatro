@@ -10,7 +10,13 @@ which: between a 9 and a 7 in a rank sort it's a 7, 8 or 9, and of two side by
 side the left one is the higher.
 
 The prior is a uniformly random injective assignment of the unseen cards to the
-latent cards (with The Mark, of the unseen face cards: `allowed`). The
+latent cards, those known to be face cards (`marked`, drawn face down by The
+Mark) getting one of the unseen face cards (`allowed`). With marked face-down
+cards outside the latent ones (`marked_rest`, in no sort), an assignment also
+weighs how many ways those can still be face cards: C(f, marked_rest), for the
+f unseen face cards the latent cards leave. That only differs between
+assignments when some latent cards aren't marked (drawn while Pareidolia was
+held): the face cards they take are ones the others can't be. The
 likelihood of the observations given an assignment is:
 
   * 0 unless every observation is in the game's order (printed keys
@@ -162,6 +168,7 @@ class _Setup:
     observations: list[Observation]  # without the latent cards left out
     ids: list[int]  # the slots' card ids, for those in the observations
     hand_of: list[int | None]  # each slot's hand index; None if discarded face down
+    marked: list[bool]  # each slot's `ObservedCard.marked`: then it's one of the `allowed` cards
     cards: list[Card]  # the unseen cards they can be, each once
     counts: list[int]  # how many of each are unseen
     keys: list[Printed]
@@ -173,20 +180,23 @@ class _Setup:
 
 
 def _setup(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
-           allowed: Callable[[Card], bool], extra: Sequence[int], skip: Collection[int]) -> _Setup | None:
+           allowed: Callable[[Card], bool], extra: Sequence[ObservedCard], skip: Collection[int]) -> _Setup | None:
     """The _Setup for these, leaving out the latent cards with ids in `skip`; None
     if the face-up cards alone already contradict the observations."""
     if skip:
         observations = [Observation(o.mode, tuple(i for i in o.cards if i not in skip)) for o in observations]
     observations = list(observations)
     ids = [i for i in latent_ids(observed) if i not in skip]
-    hand_of: list[int | None] = [observed[card_id].hand for card_id in ids] + list(extra)
+    slots = [observed[card_id] for card_id in ids] + list(extra)
+    hand_of: list[int | None] = [slot.hand for slot in slots]
+    marked = [slot.marked for slot in slots]
     n = len(hand_of)
     slot_of = {card_id: k for k, card_id in enumerate(ids)}
 
     values: dict[Card, int] = {}
+    anything = not all(marked)
     for card in unseen:
-        if allowed(card) and sortable(card):
+        if (anything or allowed(card)) and sortable(card):
             values[card] = values.get(card, 0) + 1
     cards = list(values)
     counts = list(values.values())
@@ -214,7 +224,7 @@ def _setup(observations: Sequence[Observation], observed: Sequence[ObservedCard]
                 position[o][slot_of[card_id]] = p
     candidates: list[list[int]] = []
     for k in range(n):
-        here = list(range(len(cards)))
+        here = [v for v in range(len(cards)) if not marked[k] or allowed(cards[v])]
         for o, observation in enumerate(observations):
             p = position[o][k]
             if p is None:
@@ -223,8 +233,8 @@ def _setup(observations: Sequence[Observation], observed: Sequence[ObservedCard]
             lo = _face_up_bound(observation.cards[p + 1:], face_up, modes[o])
             here = [v for v in here if (hi is None or value_at[o][v] <= hi) and (lo is None or value_at[o][v] >= lo)]
         candidates.append(here)
-    return _Setup(observations, ids, hand_of, cards, counts, keys, value_at, face_up_groups, face_up_factor,
-                  position, candidates)
+    return _Setup(observations, ids, hand_of, marked, cards, counts, keys, value_at, face_up_groups,
+                  face_up_factor, position, candidates)
 
 
 Label = Callable[[int | None, Card], Hashable]
@@ -242,12 +252,12 @@ class _Trace:
 
 
 def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
-           allowed: Callable[[Card], bool], extra: Sequence[int] = (), label: Label | None = None,
+           allowed: Callable[[Card], bool], extra: Sequence[ObservedCard] = (), label: Label | None = None,
            check: Callable[[], None] = lambda: None, skip: Collection[int] = (),
-           trace: list[_Trace] | None = None) -> Posterior:
+           trace: list[_Trace] | None = None, marked_rest: int = 0) -> Posterior:
     """Every assignment of the latent cards in `observations` to cards of `unseen`
-    that `allowed` lets them be, with its weight, the assignments that `label`
-    can't tell apart summed into one branch.
+    (the marked ones to cards that `allowed` lets them be), with its weight, the
+    assignments that `label` can't tell apart summed into one branch.
 
     `label(hand, card)` is what the caller sees of a latent card at hand index
     `hand` (None if discarded face down) being `card`; None for nothing. A
@@ -256,8 +266,10 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
     every assignment is its own branch (copies are one card, with their number
     as a factor of the weight).
 
-    `extra` are hand indices of more face-down cards to enumerate, with no
-    evidence: DNA's copies of a face-down card (engine._posterior_for). Latent
+    `extra` are more face-down cards in hand to enumerate (each `hand` and
+    `marked`), with no evidence: DNA's copies of a face-down card
+    (engine._posterior_for). `marked_rest` is how many marked face-down cards
+    aren't among the cards enumerated (see the module's docstring). Latent
     cards discarded face down are enumerated like those in hand: they're out of
     play, but the order says what they are, and so what's left to draw. The
     latent cards with ids in `skip` are left out, as if they weren't in the
@@ -287,6 +299,10 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
     face_up_groups, face_up_factor = s.face_up_groups, s.face_up_factor
     n = len(hand_of)
     candidate_sets = [set(c) for c in candidates]
+    # The face cards left for the marked cards in no sort: weighed by how many the unmarked slots take.
+    rest_weighed = marked_rest > 0 and not all(s.marked)
+    faces_left = sum(map(allowed, unseen)) - sum(s.marked)
+    takes_face = [[not s.marked[k] and allowed(c) for c in cards] for k in range(n)] if rest_weighed else []
 
     # bounds[k][k2], for slots k2 >= k: the nearest slots before k on each side
     # of k2 in each observation, as (o, j, whether j is on the left). Once
@@ -354,8 +370,9 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
         """Whether some slot from k on can be card v, as far as slots before k say."""
         return any(fits(v, k2, k, assigned) for k2 in slots_of_value[v] if k2 >= k)
 
-    # A layer's states: (frontier cards, live used counts, live tie groups, labels) -> [weight, assignment]
-    layer: dict[tuple, list] = {((), (), (), ()): [1, ()]}
+    # A layer's states: (frontier cards, live used counts, live tie groups, face cards the unmarked slots
+    # took if that's weighed, labels) -> [weight, assignment]
+    layer: dict[tuple, list] = {((), (), (), 0, ()): [1, ()]}
     steps = 0
     for k in range(n):
         check()
@@ -363,7 +380,7 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
         ways: dict[tuple, list[tuple[tuple, int, Fraction]]] | None = None if trace is None else {}
         observed_slot = k < len(ids)
         for before, (weight, assigned) in layer.items():
-            _, used_items, ties_items, signature = before
+            _, used_items, ties_items, faces, signature = before
             used = dict(used_items)
             ties = dict(ties_items)
             for v in candidates[k]:
@@ -392,7 +409,8 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
                     continue
                 lab = label_of(k, v)
                 sig = signature if lab < 0 else tuple(sorted((*signature, lab)))
-                state = (tuple(now[j] for j in frontier[k + 1]), kept_used, tuple(kept_ties), sig)
+                state = (tuple(now[j] for j in frontier[k + 1]), kept_used, tuple(kept_ties),
+                         faces + (rest_weighed and takes_face[k][v]), sig)
                 entry = following.get(state)
                 if entry is None:
                     following[state] = [w, now]
@@ -406,9 +424,11 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
 
     found: dict[tuple, list] = {}
     for state, (weight, assigned) in layer.items():
-        _, _, ties_items, signature = state
+        _, _, ties_items, faces, signature = state
         for tie_key, latent in ties_items:
             weight *= factor(tie_key, latent)
+        if rest_weighed:
+            weight *= comb(max(0, faces_left - faces), marked_rest)
         if not weight:
             continue
         if trace is not None:
@@ -469,8 +489,8 @@ class Deals:
 
 
 def deals(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
-          allowed: Callable[[Card], bool], extra: Sequence[int] = (),
-          check: Callable[[], None] = lambda: None) -> Deals | None:
+          allowed: Callable[[Card], bool], extra: Sequence[ObservedCard] = (),
+          check: Callable[[], None] = lambda: None, marked_rest: int = 0) -> Deals | None:
     """A way to draw deals of the latent cards (as `summed`'s, with `extra`) in
     proportion to their posterior weight; None if none fits the observations.
 
@@ -481,7 +501,8 @@ def deals(observations: Sequence[Observation], observed: Sequence[ObservedCard],
     exactly, as the merged partial deals have the same completions.
     """
     trace: list[_Trace] = []
-    if not summed(observations, observed, unseen, allowed, extra, _none, check, trace=trace).total:
+    if not summed(observations, observed, unseen, allowed, extra, _none, check, trace=trace,
+                  marked_rest=marked_rest).total:
         return None
     return Deals(trace[0])
 
@@ -610,15 +631,20 @@ def _card_of(hand: int | None, card: Card) -> Card:
 
 
 def reference(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
-              allowed: Callable[[Card], bool], extra: Sequence[int] = ()) -> Posterior:
+              allowed: Callable[[Card], bool], extra: Sequence[ObservedCard] = (),
+              marked_rest: int = 0) -> Posterior:
     """`summed` without merging anything or pruning early, for the tests: every
     injective assignment of the unseen cards, one by one, weighed straight from
     the definition. Only for a few cards."""
     ids = latent_ids(observed)
-    hand_of: list[int | None] = [observed[card_id].hand for card_id in ids] + list(extra)
-    places = [j for j, card in enumerate(unseen) if allowed(card) and sortable(card)]
+    slots = [observed[card_id] for card_id in ids] + list(extra)
+    hand_of: list[int | None] = [slot.hand for slot in slots]
+    places = [j for j, card in enumerate(unseen) if sortable(card)]
+    faces = sum(map(allowed, unseen)) - sum(slot.marked for slot in slots)
     found = []
     for picked in permutations(places, len(hand_of)):
+        if any(slot.marked and not allowed(unseen[j]) for slot, j in zip(slots, picked)):
+            continue
         key_of = {card_id: printed(card) for card_id, card in enumerate(observed) if not card.latent}
         key_of.update((card_id, printed(unseen[j])) for card_id, j in zip(ids, picked))
         if any(sort_value(key_of[a], o.mode) < sort_value(key_of[b], o.mode)
@@ -630,6 +656,9 @@ def reference(observations: Sequence[Observation], observed: Sequence[ObservedCa
         weight = Fraction(1)
         for members in groups.values():
             weight *= tie_factor(members, observations)
+        if marked_rest and not all(slot.marked for slot in slots):
+            taken = sum(not slot.marked and allowed(unseen[j]) for slot, j in zip(slots, picked))
+            weight *= comb(max(0, faces - taken), marked_rest)
         if weight:
             found.append(_branch(hand_of, [unseen[j] for j in picked], weight))
     return Posterior(tuple(found), sum((b.weight for b in found), Fraction(0)))

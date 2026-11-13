@@ -350,10 +350,11 @@ def _groups(state: GameState, target: Target, forced: int | None) -> list[list[i
 
 
 def _hidden_group(card: Card) -> object:
-    """The group of a face-down card: all together, but one the hand's sorts tell
-    about is on its own, since its place in them says what it can be. Two such
-    could be merged only if the posterior were the same with them swapped."""
-    return "hidden" if card.latent is None else ("latent", card.latent)
+    """The group of a face-down card: all together, the marked ones apart (they're
+    face cards), but one the hand's sorts tell about is on its own, since its
+    place in them says what it can be. Two such could be merged only if the
+    posterior were the same with them swapped."""
+    return ("hidden", card.marked) if card.latent is None else ("latent", card.latent)
 
 
 def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[list[int]], object]:
@@ -370,8 +371,8 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
     if the patterns allow it, else suits, and the key is then what's kept and
     unseen of each rank (or suit), in sorted order.
 
-    The Mark draws face cards apart, so there a face card's rank is only
-    swapped for another face card's. With Cerulean Bell the forced card's
+    The Mark's marked cards are drawn from the face cards apart, so with any
+    of them a face card's rank is only swapped for another face card's. With Cerulean Bell the forced card's
     class matters too (see _groups), and with face-down cards the hand's sorts
     tell about which of them is discarded does, so discards aren't relabelled.
     Nor are they when the sorts tell about cards discarded face down before:
@@ -382,14 +383,14 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
     hand = state.hand
 
     def counts(discard: list[int]) -> tuple[int, int]:
-        return len(discard), sum(hand[i].hidden for i in discard)
+        return len(discard), sum(hand[i].hidden for i in discard), sum(hand[i].marked for i in discard)
 
     if state.bell or any(o.latent for o in state.observed):
         return lambda discard: (counts(discard), tuple(sorted(discard)))
     patterns = target.patterns(rules)
     reqs = {req for pattern in patterns for req in pattern}
     blind_to_suits = all((r, t) in req.keys for req in reqs for r, _ in req.keys for t in (*SUITS, WILD))
-    blind_to_ranks = not state.mark and all((t, s) in req.keys for req in reqs for _, s in req.keys for t in RANKS)
+    blind_to_ranks = not state.marked and all((t, s) in req.keys for req in reqs for _, s in req.keys for t in RANKS)
 
     def label(key: ClassKey) -> ClassKey:
         return 0 if blind_to_ranks else key[0], "" if blind_to_suits else key[1]
@@ -408,8 +409,7 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
                    for block in blocks for a, b in pairwise(block))
 
     faces = (11, 12, 13)
-    rank_blocks = ([[r for r in RANKS if r not in faces], list(faces)] if state.mark and not rules.pareidolia
-                   else [list(RANKS)])
+    rank_blocks = [[r for r in RANKS if r not in faces], list(faces)] if state.marked else [list(RANKS)]
     suit_blocks = [list(flush_suits(rules))]  # with Smeared Joker, classes only have these
     if not blind_to_ranks and symmetric(rank_blocks, 0):
         axis, blocks = 0, rank_blocks

@@ -180,13 +180,53 @@ def test_the_mark_leaves_face_cards(game):
     game.rt.execute("G.GAME.blind = {name = 'The Mark'}")
     game.deal([game.card("AS"), down, game.card("2H")], [game.card("9H"), game.card("KD")])
     assert game.possible(down) == {(11, "Clubs"), (13, "Diamonds")}
-    # Pareidolia makes every card a face card, and the challenge can flip any card.
+    # The challenge's random flips can flip any card.
+    game.rt.execute("G.GAME.modifiers = {flipped_cards = 4}")
+    assert (9, "Hearts") in game.possible(down)
+
+
+def test_pareidolia_held_when_drawn_lets_it_be_any_card(game):
+    # Every card is a face card then, so The Mark drew them all face down.
+    down = game.card("9H", "back")
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}; G.jokers.cards = {{config = {center_key = 'j_pareidolia'}}}")
+    game.deal([game.card("AS"), down, game.card("2H")], [game.card("JC"), game.card("KD")])
+    assert game.possible(down) == {(9, "Hearts"), (11, "Clubs"), (13, "Diamonds")}
+    # Sold, it changes nothing about the cards already drawn: the box stays as it was.
+    game.hover(down)
+    shown = game.hint()
+    game.rt.execute("G.jokers.cards = {}")
+    game.frame()
+    assert game.hint() == shown
+    assert game.possible(down) == {(9, "Hearts"), (11, "Clubs"), (13, "Diamonds")}
+
+
+def test_a_card_drawn_after_pareidolia_is_sold_is_a_face_card(game):
+    first, second = game.card("9H", "back"), game.card("KD", "back")
+    ace, two, jack, eight = game.card("AS"), game.card("2H"), game.card("JC"), game.card("8C")
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}; G.jokers.cards = {{config = {center_key = 'j_pareidolia'}}}")
+    game.deal([ace, first, two], [second, jack, eight])
+    game.rt.execute("G.jokers.cards = {}")
+    # The ace thrown away, the King drawn face down by The Mark: only it has to be a face card.
+    discard_and_draw(game, [first, two], [ace], [second, first, two], [jack, eight])
+    assert game.possible(second) == {(11, "Clubs"), (13, "Diamonds")}
+    assert (8, "Clubs") in game.possible(first)
+
+
+def test_pareidolia_gained_after_the_draw_changes_nothing(game):
+    down = game.card("JC", "back")
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}")
+    game.deal([game.card("AS"), down, game.card("2H")], [game.card("9H"), game.card("KD")])
     game.rt.execute("G.jokers.cards = {{config = {center_key = 'j_pareidolia'}}}")
-    assert (9, "Hearts") in game.possible(down)
-    game.rt.execute("G.jokers.cards = {}; G.GAME.modifiers = {flipped_cards = 4}")
-    assert (9, "Hearts") in game.possible(down)
-    game.rt.execute("G.GAME.modifiers = nil; G.GAME.blind = {name = 'The Mark', disabled = true}")
-    assert (9, "Hearts") in game.possible(down)
+    game.frame()
+    assert game.possible(down) == {(11, "Clubs"), (13, "Diamonds")}
+
+
+def test_a_debuffed_pareidolia_when_drawn_does_nothing(game):
+    down = game.card("JC", "back")
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}; "
+                    "G.jokers.cards = {{config = {center_key = 'j_pareidolia'}, debuff = true}}")
+    game.deal([game.card("AS"), down, game.card("2H")], [game.card("9H"), game.card("KD")])
+    assert game.possible(down) == {(11, "Clubs"), (13, "Diamonds")}
 
 
 # --- What keeps an observation, and what ends it --------------------------------

@@ -63,14 +63,15 @@ local function face_down(card, area)
     return card.facing == 'back'
 end
 
--- `hide`: export only that it's there. `in_hand`: also says whether Cerulean Bell
--- forces the card into every play and discard (the player sees it raised and
--- can't unselect it).
+-- `hide`: export only that it's there, and whether The Mark drew it as a face card
+-- (observe.lua's marks: by when it was drawn, which the player saw). `in_hand`: also
+-- says whether Cerulean Bell forces the card into every play and discard (the player
+-- sees it raised and can't unselect it).
 local function card_info(card, hide, in_hand)
     local highlighted = card.highlighted and true or false
     local forced = in_hand and card.ability and card.ability.forced_selection and true or nil
     if hide then
-        return { hidden = true, highlighted = highlighted, forced = forced }
+        return { hidden = true, marked = Calculatro.marked(card) or nil, highlighted = highlighted, forced = forced }
     end
     local enhancement = card.config and card.config.center_key or nil  -- 'c_base', 'm_stone', 'm_wild', ...
     -- A Stone card shows no rank or suit, so its base card isn't exported.

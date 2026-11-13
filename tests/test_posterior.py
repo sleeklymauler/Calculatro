@@ -53,7 +53,8 @@ class Case:
     names) in the order the mod recorded them, where a mode may repeat: they may
     hold face-up cards no longer in hand, and miss face-down ones (no evidence). `deck` is the
     rest of the unseen cards, `discarded` the cards discarded face down that no
-    sort has, and `kw` the snapshot's other fields.
+    sort has, and `kw` the snapshot's other fields. `marked` names the face-down
+    cards The Mark drew as face cards ("discarded i" for `discarded[i]`).
     """
     hand: list[str]
     cards: dict[str, Card]
@@ -63,6 +64,7 @@ class Case:
     discarded: list[Card] = field(default_factory=list)
     forced: str | None = None
     kw: dict = field(default_factory=dict)
+    marked: set[str] = field(default_factory=set)
 
     @property
     def gone(self) -> list[str]:
@@ -89,23 +91,27 @@ class Case:
             for name in view:
                 ids.setdefault(name, len(ids))
 
+        def marks(name: str) -> dict:
+            return {"marked": True} if name in self.marked else {}
+
         def entry(name: str) -> dict:
             if name in self.down:
                 if name not in self.hand:
-                    return {"id": ids[name], "discarded": True}
+                    return {"id": ids[name], "discarded": True, **marks(name)}
                 return {"id": ids[name], "hand": self.hand.index(name)}
             c = self.cards[name]
             return {"id": ids[name], "stone": True} if c.is_stone else {"id": ids[name], "rank_id": c.rank_id,
                                                                         "suit": c.suit}
 
         def in_hand(name: str) -> dict:
-            out = {"hidden": True} if name in self.down else as_json(self.cards[name])
+            out = {"hidden": True, **marks(name)} if name in self.down else as_json(self.cards[name])
             return {**out, "forced": True} if name == self.forced else out
 
         return GameState.from_json({
             "schema": SCHEMA, "in_run": True, "hand_size": len(self.hand), "hands_left": 3, "discards_left": 1,
             "hand": [in_hand(n) for n in self.hand], "unseen": [as_json(c) for c in self.unseen],
-            "discard": [{"hidden": True}] * (len(self.discarded) + len(self.gone)),
+            "discard": [{"hidden": True, **marks(n)}
+                        for n in [f"discarded {i}" for i in range(len(self.discarded))] + self.gone],
             "observations": [{"mode": m, "cards": [entry(n) for n in v]} for m, v in self.sorts],
             **self.kw})
 
@@ -134,15 +140,15 @@ Holds = Callable[[list[Card], bool], Fraction]  # a final hand, whether its firs
 def worlds(case: Case) -> list[tuple[dict[str, Card], list[Card], Fraction]]:
     """Every deal of the unseen cards to the face-down ones the player's view
     allows: what each named card is, the deck left, and the deal's weight."""
-    state = case.state()
     unseen = case.unseen
     assert not case.down - set(case.hand) - set(case.gone), "a card discarded face down in no sort"
     slots = ([n for n in case.hand if n in case.down] + case.gone
              + [f"discarded {i}" for i in range(len(case.discarded))])
-    allowed = [j for j, c in enumerate(unseen) if not state.mark or flipped_by_mark(c, state.rules)]
     shown = case.first_seen()
     out = []
-    for picked in itertools.permutations(allowed, len(slots)):
+    for picked in itertools.permutations(range(len(unseen)), len(slots)):
+        if any(n in case.marked and not flipped_by_mark(unseen[j]) for n, j in zip(slots, picked)):
+            continue
         what = {**case.cards, **{n: unseen[j] for n, j in zip(slots, picked)}}
         weight = chance_seen(case.sorts, {n: what[n] for n in shown})
         if weight:
@@ -227,22 +233,32 @@ def ours_by_cards(post) -> dict[tuple, Fraction]:
 
 def check(case: Case, discards, targets=(), queries=()) -> None:
     """The posterior, and the odds of each discard, against the oracle; and the
-    engine's merged branches against the reference that evaluates each deal."""
+    engine's merged branches against the reference that evaluates each deal.
+    Without sorts (no `views`), only the odds."""
     state = case.state()
-    post = posterior(state)
-    assert post is not None
-    assert ours_by_cards(post) == posterior_by_cards(case, state)
-    ref = reference(state.observations, state.observed, state.unseen,
-                    lambda c: not state.mark or flipped_by_mark(c, state.rules))
-    assert ours_by_cards(ref) == ours_by_cards(post)
+    ref = None
+    if case.views:
+        post = posterior(state)
+        assert post is not None
+        assert ours_by_cards(post) == posterior_by_cards(case, state)
+        ref = reference(state.observations, state.observed, state.unseen, flipped_by_mark, (),
+                        engine._slots(state, state.observed, ())[1])
+        assert ours_by_cards(ref) == ours_by_cards(post)
     for discard in discards:
         for target in targets:
             found = evaluate_discard(state, target, discard)
             assert found.probability == oracle(case, discard, target_holds(target, state)), (target.name, discard)
-            one_by_one = engine._over_branches(
-                state, ref, lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability,
-                None)
-            assert one_by_one == found.probability
+            if ref is not None:
+                # DNA's copies of a face-down card in no sort: enumerated too, as the engine does.
+                dna = engine._dna_branch(state, discard)
+                in_sorts = {o.hand for o in state.observed}
+                ref_here = ref if dna is None or dna in in_sorts else reference(
+                    state.observations, state.observed, state.unseen, flipped_by_mark,
+                    *engine._slots(state, state.observed, (dna,)))
+                one_by_one = engine._over_branches(
+                    state, ref_here,
+                    lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability, None)
+                assert one_by_one == found.probability
             assert found.discarded == [state.hand[i] for i in sorted(discard)]  # as the player sees them
         for query in queries:
             found = evaluate_cards(state, query, discard)
@@ -534,14 +550,19 @@ def test_dna_one_copy_with_nothing_drawn():
     check(case, [[0], [1]], [get_target("Pair")], [nines])
 
 
+def marked_case(rng: random.Random, **kw) -> Case:
+    """A random_case under The Mark, without Pareidolia: every face-down card a face card, and marked."""
+    while True:  # The Mark only flips face cards
+        case = random_case(rng, ranks=range(9, 14), blind="The Mark", **kw)
+        if all(flipped_by_mark(case.cards[n]) for n in case.down):
+            case.marked = set(case.down)
+            return case
+
+
 @pytest.mark.parametrize("seed", range(2))
 def test_the_mark_with_a_card_discarded_face_down(seed):
     rng = random.Random(520 + seed)
-    while True:  # The Mark only flips face cards
-        case = random_case(rng, ranks=range(9, 14), blind="The Mark", down_discarded=1, latent=(1, 2))
-        state = case.state()
-        if all(flipped_by_mark(case.cards[n], state.rules) for n in case.down):
-            break
+    case = marked_case(rng, down_discarded=1, latent=(1, 2))
     check(case, some_discards(rng, case), TARGETS[:1], QUERIES[:3])
 
 
@@ -557,14 +578,71 @@ def test_the_search_with_cards_discarded_face_down(seed):
 @pytest.mark.parametrize("seed", range(4))
 def test_the_mark(seed):
     rng = random.Random(500 + seed)
-    jokers = [{"key": "j_pareidolia"}] if seed == 3 else []
-    while True:  # The Mark only flips face cards
-        case = random_case(rng, ranks=range(9, 14), blind="The Mark", jokers=jokers)
-        state = case.state()
-        if all(flipped_by_mark(case.cards[n], state.rules) for n in case.down):
-            break
-    assert state.mark
+    jokers = [{"key": "j_pareidolia"}] if seed == 3 else []  # gained after the draw: the cards are still marked
+    case = marked_case(rng, jokers=jokers)
+    assert case.state().marked == len(case.down)
     check(case, some_discards(rng, case), TARGETS[:1], QUERIES[:3])
+
+
+def pareidolia_sold(rng: random.Random, need, **kw) -> Case:
+    """A random_case under The Mark where Pareidolia was held for some draws: the face-down cards
+    drawn without it face cards and marked, the others any card. Retried until `need(case)`."""
+    while True:
+        case = random_case(rng, ranks=range(9, 15), blind="The Mark", **kw)
+        names = [*case.down, *(f"discarded {i}" for i in range(len(case.discarded)))]
+        what = {**case.cards, **{f"discarded {i}": c for i, c in enumerate(case.discarded)}}
+        case.marked = {n for n in names if flipped_by_mark(what[n]) and rng.random() < 0.6}
+        if need(case):
+            return case
+
+
+def latent_unmarked(case: Case) -> bool:
+    return any(n not in case.marked for n in case.first_seen() if n in case.down)
+
+
+def marked_in_no_sort(case: Case) -> bool:
+    return any(n not in case.first_seen() for n in case.marked)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_pareidolia_sold_under_the_mark(seed):
+    # Unmarked cards in the sorts take face cards that the marked ones in none can't be: the
+    # posterior weighs each deal by how many ways those are still face cards.
+    rng = random.Random(540 + seed)
+    case = pareidolia_sold(rng, lambda c: latent_unmarked(c) and marked_in_no_sort(c), hidden_extra=True,
+                           discarded=seed % 2 == 1, down_discarded=seed % 3 == 2, latent=(1, 2), face_up=(1, 2))
+    check(case, some_discards(rng, case), TARGETS[:2], QUERIES[:3])
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_pareidolia_sold_under_the_mark_in_one_sort_of_face_down_cards(seed):
+    # All face down, in one sort: which are the higher ones says which can be face cards, so it isn't
+    # nothing, as it would be with every card alike (engine._says_nothing_here).
+    rng = random.Random(560 + seed)
+    case = pareidolia_sold(rng, lambda c: latent_unmarked(c) and c.marked, face_up=(0, 0), latent=(3, 3),
+                           both=False)
+    state = case.state()
+    assert not engine._says_nothing_here(state, [])
+    check(case, [[], list(range(len(case.hand)))], TARGETS[:1], QUERIES[:3])
+
+
+@pytest.mark.parametrize("sorted_", [True, False])
+@pytest.mark.parametrize("kw", [
+    {},
+    {"discards_left": 0, "hands_left": 2, "dna_copies": 1},
+    {"discards_left": 0, "hands_left": 2, "dna_copies": 2},
+], ids=["plain", "dna", "dna2"])
+def test_pareidolia_sold_under_the_mark_with_dna(kw, sorted_):
+    # A lone face-down card played as the first hand comes back: DNA's copies are of a card
+    # marked or not. Without sorts, only the draw is weighed (engine._mark_split).
+    rng = random.Random(f"{kw} {sorted_}")
+    case = pareidolia_sold(rng, lambda c: c.marked and set(c.down) - c.marked, hidden_extra=True, discarded=True,
+                           latent=(1, 2), **kw)
+    if not sorted_:
+        case.views = {}
+    hand_down = [i for i, n in enumerate(case.hand) if n in case.down]
+    discards = [[], [hand_down[0]], [hand_down[-1]], [0, hand_down[-1]]]
+    check(case, [d for d in dict.fromkeys(map(tuple, discards))], TARGETS[:2], QUERIES[:2])
 
 
 @pytest.mark.parametrize("blind, kw", [
@@ -722,8 +800,8 @@ def check_round(rnd: Round, truth: Played, discards, targets=(), queries=(), **k
     post = posterior(state)
     if any(o.latent for o in state.observed):
         assert ours_by_cards(post) == posterior_by_cards(case, state, dealt)
-        ref = reference(state.observations, state.observed, state.unseen,
-                        lambda c: not state.mark or flipped_by_mark(c, state.rules))
+        ref = reference(state.observations, state.observed, state.unseen, flipped_by_mark, (),
+                        engine._slots(state, state.observed, ())[1])
         assert ours_by_cards(ref) == ours_by_cards(post)
     else:  # every face-down card played: today's odds, which must agree too
         assert post is None
@@ -960,6 +1038,28 @@ def test_deals_are_drawn_by_their_posterior_weight(seed):
         assert abs(got[deal] / n - p) <= 4 * (p * (1 - p) / n) ** 0.5 + 1e-9, (deal, got[deal] / n, float(p))
 
 
+@pytest.mark.parametrize("dna", [0, 1])
+def test_final_hands_drawn_with_pareidolia_sold_agree_with_the_odds(dna):
+    """The sampled model (engine._final_hands, which estimates draw from) deals marked cards from the
+    face cards and the rest from what's left, as the exact odds do: their shares agree."""
+    rng = random.Random(580 + dna)
+    kw = {"discards_left": 0, "hands_left": 2, "dna_copies": 1} if dna else {}
+    case = pareidolia_sold(rng, lambda c: c.marked and set(c.down) - c.marked, hidden_extra=True, discarded=True,
+                           latent=(1, 2), **kw)
+    case.views = {}
+    state = case.state()
+    hand_down = [i for i, n in enumerate(case.hand) if n in case.down]
+    n = 4000
+    for discard in ([], [hand_down[0]], [hand_down[-1]]):
+        for target in TARGETS[:2]:
+            exact = evaluate_discard(state, target, discard).probability
+            final = engine._final_hands(state, target, discard)
+            draw = random.Random(1)
+            share = sum(final(draw) for _ in range(n)) / n
+            margin = 4 * (float(exact) * (1 - float(exact)) / n) ** 0.5 + 1e-9
+            assert abs(share - exact) <= margin, (target.name, discard, share, float(exact))
+
+
 @pytest.mark.parametrize("seed, blind, kw", [(seed, None, {}) for seed in range(6)] + [
     (6, "The Mark", {}),
     (7, "The Hook", {"discards_left": 0, "hands_left": 2}),
@@ -972,9 +1072,11 @@ def test_estimates_hold_the_exact_odds(seed, blind, kw):
     while True:  # The Mark only flips face cards
         case = random_case(rng, ranks=range(9, 14) if blind == "The Mark" else range(7, 12), latent=(2, 3),
                            down_discarded=seed % 3 == 2, blind=blind, **kw)
-        state = case.state()
-        if not state.mark or all(engine.flipped_by_mark(case.cards[n], state.rules) for n in case.down):
+        if blind != "The Mark" or all(engine.flipped_by_mark(case.cards[n]) for n in case.down):
             break
+    if blind == "The Mark":
+        case.marked = set(case.down)
+    state = case.state()
     for discard in some_discards(rng, case):
         for target in TARGETS:
             found = engine.estimate_discard(state, target, discard)
@@ -1007,12 +1109,14 @@ def test_estimates_from_deals_drawing_hands_hold_the_exact_odds(monkeypatch, see
     final_hands = engine._final_hands
     monkeypatch.setattr(engine, "_final_hands", lambda *args: drawn.append(1) or final_hands(*args))
     rng = random.Random(100 + seed)
-    while True:
+    while True:  # The Mark only flips face cards
         case = random_case(rng, ranks=range(9, 14) if blind == "The Mark" else range(7, 12), latent=(2, 3),
                            down_discarded=seed % 3 == 2, blind=blind, **kw)
-        state = case.state()
-        if not state.mark or all(engine.flipped_by_mark(case.cards[n], state.rules) for n in case.down):
+        if blind != "The Mark" or all(engine.flipped_by_mark(case.cards[n]) for n in case.down):
             break
+    if blind == "The Mark":
+        case.marked = set(case.down)
+    state = case.state()
     for discard in some_discards(rng, case):
         for target in TARGETS:
             found = engine.estimate_discard(state, target, discard, seconds=60)

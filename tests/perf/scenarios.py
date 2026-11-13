@@ -44,6 +44,18 @@ def _unseen(deck, hidden: list[Card]) -> dict[str, list[Card]]:
     return {"deck": deck, "hidden_pool": hidden}
 
 
+def _the_mark(state: GameState) -> GameState:
+    """Under The Mark, every face-down card drawn by it as a face card (`Card.marked`), as the mod
+    exports them when Pareidolia wasn't held. Versions before marks went by the blind alone."""
+    if state.blind != "The Mark" or "marked" not in Card.__dataclass_fields__:
+        return state
+
+    def mark(c: Card) -> Card:
+        return replace(c, marked=True) if c.hidden else c
+    return replace(state, hand=[mark(c) for c in state.hand], discard=[mark(c) for c in state.discard],
+                   observed=tuple(replace(o, marked=True) if o.latent else o for o in state.observed))
+
+
 def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: int = 0,
             earlier: tuple[tuple[str, tuple[str, ...]], ...] = (), texts: tuple[str, ...] = ()) -> dict:
     """GameState's fields for the hand's sorts in `sorts` (modes), as the mod
@@ -262,14 +274,14 @@ class Scenario:
         hand = hand_cards[:known] + [Card(hidden=True)] * self.situation.hidden
         if self.situation.blind == "Cerulean Bell" and "forced" in Card.__dataclass_fields__:
             hand[self.situation.kept] = replace(hand[self.situation.kept], forced=True)
-        state = GameState(
+        state = _the_mark(GameState(
             in_run=True, hand_size=len(hand_cards) - self.situation.gone, hands_left=4,
             discards_left=self.situation.discards,
             **_sorted(hand_cards, hand, self.situation.sorts, self.situation.gone, self.situation.earlier,
                       self.situation.hand),
             **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.situation.jokers), blind=self.situation.blind,
-        )
+        ))
         if self.situation.discard is not None:
             return state, list(self.situation.discard)
         return state, list(range(self.situation.kept, known))
@@ -335,12 +347,12 @@ class BestDiscard:
         hand = hand_cards[:known] + [Card(hidden=True)] * self.hand.hidden
         if self.hand.blind == "Cerulean Bell":
             hand[0] = replace(hand[0], forced=True)
-        return GameState(
+        return _the_mark(GameState(
             in_run=True, hand_size=len(hand), hands_left=4, discards_left=self.hand.discards,
             **_sorted(hand_cards, hand, self.hand.sorts), **_unseen(cards.values(), hand_cards[known:]),
             jokers=[Joker(k) for k in JOKERS[self.jokers]] + list(self.hand.jokers), blind=self.hand.blind,
             **({"dna_copies": self.hand.dna_copies} if self.hand.dna_copies else {}),
-        )
+        ))
 
     target = Scenario.target
 

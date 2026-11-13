@@ -69,18 +69,35 @@ def test_the_serpent_always_draws_three():
         check(state, get_target(name))
 
 
+def face_down(blind: str | None, n: int) -> list[Card]:
+    """`n` face-down cards as drawn under `blind`: The Mark's are face cards (`Card.marked`)."""
+    return [Card(hidden=True, marked=blind == "The Mark")] * n
+
+
 def test_face_down_cards_are_interchangeable():
     # The House/The Mark: face-down cards can be thrown away, but the app can't tell them apart.
     rng = random.Random(4)
     state = random_state(rng, deck=10)
     hidden = [card(11, "Spades"), card(13, "Hearts")]
-    hand = state.hand[:6] + [Card(hidden=True), Card(hidden=True)]
     for blind in ("The House", "The Mark"):
-        s = replace(state, hand=hand, unseen=state.unseen + hidden, blind=blind)
+        s = replace(state, hand=state.hand[:6] + face_down(blind, 2), unseen=state.unseen + hidden, blind=blind)
         for name in ("Pair", "Three of a Kind", "Flush"):
             for option in check(s, get_target(name)):
                 # The leftmost face-down cards, never a choice between them.
                 assert [i for i in option if i >= 6] in ([], [6], [6, 7])
+
+
+def test_marked_and_unmarked_face_down_cards_are_told_apart():
+    # Pareidolia sold under The Mark: one drawn with it is any card, one drawn after a face card.
+    rng = random.Random(5)
+    state = random_state(rng, deck=10, blind="The Mark")
+    hidden = [card(4, "Spades"), card(12, "Hearts")]
+    state = replace(state, hand=state.hand[:6] + [Card(hidden=True), Card(hidden=True, marked=True)],
+                    unseen=state.unseen + hidden)
+    for name in ("Pair", "Three of a Kind", "Flush"):
+        check(state, get_target(name))
+    for text in ("king", "2+ face cards"):
+        check(state, parse_query(text))
 
 
 def test_cerulean_bell_discards_its_forced_card():
@@ -190,7 +207,7 @@ def test_a_miss_means_odds_below_1(blind, discards, kw):
         state = replace(random_state(rng, deck=10, blind=blind, **kw), discards_left=discards, hands_left=3)
         if blind in ("The House", "The Mark"):  # the last two cards go face down
             state = replace(state, unseen=[*state.unseen, *state.hand[-2:]],
-                            hand=[*state.hand[:-2], Card(hidden=True), Card(hidden=True)])
+                            hand=[*state.hand[:-2], *face_down(blind, 2)])
         for target in (get_target("Pair"), get_target("Straight"),
                        combine([get_target("Flush"), get_target("Three of a Kind")])):
             for discard in ([], [0], [1, 2], [0, 3, 5], [0, 1, 2, 3, 4]):
@@ -261,7 +278,7 @@ def test_shared_work_gives_the_same_odds(jokers, blind, names):
     rng = random.Random(10)
     cards = [card(r, s, "m_wild" if (r + len(s)) % 9 == 0 else "c_base") for s in SUITS for r in range(2, 15)]
     rng.shuffle(cards)
-    hand = cards[:6] + [Card(hidden=True)] * 2
+    hand = cards[:6] + face_down(blind, 2)
     state = GameState(in_run=True, hand_size=8, hands_left=3, discards_left=0 if blind == "The Hook" else 2,
                       hand=hand, unseen=cards[6:], blind=blind,
                       jokers=[Joker(j) for j in jokers])
@@ -311,7 +328,7 @@ def test_card_queries_with_bosses(blind):
     rng = random.Random(blind)
     state = enhanced_state(rng, blind=blind)
     if blind in ("The House", "The Mark"):
-        state = replace(state, hand=state.hand[:6] + [Card(hidden=True)] * 2,
+        state = replace(state, hand=state.hand[:6] + face_down(blind, 2),
                         unseen=state.unseen + [card(11, "Spades"), card(13, "Hearts")])
     if blind == "Cerulean Bell":
         state = replace(state, hand=[replace(c, forced=i == 2) for i, c in enumerate(state.hand)])

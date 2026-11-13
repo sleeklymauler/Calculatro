@@ -410,9 +410,9 @@ def _random_setup(rng: random.Random) -> tuple[GameState, list[int]]:
     cards = [random_card() for _ in range(18)]
     hidden = rng.choice([0, 0, 1, 2])
     known = rng.randint(max(1, 3 - hidden), 6 - hidden)
-    hand = [*cards[:known], *[Card(hidden=True)] * hidden]
-    unseen = cards[known:]
     setup = rng.choice(["plain", "The Mark", "Cerulean Bell", "The Hook", "Crimson Heart", "The Serpent", "DNA"])
+    hand = [*cards[:known], *[Card(hidden=True, marked=setup == "The Mark")] * hidden]
+    unseen = cards[known:]
     jokers = [Joker(k) for k in rng.sample(["j_four_fingers", "j_shortcut", "j_smeared", "j_pareidolia", "j_joker"],
                                            rng.randint(0, 3))]
     fields = {}

@@ -86,7 +86,8 @@ through the exported state, and which it gets wrong. A new boss rule must check 
 these:
 
 - **The Serpent:** its draws (`GameState.serpent`).
-- **The Mark:** its face-down face cards (`GameState.mark`, `engine._mark_split`).
+- **The Mark:** its face-down face cards, those it drew without Pareidolia (`Card.marked`,
+  `GameState.marked`, `engine._mark_split`).
 - **Cerulean Bell:** its forced card (`GameState.bell`/`forced`, from the hand cards' exported `forced`
   flag; `hands.forced_patterns`, `engine._bell_after_draw`).
 - **The Hook:** its 2 random cards thrown away after a play, which applies when the selection has to be
@@ -112,7 +113,10 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
 [panel.md](panel.md#face-down-hint).
 
 - **The posterior** (`posterior.py`). The prior deals the unseen cards to the latent ones uniformly at
-  random (under The Mark, the unseen face cards, `flipped_by_mark`). The likelihood is 0 unless every
+  random (the marked ones, drawn face down by The Mark, the unseen face cards: `flipped_by_mark`). With
+  marked cards in no sort and some latent cards unmarked (Pareidolia held when they were drawn), a deal
+  is also weighed by C(f, m): the ways the m marked cards left can still be face cards, of the f unseen
+  face cards it leaves (`marked_rest`), since every completion of a deal is equally likely. The likelihood is 0 unless every
   sort is in the game's order: by printed rank then suit, or suit then rank, with Diamonds < Clubs <
   Hearts < Spades and Stones lowest. Cards alike in print (copies, or Stones) tie: the game orders them
   by hidden values, taken as random but the same in every sort. Each tie group gives a factor, the share
@@ -131,7 +135,7 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
   `_labels`, `_rule_classes`). A card's class there is what the target can tell of it, under every rule
   set the final hand may be judged under (`_counts_towards`: which requirements of the patterns it counts
   towards, as in `search._groups`; the class itself under Cerulean Bell), or for a card query whether it
-  matches, and under The Mark its face status. So for Pair, deals that differ only in suits share one
+  matches, and with marked cards its face status. So for Pair, deals that differ only in suits share one
   evaluation. Nothing is sampled or cut off. `can_miss` picks a branch for each try, so a draw it finds
   is one the evidence allows.
 - **Windows** (`posterior.windows`, `engine._window_split`). Latent cards that depend on no others (not
@@ -143,11 +147,12 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
   a of a window's w cards holds its r in C(a, r) ways; gone, it misses them in C(w - a, r). A window
   whose cards meet different fates, side by side in a sort, is split by the cards at the edges of its
   blocks (`engine._split`): given those, each block's other cards are a window of the cards between. Not
-  under The Mark, The Hook, Cerulean Bell or DNA's copies of a face-down card, which branch as above.
+  with marked cards, The Hook, Cerulean Bell or DNA's copies of a face-down card, which branch as above.
 - **No evidence needed.** A single sort with no face-up card (The House's first hand) only says which
   of its cards is higher, not what they are. So while they all meet the same fate (all kept, or all
   gone: thrown away now or discarded face down before), the odds are today's exactly
-  (`_says_nothing_here`). A discard that splits them throws away the higher or the lower cards: it's
+  (`_says_nothing_here`), unless only some of them are marked: then which are higher says which can
+  be face cards. A discard that splits them throws away the higher or the lower cards: it's
   split as a window (above), or its deals summed. So is keeping the rest after some were discarded, and
   DNA copying one is branched on.
 - **Evidence set aside.** If no deal fits the sorts (a card changed while face down, say), the odds are
@@ -156,9 +161,9 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
 - **DNA.** With 2 or more copies of a face-down card played alone, they're the same unknown card, not
   that many separate unseen ones: it's branched on too, with no evidence (`_posterior_for`).
 - **The Mark** with the challenges' `flipped_cards` modifier can flip any card, which the Mark model
-  doesn't allow, so the mod sends no sorts then. Selling Pareidolia, or changing a face-down card's rank,
-  mid-round can leave a face-down card whose face status differs from when it was flipped. That isn't
-  modelled.
+  doesn't allow, so the mod sends no sorts then. Changing a face-down card's rank mid-round can leave a
+  marked card that isn't a face card any more. That isn't modelled. Selling or gaining Pareidolia is: a
+  card is marked or not by the rule when it was drawn ([blinds.md](blinds.md#face-down-cards-blindstay_flipped)).
 - **Speed.** Measured as the sorts were added ([performance/face-down.md](performance/face-down.md#measured)). One or two
   face-down cards in sorts take milliseconds for a single target, or 0.3-2.2 s for Four Fingers + Shortcut
   with Straight Flush or "any", and the best-discard search 0.06-0.8 s, or 1.4-20 s for Four Fingers +
@@ -217,8 +222,8 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as
   `_discard_odds` models the game dealing it: the rules it's judged under drawn by their weight
   (`rules_after`), The Hook's kept cards taken at random, the face-down kept cards and the draw a
-  uniform sample of the pool (under The Mark the face-down cards a sample of the pool's face cards,
-  and the draw from the rest), DNA's copies of a face-down card all one card, and Cerulean Bell's
+  uniform sample of the pool (the marked face-down cards a sample of the pool's face cards, and the
+  rest from what's left), DNA's copies of a face-down card all one card, and Cerulean Bell's
   forced card a random card of the final hand (or the forced card kept). A hand is checked against the
   target's patterns as bit masks of the requirements it meets (`_holds_test`, about 20 µs with Four
   Fingers + Shortcut's 1,856 Straight Flush patterns, against 1 ms for `_holds`), so 1 s draws about

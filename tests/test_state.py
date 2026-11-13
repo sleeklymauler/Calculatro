@@ -272,6 +272,37 @@ def test_face_down_discards_not_told_from_the_deck(lua):
     assert "(3 cards in deck, 1 face down in hand, 1 discarded face down)" in summarize(state)
 
 
+def test_cards_the_mark_drew_as_face_cards_are_marked(lua):
+    # The Mark without Pareidolia draws only face cards face down, so those are known to be
+    # face cards. Whether a card is marked goes by when it was drawn, never by what it is.
+    rt, mod = lua
+    rt.execute("G.GAME.blind = {name = 'The Mark'}")
+    mod.track_hand()
+    assert snapshot_json(lua)["hand"][4] == {"hidden": True, "marked": True, "highlighted": False}
+    # Discarded face down, it stays marked, and Pareidolia gained since changes nothing.
+    rt.execute("""local c = table.remove(G.hand.cards, 5)
+                  c.ability.wheel_flipped = true
+                  table.insert(G.discard.cards, c)
+                  G.jokers.cards[3] = {config = {center_key = 'j_pareidolia'}}""")
+    mod.track_hand()
+    assert snapshot_json(lua)["discard"][1] == {"hidden": True, "marked": True, "highlighted": False}
+    # Drawn while Pareidolia is held, it could be any card: not marked, even once it's sold.
+    rt.execute("""local c = table.remove(G.deck.cards, 1)
+                  c.facing, c.ability.wheel_flipped = 'back', true
+                  table.insert(G.hand.cards, c)""")
+    mod.track_hand()
+    rt.execute("G.jokers.cards[3] = nil")
+    mod.track_hand()
+    snap = snapshot_json(lua)
+    assert snap["hand"][4] == {"hidden": True, "highlighted": False}
+    state = GameState.from_json(snap)
+    assert state.marked == 1 and [c.marked for c in state.discard] == [False, True]
+    # Turned up, a card forgets its mark.
+    rt.execute("G.hand.cards[5].facing = 'front'")
+    mod.track_hand()
+    assert not mod.marked(rt.eval("G.hand.cards[5]"))
+
+
 def test_cards_discarded_face_up_have_been_seen(lua):
     # The game turns every card in the discard pile over, so facing doesn't tell
     # these from cards discarded face down. They mustn't count as still to come.

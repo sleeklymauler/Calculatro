@@ -489,8 +489,7 @@ def test_face_down_discards_stay_unseen():
 def test_mark_face_down_discards_are_face_cards():
     # The Mark: a King was discarded face down, so it's one of the 2 unseen
     # Kings, and the other is among the 4 cards left to draw.
-    state = replace(mark_state(), hand=[card(13, "Diamonds"), card(9, "Clubs")], hand_size=2,
-                    discard=[Card(hidden=True)])
+    state = replace(mark_state(), hand=[card(13, "Diamonds"), card(9, "Clubs")], hand_size=2, discard=[MARKED])
     out = evaluate_discard(state, get_target("pair"), [1])
     assert out.draws == 1 and out.probability == Fraction(1, 4)
 
@@ -639,9 +638,12 @@ def test_mark_card_queries_match_brute_force(text):
                 == Fraction(sum(outcomes), len(outcomes)))
 
 
+MARKED = Card(hidden=True, marked=True)  # drawn face down by The Mark without Pareidolia: a face card
+
+
 def mark_state(**kw) -> GameState:
     """The Mark: a King and a face-down card in hand; the unseen face cards are two Kings."""
-    hand = [card(13, "Diamonds"), Card(hidden=True)]
+    hand = [card(13, "Diamonds"), MARKED]
     deck = [card(13, "Hearts"), card(2, "Clubs"), card(3, "Clubs"), card(4, "Clubs")]
     return GameState(in_run=True, hand_size=2, hand=hand, unseen=deck + [card(13, "Spades")],
                      blind="The Mark", **kw)
@@ -661,15 +663,37 @@ def test_mark_face_down_cards_are_face_cards():
     assert evaluate_discard(state, get_target("pair"), [1]).probability == Fraction(1, 4)
 
 
-@pytest.mark.parametrize("change", [{"blind": "The Wheel"}, {"blind_disabled": True},
-                                    {"jokers": [Joker("j_pareidolia")]}])
-def test_face_down_cards_are_any_unseen_card_without_the_mark(change):
-    # Any unseen card, as with The Wheel: once The Mark is disabled, its cards are
-    # face up again, and with Pareidolia every card is a face card.
-    state = replace(mark_state(), **change)
-    assert evaluate_discard(state, get_target("pair"), []).probability == Fraction(2, 5)
-    assert evaluate_cards(state, parse_query("2+ kings"), [1]).probability == Fraction(2, 5)
-    assert evaluate_cards(state, parse_query("2+ kings"), []).probability == Fraction(2, 5)
+def test_face_down_cards_are_any_unseen_card_unless_marked():
+    # Any unseen card, as with The Wheel: drawn while Pareidolia was held, when every
+    # card is a face card, or by another boss.
+    for change in ({}, {"blind": "The Wheel"}, {"jokers": [Joker("j_pareidolia")]}):
+        state = replace(mark_state(), hand=[card(13, "Diamonds"), Card(hidden=True)], **change)
+        assert evaluate_discard(state, get_target("pair"), []).probability == Fraction(2, 5)
+        assert evaluate_cards(state, parse_query("2+ kings"), [1]).probability == Fraction(2, 5)
+        assert evaluate_cards(state, parse_query("2+ kings"), []).probability == Fraction(2, 5)
+
+
+@pytest.mark.parametrize("change", [{"jokers": [Joker("j_pareidolia")]}, {"blind_disabled": True}])
+def test_a_marked_card_stays_a_face_card(change):
+    # Pareidolia gained since doesn't change what was drawn. Disabling The Mark turns the
+    # hand's face-down cards up, but not those discarded face down.
+    state = replace(mark_state(), hand=[card(13, "Diamonds"), card(9, "Clubs")], hand_size=2, discard=[MARKED],
+                    **change)
+    assert evaluate_discard(state, get_target("pair"), [1]).probability == Fraction(1, 4)
+    assert evaluate_cards(state, parse_query("1+ king"), [0]).probability == Fraction(1, 4)
+
+
+def test_marked_and_unmarked_face_down_cards():
+    # Pareidolia sold mid-round: the face-down card drawn with it can be anything, the one
+    # drawn after is a face card. Unseen: K♥ K♠ and three Clubs; the marked one is a King.
+    hand = [card(9, "Diamonds"), Card(hidden=True), MARKED]
+    state = replace(mark_state(), hand=hand, hand_size=3)
+    kings = parse_query("2+ kings")
+    # The marked card is a King, and the other King is any of the 4 other unseen cards' places.
+    assert evaluate_cards(state, kings, []).probability == Fraction(1, 4)  # the unmarked card's
+    assert evaluate_cards(state, kings, [1]).probability == Fraction(1, 4)  # the card drawn instead
+    # The marked one thrown away: the unmarked card and the card drawn are 2 of those 4 places.
+    assert evaluate_cards(state, parse_query("1+ king"), [2]).probability == Fraction(1, 2)
 
 
 def bell_brute(names: set[str], kept: list[Card], forced: Card, pool: list[Card], draws: int,
@@ -1016,7 +1040,7 @@ def test_dna_copy_of_a_face_down_card_is_keeping_it():
 def test_dna_copy_of_a_face_down_card_under_the_mark():
     # All the same: The Mark knows it's a face card, kept or copied.
     king, queen = card(13, "Diamonds"), card(12, "Hearts")
-    hand = dna_state().hand[:4] + [Card(hidden=True)]
+    hand = dna_state().hand[:4] + [MARKED]
     state = dna_state(blind="The Mark", hand=hand, unseen=[*dna_state().unseen, king, queen])
     target = get_target("Pair")
     assert evaluate_discard(state, target, [4]).probability == evaluate_discard(state, target, []).probability
@@ -1028,7 +1052,7 @@ def test_dna_copy_of_a_face_down_card_under_the_mark():
 def test_dna_several_copies_of_a_face_down_card(blind):
     # Two copies are the same unknown card: a Pair for certain, and two of
     # whatever it is. The engine branches on what it is, with no evidence.
-    hand = dna_state().hand[:4] + [Card(hidden=True)]
+    hand = dna_state().hand[:4] + [MARKED if blind else Card(hidden=True)]
     king = card(13, "Clubs")
     unseen = [*dna_state().unseen, dna_state().hand[4], king]
     state = dna_state(hand=hand, unseen=unseen, dna_copies=2, blind=blind)

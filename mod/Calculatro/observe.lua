@@ -29,6 +29,12 @@ local ui_children = require('calculatro.uibox').ui_children
 Calculatro.observations = {}
 -- Goes up whenever the observations change.
 Calculatro.observed = 0
+-- For each face-down card in hand or discarded face down this round: whether The Mark
+-- drew it as a face card (`marked`), so that it's known to be one. Pareidolia makes it
+-- draw every card face down, so what's known of a card depends on whether it was held
+-- when that card was drawn, not now. Worked out from public things only, never from
+-- the card. Keyed weakly, so cards gone for good don't stay.
+Calculatro.marks = setmetatable({}, { __mode = 'k' })
 
 local MODES = { desc = true, ['suit desc'] = true }
 local SUIT_ORDER = { Diamonds = 1, Clubs = 2, Hearts = 3, Spades = 4 }
@@ -284,12 +290,48 @@ local function record(observation)
     end
 end
 
+-- Whether The Mark draws only face cards face down now: in play, and without Pareidolia
+-- (Card:is_face(true) asks find_joker, which skips a debuffed one).
+local function mark_flips_faces()
+    local blind = G.GAME.blind
+    if not (blind and blind.name == 'The Mark' and not blind.disabled) then return false end
+    for _, joker in ipairs(G.jokers and G.jokers.cards or {}) do
+        if joker.config and joker.config.center_key == 'j_pareidolia' and not joker.debuff then return false end
+    end
+    return true
+end
+
+-- Notes the rule each face-down card in hand was drawn under, the first frame it's seen
+-- face down (Blind:stay_flipped decides as it's drawn, in the event that puts it in the
+-- hand), and forgets a card once it's turned up. One discarded face down keeps its mark.
+-- A run continued from a save starts with the rule then. A card drawn in the very frame
+-- Pareidolia is sold or gained could be noted under the other rule.
+local function note_marks(cards)
+    local marks, faces = Calculatro.marks, nil
+    for _, card in ipairs(cards) do
+        if card.facing == 'back' then
+            if marks[card] == nil then
+                if faces == nil then faces = mark_flips_faces() end
+                marks[card] = faces
+            end
+        elseif marks[card] ~= nil then
+            marks[card] = nil
+        end
+    end
+end
+
+-- Whether The Mark drew `card` face down as a face card (see Calculatro.marks).
+function Calculatro.marked(card)
+    return Calculatro.marks[card] == true
+end
+
 local function start_tracking()
     local t = { game = G.GAME, area = G.hand, round = G.GAME.round, hand = copy(G.hand.cards),
                 in_hand = set_of(G.hand.cards), in_deck = set_of(G.deck.cards), deck_count = #G.deck.cards,
                 dragged = false, pending = false, sort_elements = {}, clicks = {} }
     sort_pressed(t)
     forget()
+    Calculatro.marks = setmetatable({}, { __mode = 'k' })
     return t
 end
 
@@ -312,6 +354,7 @@ function Calculatro.track_hand()
     end
 
     local cards = G.hand.cards
+    note_marks(cards)
     local stable = same_list(cards, t.hand)
     local in_hand = t.in_hand
     local sorted, foreign, moved = sort_pressed(t), false, false
@@ -356,9 +399,10 @@ end
 -- doesn't, and the same for a card in several. A face-down card is given by its place in the
 -- hand now (0-based), where the snapshot sends it as {hidden = true}, and one
 -- discarded face down only as `discarded` (it's one of the discard pile's
--- {hidden = true}, but which isn't said). Sent whether the hint's setting is on
+-- {hidden = true}, but which isn't said), with `marked` if The Mark drew it as a
+-- face card (one of the pile's marked ones then). Sent whether the hint's setting is on
 -- or off: the odds always use them. See docs/architecture.md#shapes.
--- The odds take face-down cards under The Mark to be face cards (as
+-- The odds take marked face-down cards to be face cards (as
 -- `engine.flipped_by_mark` says), which the challenges' random flips
 -- (flipped_cards) make untrue: then the sorts go unused, and the odds are those
 -- without them. The hint, which allows every card then, still uses them.
@@ -391,7 +435,7 @@ function Calculatro.export_observations()
                 if in_hand then
                     e.hand = index[card]
                 elseif discarded then
-                    e.discarded = true
+                    e.discarded, e.marked = true, Calculatro.marked(card) or nil
                 elseif entry.stone then
                     e.stone = true
                 else

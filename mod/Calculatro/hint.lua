@@ -22,36 +22,30 @@ local RANKS, SUITS, SUIT_SYMBOLS = builder.RANKS, builder.SUITS, builder.SUIT_SY
 -- couldn't rule out in time stays possible: too much, but never wrong.
 local SEARCH_STEPS = 20000
 
--- The Mark flips face cards (Blind:stay_flipped), which with Pareidolia is all of
--- them. The challenge's random flips (flipped_cards) can flip any card as well.
--- Same model as the engine's (`GameState.mark`, `engine.flipped_by_mark`).
-local function only_face_cards()
-    local blind = G.GAME.blind
-    if not (blind and blind.name == 'The Mark' and not blind.disabled) then return false end
+-- Whether `card` can only be a face card: The Mark drew it face down as one
+-- (observe.lua's marks, by whether Pareidolia was held then). The challenge's random
+-- flips (flipped_cards) can flip any card as well. Same model as the engine's
+-- (`Card.marked`, `engine.flipped_by_mark`).
+local function face_card_only(card)
     if G.GAME.modifiers and G.GAME.modifiers.flipped_cards then return false end
-    for _, joker in ipairs(G.jokers and G.jokers.cards or {}) do
-        if joker.config and joker.config.center_key == 'j_pareidolia' and not joker.debuff then return false end
-    end
-    return true
+    return Calculatro.marked(card)
 end
 
 -- The pool's different cards as printed, with how many of each: {rank_id, suit,
--- stone, count}. Copies count as one candidate each; enhancements don't matter here.
+-- stone, face, count}. Copies count as one candidate each; enhancements don't matter here.
 local function candidates()
     local list, by_key = {}, {}
-    local faces_only = only_face_cards()
     for _, info in ipairs(Calculatro.unseen_pool()) do
         local stone = info.enhancement == 'm_stone'
-        if not faces_only or (not stone and info.rank_id >= 11 and info.rank_id <= 13) then
-            local key = stone and 'stone' or (info.rank_id .. info.suit)
-            local c = by_key[key]
-            if not c then
-                c = { rank_id = info.rank_id, suit = info.suit, stone = stone or nil, count = 0 }
-                by_key[key] = c
-                list[#list + 1] = c
-            end
-            c.count = c.count + 1
+        local key = stone and 'stone' or (info.rank_id .. info.suit)
+        local c = by_key[key]
+        if not c then
+            c = { rank_id = info.rank_id, suit = info.suit, stone = stone or nil, count = 0,
+                  face = not stone and info.rank_id >= 11 and info.rank_id <= 13 }
+            by_key[key] = c
+            list[#list + 1] = c
         end
+        c.count = c.count + 1
     end
     return list
 end
@@ -91,7 +85,8 @@ end
 -- Those discarded face down since are dealt like the ones in hand: where they were
 -- still says what they are. Face-down cards not in an observation always fit: they
 -- get whatever's left, which there's enough of, since the pool holds every
--- face-down card. Two cards of the same rank and suit tie here in both modes, though
+-- face-down card (though The Mark's need face cards, which the others may have
+-- taken: too much again, never wrong). Two cards of the same rank and suit tie here in both modes, though
 -- the game breaks that tie the same way each time, so in the rare case they'd have to
 -- be in opposite orders in two sorts, this lets them be: too much again, never
 -- wrong.
@@ -121,6 +116,7 @@ function Calculatro.possible_cards(card)
     end
 
     local function fits_bounds(c, value)
+        if value.face == false and face_card_only(c) then return false end
         for _, o in ipairs(observations) do
             if o.position[c] then
                 local key = sort_key(o.mode, value)

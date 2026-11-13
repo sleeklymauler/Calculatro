@@ -260,9 +260,11 @@ may be the last session's file, which the app replaces once it answers, so it's 
   nothing more, from `Calculatro.export_observations`: each card an `id` and one of
   a face-up card's printed `rank_id` and `suit`, `"stone": true`, `"hand": i` for a card face down
   at that hand index, or `"discarded": true` for one since discarded face down (still in the discard
-  pile with `wheel_flipped`). A card in several sorts has the same id. `GameState.from_json` checks them
+  pile with `wheel_flipped`), with `"marked": true` if The Mark drew it as a face card (as on the
+  pile's `{hidden: true}` cards). A card in several sorts has the same id. `GameState.from_json` checks them
   more than other fields (`state._observations`: ids, kinds, ranks, suits and hand indices must agree,
-  and there can't be more discarded ones than the discard pile's `{hidden: true}` cards) and
+  and there can't be more discarded ones, marked or not, than the discard pile's `{hidden: true}` cards
+  marked alike) and
   renumbers the ids by first appearance into `GameState.observations` and `observed`, and gives each
   face-down hand card in them its id (`Card.latent`). The odds use them
   ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)), so they're part of
@@ -290,12 +292,13 @@ couldn't see.
   appearance, so they say only which card in one sort is which in another, as the player saw them
   move, and each sort is one the player saw, at a time that's public. `test_which_cards_are_face_down_changes_nothing_sent` (`tests/test_observations.py`) swaps which
   unseen cards are face down and compares every snapshot, frame by frame.
-- Face-down cards in hand and in the discard pile are exported as `{hidden: true}`. The game turns every
+- Face-down cards in hand and in the discard pile are exported as `{hidden: true}`, with `marked: true`
+  if The Mark drew it face down as a face card (Pareidolia not held then; [blinds.md](blinds.md#face-down-cards-blindstay_flipped)):
+  that goes by when it was drawn, which the player saw, never by what it is. The game turns every
   card in the discard pile over, so `facing` says nothing there: a card discarded face down is one with
   `ability.wheel_flipped`, as in View Deck, and the rest have been seen and are exported as they are.
   The deck's size is
-  `len(unseen)` less their number (`GameState.deck_size`, `hidden`, `discarded_hidden`), and under The
-  Mark the discarded ones count as face cards too.
-- The engine draws kept face-down cards from `unseen` like the new cards, except that under The Mark
-  (`GameState.mark`) they're known to be face cards, so they're drawn from the unseen face cards
-  (`engine._mark_split`).
+  `len(unseen)` less their number (`GameState.deck_size`, `hidden`, `discarded_hidden`), and the marked
+  ones, discarded or not, count as face cards (`GameState.marked`).
+- The engine draws kept face-down cards from `unseen` like the new cards, except that the marked ones are
+  known to be face cards, so they're drawn from the unseen face cards (`engine._mark_split`).
