@@ -403,8 +403,8 @@ def test_undecodable_file_reported_once_until_it_changes(tmp_path, capsys, monke
         source.read()
 
     reads = []
-    read_text = Path.read_text
-    monkeypatch.setattr(Path, "read_text", lambda *a, **k: reads.append(a) or read_text(*a, **k))
+    open_ = Path.open
+    monkeypatch.setattr(Path, "open", lambda *a, **k: reads.append(a) or open_(*a, **k))
     assert source.poll() is None
     assert source.poll() is None  # unchanged: not read again
     assert len(reads) == 1
@@ -551,6 +551,30 @@ def test_poll_tolerates_a_locked_file(tmp_path, monkeypatch):
     assert source.poll() is None
     monkeypatch.undo()
     assert source.poll() is not None
+
+
+def test_poll_keys_a_file_replaced_after_its_stat_by_what_was_read(tmp_path, monkeypatch):
+    """R2: the mod replacing the file between poll's stat and its read delivers the newer
+    snapshot once, not again on the next poll as if the file had changed since."""
+    path = tmp_path / "calculatro_state.json"
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:1", "in_run": False}))
+    source = FileStateSource(path)
+    assert source.poll().id == "x:1"
+
+    stat = Path.stat
+
+    def replaced_after(self, *args, **kwargs):
+        result = stat(self, *args, **kwargs)
+        newer = tmp_path / "calculatro_state.tmp"
+        newer.write_text(json.dumps({"schema": SCHEMA, "id": "x:22", "in_run": False}))
+        newer.replace(path)
+        monkeypatch.undo()
+        return result
+
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:2", "in_run": False}))
+    monkeypatch.setattr(Path, "stat", replaced_after)
+    assert source.poll().id == "x:22"
+    assert source.poll() is None
 
 
 def install(save_dir, folder: str = "Calculatro"):

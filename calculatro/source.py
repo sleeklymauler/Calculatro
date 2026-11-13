@@ -52,6 +52,30 @@ class FileStateSource:
         self._malformed = str(e)
         print(f"Ignoring {self.path.name}: it isn't a valid snapshot ({e}).", file=sys.stderr, flush=True)
 
+    def _load(self) -> tuple[bytes, tuple[int, int]] | None:
+        """The file's bytes and the key (mtime, size) of the very file they were read from.
+
+        The key comes from the open handle, not the path: the mod replaces the
+        file whole, so one replaced between a stat of the path and the read
+        would otherwise be keyed as the older file, and read again on the next
+        poll. None if the file is missing or locked.
+        """
+        try:
+            with self.path.open("rb") as f:
+                raw = f.read()
+                st = os.fstat(f.fileno())
+        except (FileNotFoundError, PermissionError):
+            return None
+        return raw, (st.st_mtime_ns, st.st_size)
+
+    @staticmethod
+    def _parse(raw: bytes) -> GameState:
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as e:
+            raise MalformedState(f"{type(e).__name__}: {e}") from e
+        return GameState.from_json(data)
+
     def read(self) -> GameState | None:
         """Return the current state, or None if the file is missing or locked.
 
@@ -60,25 +84,23 @@ class FileStateSource:
         so it's never seen half-written) or whose fields don't have the expected
         shapes.
         """
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, PermissionError):
-            return None
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as e:
-            raise MalformedState(f"{type(e).__name__}: {e}") from e
-        return GameState.from_json(data)
+        loaded = self._load()
+        return None if loaded is None else self._parse(loaded[0])
 
     def poll(self) -> GameState | None:
         """The state if the file changed since the last state returned, else None. Doesn't block."""
         try:
-            st = self.path.stat()
+            st = self.path.stat()  # cheap check first: most polls find the file unchanged
         except (FileNotFoundError, PermissionError):
             return None
-        key = (st.st_mtime_ns, st.st_size)
-        if key == self._last_key:
+        if (st.st_mtime_ns, st.st_size) == self._last_key:
             return None
+        loaded = self._load()
+        if loaded is None:
+            return None
+        raw, key = loaded
         try:
-            state = self.read()
+            state = self._parse(raw)
         except SchemaMismatch as e:
             self._ignore(e)
             self._last_key = key  # not read again until it changes
@@ -87,7 +109,6 @@ class FileStateSource:
             self._reject(e)
             self._last_key = key
             return None
-        if state is not None:
-            self._last_key = key
-            self._malformed = None  # report the next bad one, even if it's the same error
+        self._last_key = key
+        self._malformed = None  # report the next bad one, even if it's the same error
         return state

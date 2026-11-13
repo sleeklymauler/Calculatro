@@ -111,8 +111,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     logs the error itself, and retries it every `RETRY_ERROR` (10 s) rather than never, since a full disk
     can be cleared. A newer payload is still tried at once. Each new problem is logged once. Tested in
     `test_write_fails_softly_only_for_a_lock` and `test_watch_reports_other_write_errors_and_retries_them_slowly`.
-- [ ] **R2** **[low] (carried)** `FileStateSource.poll` stats the file before reading it (`source.py:71-93`)
+- [x] **R2** **[low] (carried)** `FileStateSource.poll` stats the file before reading it (`source.py:71-93`)
   - A file replaced in between is delivered under the older key, then again on the next poll. The cost is one restarted job. Stat again after reading, or deduplicate on the snapshot's `id`.
+  - Done: the path's stat is still the cheap check for "unchanged", but the key recorded is the open handle's
+    (`os.fstat`), so it's always that of the bytes read. Tested in
+    `test_poll_keys_a_file_replaced_after_its_stat_by_what_was_read`.
 - [ ] **R3** **[low] (seen)** `engine._ignored` grows without limit (`engine.py:1208`)
   - One entry per set of observations no deal fits. Small, but the other caches beside it are bounded.
 
