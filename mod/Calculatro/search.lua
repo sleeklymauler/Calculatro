@@ -83,6 +83,27 @@ function Calculatro.search(key)
     Calculatro.elapsed = Calculatro.interval  -- send it with the next frame's snapshot
 end
 
+-- The reply's options that are lists of whole numbers in 0..count-1 (a hand
+-- of `count` cards). The app sends no others; any other is dropped, since an
+-- index past the hand would break `is_selected` until the hand changes.
+local function valid_options(options, count)
+    local out = {}
+    if type(options) ~= 'table' then return out end
+    for _, option in ipairs(options) do
+        local ok = type(option) == 'table'
+        if ok then
+            for _, i in ipairs(option) do
+                if type(i) ~= 'number' or i ~= math.floor(i) or i < 0 or i >= count then
+                    ok = false
+                    break
+                end
+            end
+        end
+        if ok then out[#out + 1] = option end
+    end
+    return out
+end
+
 local function same_options(a, b)
     if type(a) ~= 'table' or #a ~= #b then return false end
     for i, option in ipairs(b) do
@@ -104,20 +125,22 @@ end
 -- `mark`) has no options, and is kept as `gave_up` with the selection then,
 -- for the title row; the button asks again, and the app answers at once. One
 -- it gave up on but answered from estimates has options and a mark with a
--- `how`, kept as `estimated` for the title row.
+-- `how`, kept as `estimated` for the title row. Options that aren't indices
+-- into the hand are dropped (`valid_options`).
 function Calculatro.receive_search(reply)
     local found = Calculatro.found
     if found and not (type(reply) == 'table' and reply.nonce == found.nonce
-                      and same_options(reply.options, found.options)) then
+                      and same_options(valid_options(reply.options, #found.hand), found.options)) then
         Calculatro.found = nil
     end
     local searching = Calculatro.searching
     if type(reply) ~= 'table' or not searching or reply.nonce ~= searching.nonce then return end
     Calculatro.searching, Calculatro.request = nil, nil
-    local options = reply.options or {}
     if not same_hand(searching.hand) then return end
+    local sent = type(reply.options) == 'table' and #reply.options or 0
+    local options = valid_options(reply.options, #searching.hand)
     local mark = type(reply.mark) == 'table' and reply.mark or nil
-    if mark and mark.state == 'final' and #options == 0 then
+    if mark and mark.state == 'final' and sent == 0 then
         Calculatro.found = { key = searching.key, nonce = searching.nonce, options = {}, index = 0,
                              hand = searching.hand, gave_up = mark, selection = selection(searching.hand) }
         return

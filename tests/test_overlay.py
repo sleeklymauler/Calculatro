@@ -1986,6 +1986,27 @@ def test_search_keeping_the_hand(lua, tmp_path):
     assert selected(rt) == [] and message(rt) == "Keep hand"
 
 
+def test_search_options_outside_the_hand_dropped(lua, tmp_path):
+    """The app never sends an index past the hand, but one would break the panel until the hand changed."""
+    rt, mod = lua
+    search_ready(lua, tmp_path)
+    size = len(rt.eval("G.hand.cards"))
+    click(lua, "calculatro_search_Pair")
+    reply_search(tmp_path, [[size], [0, -1], [0.5], [1], [0, 1]])
+    mod.update(0.1)
+    assert selected(rt) == [1] and message(rt) == "1/2"
+    # Kept on the next payload with the same reply, and cycled as usual.
+    mod.update(0.3)
+    assert mod.found is not None
+    assert click(lua, "calculatro_search_Pair")
+    assert selected(rt) == [0, 1] and message(rt) == "2/2"
+    # Nothing left: no options, and not taken as a search given up on.
+    click(lua, "calculatro_search_Three of a Kind")
+    reply_search(tmp_path, [[size]])
+    mod.update(0.1)
+    assert mod.found is None and mod.searching is None and message(rt) is None
+
+
 def test_search_dropped_for_another_hand(lua, tmp_path):
     rt, mod = lua
     search_ready(lua, tmp_path)

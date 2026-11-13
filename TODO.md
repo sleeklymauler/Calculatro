@@ -59,9 +59,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Bugs and correctness
 
-- [ ] **B1** **[low-med] (carried)** A search reply with an out-of-range index breaks the panel until the hand changes (`search.lua:35-42`)
+- [x] **B1** **[low-med] (carried)** A search reply with an out-of-range index breaks the panel until the hand changes (`search.lua:35-42`)
   - `is_selected` does `chosen[cards[i + 1]] = true`, which raises "table index is nil" for an index past the hand. `Calculatro.select` already guards with `if card`.
   - The app never sends one today. Drop options with indices outside `0..#hand-1` in `receive_search`.
+  - Done: `valid_options` drops any option with an index that isn't a whole number in the hand, both on
+    arrival and when comparing later payloads. A reply left with none is ignored, not taken as given up on.
+    Tested in `test_search_options_outside_the_hand_dropped`.
 - [ ] **B2** **[low] (seen)** The mod ignores an odds file of another schema without saying so (`files.lua:163`)
   - After a partial update (new mod, old app, or the reverse) the panel says "Waiting for app" then "App didn't start", and nothing is logged on the mod's side. `report()` it once, as the app does for a state schema it can't read.
 - [ ] **B3** **[low] (guess)** `probability` and `count_probability` clamp the draws differently under The Mark (`engine.py:109`, `engine.py:2183`)
