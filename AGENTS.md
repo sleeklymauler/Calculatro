@@ -19,7 +19,7 @@ PowerShell and Bash.
   `tests/perf/baseline.json`, from `benchmark.py --save`). Run them before and after changing the
   engine or the search. A plain `pytest` checks the exact results of all but the slowest scenarios,
   without timings. See `docs/performance/README.md`.
-- Install the mod into the game: `pwsh scripts/install_mod.ps1`. Re-run after any change to the Lua.
+- Install the mod into the game: `powershell -ExecutionPolicy Bypass -File scripts\install_mod.ps1`. Re-run after any change to the Lua.
 - Run by hand: `.venv/Scripts/python -m calculatro watch` (normally the mod starts the app with the game).
 - Build a release: `powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1`.
 

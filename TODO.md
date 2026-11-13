@@ -198,7 +198,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 - [ ] **C1** **[med] (carried)** CI doesn't build the release until a tag is pushed
   - A broken `build_release.ps1` is found on release day. Run it on pull requests that touch `scripts/`, `mod/` or `calculatro/`.
-- [ ] **C2** **[low] (carried)** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 doesn't have
+- [x] **C2** **[low] (carried)** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 doesn't have
   - The mod is copied, then the script fails before `launch.txt` is written. Add `#Requires -Version 7`, or write the file as `build_release.ps1` does.
 - [ ] **C3** **[low] (carried)** `dump_lua = true` ships in releases (`lovely.toml:3`)
   - Lovely then writes its dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
@@ -216,7 +216,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - If the plans are done, point these at `docs/probability-model.md` (and check it has what the code comments lean on: the snapshot's shape for observations, the tie rules, the tests' reference).
 - [x] **D2** **[med] (seen)** `docs/jokers.md:112` still calls several DNA copies of a face-down card a known limitation
   - The engine branches on what the card is now (`engine._dna_branch`), and `docs/probability-model.md:156` says so. The two pages disagree.
-- [ ] **D3** **[med] (carried)** The perf docs cite commits that no longer exist
+- [x] **D3** **[med] (carried)** The perf docs cite commits that no longer exist
   - `7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac` aren't in the history. They're in `docs/performance/README.md` ("Comparing with an older version"). The "Comparing with an older version" recipe fails as written.
 - [x] **D4** **[med] (carried)** `docs/performance/benchmarks.md` was measured on 2026-10-07 to 10-11
   - Removed: the perf docs no longer keep tables of timings (current ones are in `tests/perf/baseline.json`).

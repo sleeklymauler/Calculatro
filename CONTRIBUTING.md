@@ -26,8 +26,8 @@ tools that look for those names, so edit `AGENTS.md` rather than them.
 ## Setup
 
 You need Windows, Balatro with the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases)
-(see the [README](README.md#installation-users)), [Python 3.11+](https://www.python.org/downloads/) and
-[PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows).
+(see the [README](README.md#installation-users)) and [Python 3.11+](https://www.python.org/downloads/). The scripts run in
+Windows PowerShell 5.1 (built into Windows) or PowerShell 7.
 
 1. Clone the repository and install the app with its dev tools (`pytest`, `lupa`, `ruff`):
    ```pwsh
@@ -38,7 +38,7 @@ You need Windows, Balatro with the [Lovely injector](https://github.com/ethangre
    ```
 2. Install the mod into the game:
    ```pwsh
-   pwsh scripts/install_mod.ps1
+   powershell -ExecutionPolicy Bypass -File scripts\install_mod.ps1
    ```
    This replaces `%AppData%\Balatro\Mods\Calculatro` (a release install included) with `mod/Calculatro`, and
    writes the venv's `pythonw.exe` to the mod's `launch.txt`, so the game starts the app from your checkout. Pass

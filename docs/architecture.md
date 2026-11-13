@@ -154,7 +154,7 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
 
 ## Starting and stopping the app
 
-`pwsh scripts/install_mod.ps1` copies `mod/Calculatro` to `%AppData%\Balatro\Mods` (it requires the
+`powershell -ExecutionPolicy Bypass -File scripts\install_mod.ps1` (5.1 or 7) copies `mod/Calculatro` to `%AppData%\Balatro\Mods` (it requires the
 Lovely injector DLL next to `Balatro.exe`). It also writes the venv's `pythonw.exe` path to the
 installed mod's `launch.txt` (skip with `-NoAutoStart`).
 
