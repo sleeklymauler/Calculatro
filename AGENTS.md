@@ -89,6 +89,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 - Fixtures shared between test modules are in `tests/conftest.py`; shared helpers are plain modules
   beside it (`mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle`, `fakes`). Never
   import from a `test_*` module.
+- A test that checks an estimate's values takes the `fake_clock` fixture: estimates stop at a deadline, so by
+  the real clock a busy machine gets other (seeded) samples.
 - `tests/mocked_game.py` loads the real mod into `lupa` from the modules `lovely.toml` lists, as Lovely
   loads them (`load_mod`), against a mocked `G` and `love.filesystem`; `tests/test_state.py` parses
   what it writes, so mod changes are testable without the game. Extend `MOCK_G` there when exporting

@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from calculatro import report
+from calculatro import engine, report, search
+from fakes import FakeClock
 from hand_driver import Game
 from mocked_game import MOCK_THREAD, new_lua
 
@@ -52,3 +53,14 @@ def no_estimates(monkeypatch) -> None:
     """build_report gets no estimates unless a test gives it some (`estimating`): with the engine stubbed, the real
     ones would estimate odds other than the stub's."""
     monkeypatch.setattr(report, "estimate_discard", lambda *args, **kw: None)
+
+
+@pytest.fixture
+def fake_clock(monkeypatch) -> FakeClock:
+    """The engine's and the search's clock, moving on 10 µs each time it's read (about a fast machine's time
+    between reads). Seeded estimates stop at a deadline: by the real clock, a busy machine (a CI runner running
+    the tests in parallel) draws fewer samples, and gets other ranges, which can miss the exact odds."""
+    clock = FakeClock(1e-5)
+    monkeypatch.setattr(engine, "monotonic", clock)
+    monkeypatch.setattr(search, "monotonic", clock)
+    return clock

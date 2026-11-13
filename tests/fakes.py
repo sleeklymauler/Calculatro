@@ -19,6 +19,18 @@ class FakeSource:
         return self.queue.pop(0) if self.queue else None
 
 
+class FakeClock:
+    """A stand-in for `time.monotonic` that moves on `step` seconds each time it's read, so what's done by a
+    deadline (an estimate's samples) depends on the work done, not on how fast the machine is."""
+
+    def __init__(self, step: float):
+        self.now, self.step = 0.0, step
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
 def taking(seconds: dict[str, float], calls: list[tuple] | None = None, odds: dict[str, Fraction] | None = None):
     """A stand-in for `evaluate_discard` whose rows take set times, by the target's
     name (none for others), and stop when cancelled, as the engine does. The odds

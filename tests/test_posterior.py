@@ -32,6 +32,9 @@ from game_order import nominal
 from poker import card, contains, contains_forced
 from search_oracle import check as check_search
 
+# Estimates stop at a deadline: by a clock that moves with the work done, so they are the same on any machine.
+pytestmark = pytest.mark.usefixtures("fake_clock")
+
 STONE = Card(enhancement="m_stone")
 
 

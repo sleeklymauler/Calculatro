@@ -320,6 +320,7 @@ def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
     assert found.targets[0].keep == Approx(Fraction(3, 10), Fraction(2, 5), SAMPLE, TIME, Fraction(33, 100))
 
 
+@pytest.mark.usefixtures("fake_clock")
 def test_estimates_hold_the_exact_odds():
     """On the sorted scenarios that finish, each estimate's range holds the exact odds (it's seeded, so this is
     stable)."""
@@ -347,6 +348,7 @@ def _draws_hold(state: GameState, target, discard: list[int]) -> None:
     assert abs(found.mean - p) <= 4.5 * float(p * (1 - p) / found.samples) ** 0.5, (state, discard, target.name)
 
 
+@pytest.mark.usefixtures("fake_clock")
 def test_estimates_from_draws_hold_the_exact_odds():
     """Final hands drawn at random make each target as often as the exact odds say, under every boss and joker
     rule the engine models, keeping the hand or discarding (seeded, so stable)."""
@@ -363,6 +365,7 @@ def test_estimates_from_draws_hold_the_exact_odds():
     assert len(setups) == 7
 
 
+@pytest.mark.usefixtures("fake_clock")
 def test_estimates_from_draws_with_dna_and_crimson_heart():
     """Cases the random ones rarely reach: DNA's copies of a face-down card are all one card, and Crimson Heart
     debuffs a random joker after the play."""

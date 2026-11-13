@@ -18,6 +18,9 @@ from calculatro.state import SUITS, Card, GameState, Joker
 from poker import card
 from search_oracle import cards_of, check
 
+# Estimates stop at a deadline: by a clock that moves with the work done, so they are the same on any machine.
+pytestmark = pytest.mark.usefixtures("fake_clock")
+
 
 def random_state(rng: random.Random, hand=8, deck=14, **kw) -> GameState:
     cards = [card(r, s) for s in SUITS for r in range(2, 15)]
