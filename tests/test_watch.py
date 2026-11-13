@@ -25,6 +25,18 @@ from fakes import FakeSource, taking
 pytestmark = pytest.mark.usefixtures("no_estimates")
 
 
+@pytest.fixture(autouse=True)
+def jobs_ended():
+    """Each test's jobs have ended before the next test starts. One still running on a busy machine would call what
+    the next test has patched (`report.evaluate_discard`, say), and count as that test's."""
+    yield
+    end = time.monotonic() + 5
+    for thread in threading.enumerate():
+        if thread.name == "job":
+            thread.join(max(0.0, end - time.monotonic()))
+            assert not thread.is_alive(), "a job outlived its test"
+
+
 def test_probability_cancelled():
     deck = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base") for s in SUITS for r in range(2, 15)]
     cancel = threading.Event()
@@ -89,12 +101,15 @@ def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str
     return GameState(in_run=True, state=game_state, blind=name, tracked_hands=list(tracked_hands))
 
 
-def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[str]:
-    """Run the watch loop until `done(writes)`, returning everything it wrote."""
+def watch(source, fake_odds, done, monkeypatch, timeout=5.0, patience=5.0) -> list[str]:
+    """Run the watch loop until `done(writes)`, returning everything it wrote.
+
+    The default `patience` is long, so odds meant to print with their summary do, however busy the machine. A test of
+    odds that miss it passes a short one, and holds its job until the placeholder has been printed."""
     monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (fake_odds(st, t, q, cancel), {}))
     writes: list[str] = []
     end = time.monotonic() + timeout
-    cli.run_watch(source, writes.append, patience=0.05, poll_interval=0.005,
+    cli.run_watch(source, writes.append, patience=patience, poll_interval=0.005,
                   stop=lambda: done(writes) or time.monotonic() > end)
     assert done(writes), writes
     return writes
@@ -135,7 +150,7 @@ def test_slow_odds_print_summary_first(monkeypatch):
             release.set()  # only finish once the placeholder has been printed
         return len(writes) == 2
 
-    writes = watch(FakeSource(state("A")), slow, done, monkeypatch)
+    writes = watch(FakeSource(state("A")), slow, done, monkeypatch, patience=0.05)
     assert "Blind: A" in writes[0] and writes[0].endswith("\n" + cli.CALCULATING)
     assert writes[1] == "odds A"
 
@@ -157,10 +172,11 @@ def test_new_state_cancels_running_odds(monkeypatch):
             source.queue.append(state("B"))  # the game moves on while A is still calculating
         return any("odds B" in w for w in writes)
 
-    writes = watch(source, odds, done, monkeypatch)
+    writes = watch(source, odds, done, monkeypatch, patience=0.05)  # A never finishes, so it misses its patience
     assert cancelled.wait(5)
     assert writes[0].endswith(cli.CALCULATING)
-    assert "Blind: B" in writes[1] and writes[1].endswith("\nodds B")
+    # B's odds print with its summary, or after it if a busy machine makes them miss the short patience.
+    assert "Blind: B" in writes[1] and writes[-1].endswith("odds B")
     assert not any("odds A" in w for w in writes)
 
 
@@ -173,15 +189,31 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
         return "odds C", {"odds": "C"}
 
     monkeypatch.setattr(cli, "calculate", odds)
-    source, sent, writes = FakeSource(state("A"), state("B"), state("C")), [], []
+    source, writes = FakeSource(state("A")), []
+    sent = OneAtATime(source, [state("B"), state("C")])
     end = time.monotonic() + 5
-    cli.run_watch(source, writes.append, sent.append, patience=0.05, poll_interval=0.005,
+    cli.run_watch(source, writes.append, sent.append, patience=5, poll_interval=0.005,
                   stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
     assert sent[-1] == {"odds": "C"}
     answers = [p for p in sent if not p.get("pending")]
     assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "id": None, "targets": [], "cards": []}] * 2
     assert writes[0].endswith("\n" + cli.ODDS_FAILED) and writes[1].endswith("\n" + cli.ODDS_FAILED)
     assert capsys.readouterr().err.count("ValueError: boom") == 1
+
+
+class OneAtATime(list):
+    """The panel's payloads, as a list whose `append` gives `source` the next of `states` once the last one is
+    answered. If all of them were queued at once, each state would cancel the one before it whenever that one's job
+    hadn't ended by the next poll, which a busy machine can make happen to any of them."""
+
+    def __init__(self, source: FakeSource, states: list[GameState]):
+        super().__init__()
+        self.source, self.states = source, list(states)
+
+    def append(self, payload: dict) -> None:
+        super().append(payload)
+        if not payload.get("pending") and self.states:
+            self.source.queue.append(self.states.pop(0))
 
 
 def failing_odds(monkeypatch, fail) -> list[dict]:
@@ -192,7 +224,8 @@ def failing_odds(monkeypatch, fail) -> list[dict]:
         fail(st.blind)
 
     monkeypatch.setattr(cli, "calculate", odds)
-    source, sent = FakeSource(*map(state, "ABXYC")), []
+    source = FakeSource(state("A"))
+    sent = OneAtATime(source, [*map(state, "BXYC")])
     end = time.monotonic() + 5
     cli.run_watch(source, lambda text: None, sent.append, patience=5, poll_interval=0.05,
                   stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
@@ -674,13 +707,14 @@ def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
     source, answers = FakeSource(steps[0][0]), []
 
     def panel(payload):
-        if not payload.get("pending"):
+        if not payload.get("pending") and not payload.get("partial"):  # partial ones come if the engine is slow
             answers.append(payload)
             if len(answers) < len(steps):
                 source.queue.append(steps[len(answers)][0])
 
     end = time.monotonic() + 10
-    cli.run_watch(source, lambda text: None, panel, patience=0.05, poll_interval=0.005,
+    # A value that missed its quick try would be calculated again in the exact pass: give it time on a busy machine.
+    cli.run_watch(source, lambda text: None, panel, patience=0.05, poll_interval=0.005, limits=Limits(quick=5),
                   stop=lambda: len(answers) == len(steps) or time.monotonic() > end)
     assert [a["id"] for a in answers] == [st.id for st, _ in steps]
     expected = [call for _, step in steps for call in step]

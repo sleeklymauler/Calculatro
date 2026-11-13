@@ -206,7 +206,7 @@ class Job(Generic[T]):
         self._done = threading.Event()
         self._result: T | None = None
         self._error: BaseException | None = None
-        threading.Thread(target=self._run, args=(fn,), daemon=True).start()
+        threading.Thread(target=self._run, args=(fn,), name="job", daemon=True).start()
 
     def _run(self, fn: Callable[[Control], T]) -> None:
         try:

@@ -182,8 +182,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - See A3. `test_posterior.py` checks `estimate_discard` on a few states; nothing goes through every boss and DNA with `_estimate_draws` against `_evaluate_discard`.
 - [ ] **T5** **[low] (seen)** Cancelling is only tested with the event already set (`test_search.py:249`, `364`)
   - Add one that sets it partway through a heavy scenario and checks how long the job takes to end. (carried)
-- [ ] **T6** **[low] (carried)** `test_watch.py` depends on fake jobs finishing within `patience=0.05` s (`:105`, `:121`, `:186`)
+- [x] **T6** **[low] (carried)** `test_watch.py` depends on fake jobs finishing within `patience=0.05` s (`:105`, `:121`, `:186`)
   - Likely to flake on a busy CI runner. Raise it, or drive the loop with a fake clock.
+  - Done: long patience except where a test needs it to run out, states queued one at a time, and partial payloads
+    not counted as answers. The failure seen under load was another one: `run_watch` left its jobs running when it
+    stopped, and one called the next test's patched `evaluate_discard`. It now cancels them, and an autouse fixture
+    waits for each test's jobs.
 - [ ] **T7** **[low] (carried)** Lua tests still missing
   - The encoder's edge cases (NaN and infinity as `null`, control characters, `2^60`).
   - The decoder rejecting trailing commas, `null` and truncated input.

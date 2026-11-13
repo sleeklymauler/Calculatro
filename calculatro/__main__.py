@@ -451,6 +451,9 @@ def run_watch(source: StateSource, write: Callable[[str], None],
             if job is None:
                 pending = ""
             time.sleep(poll_interval)
+    for running in (job, searching):  # stopped: nothing is left calculating for a loop that's gone
+        if running is not None:
+            running.cancel()
 
 
 def main(argv: list[str] | None = None) -> int:
