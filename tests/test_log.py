@@ -1,7 +1,5 @@
 """The log kept when the game starts the app."""
 
-from __future__ import annotations
-
 import io
 import json
 import re

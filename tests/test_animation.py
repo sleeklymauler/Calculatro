@@ -5,8 +5,6 @@ The mocked UIBox has no layout, so these run the animation on hand-built element
 element has a place (T), what's drawn (VT) and its children, like the game's UIElements.
 """
 
-from __future__ import annotations
-
 import pytest
 
 pytest.importorskip("lupa")

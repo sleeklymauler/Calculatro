@@ -20,8 +20,6 @@ cards, which sends a new snapshot and so new payloads, and those mustn't lose
 the options it cycles through.
 """
 
-from __future__ import annotations
-
 import json
 import math
 import os

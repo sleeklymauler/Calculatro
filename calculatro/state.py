@@ -1,7 +1,5 @@
 """Game-state model parsed from the Calculatro mod's JSON export."""
 
-from __future__ import annotations
-
 import math
 from collections import Counter
 from dataclasses import dataclass, field, replace

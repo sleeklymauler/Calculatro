@@ -19,8 +19,6 @@ Smeared Joker a card's suit is its colour, named by the suit that stands for
 it: Diamonds are classed as Hearts and Clubs as Spades (see flush_suits).
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import cache
@@ -33,7 +31,7 @@ from .state import SUITS, Card
 WILD = "Wild"
 RANKS = range(2, 15)  # 2..14, Ace = 14
 
-ClassKey = tuple[int, str]
+type ClassKey = tuple[int, str]
 
 # With Smeared Joker, the suit that stands for each colour in card classes.
 SMEARED = {"Spades": "Spades", "Clubs": "Spades", "Hearts": "Hearts", "Diamonds": "Hearts"}
@@ -45,7 +43,7 @@ class Requirement:
     need: int
 
 
-Pattern = tuple[Requirement, ...]
+type Pattern = tuple[Requirement, ...]
 
 _building = Lock()  # see Target.patterns
 

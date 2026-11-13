@@ -4,8 +4,6 @@ The game only finds a module through lovely.toml, and only when something requir
 it, so a mistake here would otherwise first show in game.
 """
 
-from __future__ import annotations
-
 import importlib
 import re
 

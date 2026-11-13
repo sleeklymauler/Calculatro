@@ -1,7 +1,5 @@
 """Odds for one game state, shared by the console output and the mod's panel."""
 
-from __future__ import annotations
-
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -62,7 +60,7 @@ class Approx:
 
 # A value in a report: the odds, an approximation of them, given up on, or (in
 # a partial report) still to come.
-Value = Fraction | Approx | TooSlow | Pending
+type Value = Fraction | Approx | TooSlow | Pending
 
 
 class Slow:

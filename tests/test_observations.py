@@ -4,8 +4,6 @@ The mod keeps them in `observe.lua` (tested with the hint in `test_hint.py`); he
 how they go out, and how `GameState` parses them. See docs/architecture.md#shapes.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from calculatro.state import SCHEMA, GameState, MalformedState, Observation, ObservedCard

@@ -5,8 +5,6 @@ with `find_joker`, which skips debuffed jokers, and only cares whether at
 least one copy is present; Blueprint and Brainstorm can't copy them.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol

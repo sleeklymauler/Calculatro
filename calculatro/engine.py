@@ -45,8 +45,6 @@ several suits are therefore split by suit with inclusion-exclusion; see
 _union_by_suit.
 """
 
-from __future__ import annotations
-
 import gc
 import sys
 from bisect import bisect_left
@@ -190,7 +188,7 @@ def _mark_split(pool: list[Card], draws: int, marked: int,
     return faces, weights
 
 
-Split = tuple[list[int], list[tuple[tuple[int, ...], Fraction]]]
+type Split = tuple[list[int], list[tuple[tuple[int, ...], Fraction]]]
 
 
 def _marks(split: tuple[list[bool], list[tuple[int, Fraction]]] | None) -> Split | None:
@@ -1606,7 +1604,7 @@ SPLITS = 5000  # most ways to split a window by its cards' fates (_split)
 
 # A way to split a window: its weight, the cards it turns up (by hand index, None if
 # discarded face down before) and the windows left.
-WindowSplit = tuple[int, tuple[tuple[int | None, Card], ...], tuple[Marked, ...]]
+type WindowSplit = tuple[int, tuple[tuple[int | None, Card], ...], tuple[Marked, ...]]
 
 
 def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card], object],

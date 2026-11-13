@@ -1,8 +1,6 @@
 """The mocked game's hand, deck and Sort buttons, moved frame by frame, for the face-down hint
 and the observations the mod keeps of the hand's sorts."""
 
-from __future__ import annotations
-
 from panel_driver import TEXTS
 
 SETUP = r"""

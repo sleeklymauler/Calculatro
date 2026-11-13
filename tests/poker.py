@@ -1,7 +1,5 @@
 """Cards for tests, and a brute-force port of Balatro's evaluate_poker_hand to check the engine against."""
 
-from __future__ import annotations
-
 from fractions import Fraction
 from itertools import combinations
 from math import comb

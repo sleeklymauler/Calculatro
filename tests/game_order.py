@@ -7,8 +7,6 @@ against dealing every way. Card:get_nominal (card.lua:950):
 and the hand is sorted highest first ('desc', 'suit desc').
 """
 
-from __future__ import annotations
-
 from fractions import Fraction
 
 NOMINAL = {**{r: r for r in range(2, 11)}, 11: 10, 12: 10, 13: 10, 14: 11}

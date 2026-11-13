@@ -8,8 +8,6 @@ get_nominal (`game_order`), keeps the deals that show what the player saw, and
 then plays out every draw.
 """
 
-from __future__ import annotations
-
 import itertools
 import random
 import threading
@@ -134,7 +132,7 @@ def chance_seen(views: list[tuple[str, list[str]]], what: dict[str, Card]) -> Fr
     return Fraction(hits, prod(factorial(len(g)) for g in groups.values()))
 
 
-Holds = Callable[[list[Card], bool], Fraction]  # a final hand, whether its first card is forced (Cerulean Bell)
+type Holds = Callable[[list[Card], bool], Fraction]  # a final hand, whether its first card is forced (Cerulean Bell)
 
 
 def worlds(case: Case) -> list[tuple[dict[str, Card], list[Card], Fraction]]:
@@ -156,7 +154,7 @@ def worlds(case: Case) -> list[tuple[dict[str, Card], list[Card], Fraction]]:
     return out
 
 
-Worlds = list[tuple[dict[str, Card], list[Card], Fraction]]
+type Worlds = list[tuple[dict[str, Card], list[Card], Fraction]]
 
 
 def oracle(case: Case, discard: list[int], holds: Holds, dealt: Worlds | None = None) -> Fraction:

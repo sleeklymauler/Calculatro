@@ -1,7 +1,5 @@
 """The box over a hovered face-down card: what the hand's order leaves it able to be."""
 
-from __future__ import annotations
-
 import dataclasses
 import itertools
 import json

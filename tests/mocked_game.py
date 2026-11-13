@@ -5,8 +5,6 @@
 so a test module that also has pure-Python tests needn't skip as a whole.
 """
 
-from __future__ import annotations
-
 import functools
 import json
 import tomllib

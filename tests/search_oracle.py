@@ -1,7 +1,5 @@
 """Trying every discard, to check the best-discard search against."""
 
-from __future__ import annotations
-
 from collections import Counter
 from fractions import Fraction
 from itertools import combinations

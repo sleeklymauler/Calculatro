@@ -1,7 +1,5 @@
 """The settings: the gear's page in the panel, the settings file, and what each setting turns on."""
 
-from __future__ import annotations
-
 import json
 
 import pytest

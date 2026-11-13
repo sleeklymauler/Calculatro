@@ -1,7 +1,5 @@
 """Sources of live game state: the JSON file the mod writes."""
 
-from __future__ import annotations
-
 import json
 import os
 import sys

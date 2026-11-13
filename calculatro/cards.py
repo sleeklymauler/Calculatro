@@ -26,8 +26,6 @@ Face cards follow `Card:is_face`: a debuffed card is never a face card, and
 with Pareidolia every other card is one, Stone Cards included.
 """
 
-from __future__ import annotations
-
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace

@@ -27,8 +27,6 @@ up on can still answer from estimates of the choices that could be best
 (estimated_best).
 """
 
-from __future__ import annotations
-
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
@@ -78,7 +76,7 @@ class Search:
     estimated: Estimated | None = None  # the options are the best by estimates, not certainly the best
 
 
-Estimator = Callable[[list[int], Event | None, float], Estimate | Fraction]
+type Estimator = Callable[[list[int], Event | None, float], Estimate | Fraction]
 
 
 class Progress:

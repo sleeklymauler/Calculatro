@@ -1,8 +1,6 @@
 """CLI: `python -m calculatro watch` prints live game state and the odds of what's tracked
 in game, and writes the odds for the mod's in-game panel."""
 
-from __future__ import annotations
-
 import argparse
 import os
 import sys

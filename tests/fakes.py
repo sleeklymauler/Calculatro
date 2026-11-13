@@ -1,7 +1,5 @@
 """Stand-ins for the app's parts: a source of states, and an engine whose rows take set times."""
 
-from __future__ import annotations
-
 import time
 from fractions import Fraction
 

@@ -1,8 +1,6 @@
 """Background calculations, so the live view never waits on a slow one, and the
 limits that stop a part of one taking too long or using too much memory."""
 
-from __future__ import annotations
-
 import threading
 import time
 from collections.abc import Callable, Iterator

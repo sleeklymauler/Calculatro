@@ -7,8 +7,6 @@
   won't run without it.
 """
 
-from __future__ import annotations
-
 import json
 import platform
 from datetime import date

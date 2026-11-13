@@ -1,7 +1,5 @@
 """Runs the real mod Lua against a mocked Balatro `G` and parses the output."""
 
-from __future__ import annotations
-
 import json
 import re
 import shutil

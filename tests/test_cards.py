@@ -1,7 +1,5 @@
 """Card-count queries: parsing and exact odds against brute force."""
 
-from __future__ import annotations
-
 import random
 from dataclasses import replace
 from fractions import Fraction

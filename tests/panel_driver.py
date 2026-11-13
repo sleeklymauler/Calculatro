@@ -1,7 +1,5 @@
 """Reading the mod's panel, clicking its buttons, and answering it as the app would."""
 
-from __future__ import annotations
-
 import json
 import re
 

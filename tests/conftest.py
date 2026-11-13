@@ -1,8 +1,6 @@
 """Fixtures shared by the test modules. Shared helpers that aren't fixtures are plain modules
 beside this one: `mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle` and `fakes`."""
 
-from __future__ import annotations
-
 import pytest
 
 from calculatro import engine, report, search

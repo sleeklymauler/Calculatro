@@ -1,7 +1,5 @@
 """Engine checks against a brute-force port of Balatro's evaluate_poker_hand."""
 
-from __future__ import annotations
-
 import random
 import threading
 from collections import Counter

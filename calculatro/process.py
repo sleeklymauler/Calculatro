@@ -1,8 +1,6 @@
 """Windows process helpers for when the mod starts the app with the game
 (`watch --game-pid`): exiting with the game, and not running twice."""
 
-from __future__ import annotations
-
 import ctypes
 import functools
 import hashlib

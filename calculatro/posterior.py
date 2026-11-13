@@ -46,8 +46,6 @@ This module only does the counting; it doesn't import the engine, so the
 engine can import it. Cancelling is the caller's `check`, which raises.
 """
 
-from __future__ import annotations
-
 from bisect import bisect
 from collections.abc import Callable, Collection, Hashable, Sequence
 from dataclasses import dataclass
@@ -64,7 +62,7 @@ SUIT_ORDER = {"Diamonds": 0, "Clubs": 1, "Hearts": 2, "Spades": 3}
 
 # What the sort sees of a card: (rank_id, suit), or None for a Stone, whose
 # key is below every other card's in both sorts.
-Printed = tuple[int, str] | None
+type Printed = tuple[int, str] | None
 
 
 def printed(card: Card | ObservedCard) -> Printed:
@@ -237,7 +235,7 @@ def _setup(observations: Sequence[Observation], observed: Sequence[ObservedCard]
                   face_up_factor, position, candidates)
 
 
-Label = Callable[[int | None, Card], Hashable]
+type Label = Callable[[int | None, Card], Hashable]
 
 
 @dataclass

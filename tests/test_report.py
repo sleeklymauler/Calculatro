@@ -1,7 +1,5 @@
 """build_report keeping each row's odds in `known`, and what lets it share them."""
 
-from __future__ import annotations
-
 import json
 import random
 import threading

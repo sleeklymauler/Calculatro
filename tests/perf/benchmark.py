@@ -34,8 +34,6 @@ from estimates (in Limits.search_estimate): how far below the best its
 discard's exact odds are.
 """
 
-from __future__ import annotations
-
 import argparse
 import gc
 import json

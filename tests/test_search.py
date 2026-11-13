@@ -1,7 +1,5 @@
 """Best-discard search, checked against trying every discard."""
 
-from __future__ import annotations
-
 import random
 import threading
 from dataclasses import replace

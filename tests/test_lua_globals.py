@@ -5,8 +5,6 @@ reads a misspelled name as nil and makes a missing `local` a global, silently.
 So the mod must assign no globals, and read only LuaJIT's own and the game's.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

@@ -9,8 +9,6 @@ conftest.py). Measure them, and refresh them after changing the engine, with
 (see docs/performance/README.md). The default `pytest` run skips these.
 """
 
-from __future__ import annotations
-
 import time
 
 import pytest

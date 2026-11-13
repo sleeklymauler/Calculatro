@@ -1,7 +1,5 @@
 """The log kept when the game starts the app, which has no console (pythonw)."""
 
-from __future__ import annotations
-
 import io
 import os
 import platform

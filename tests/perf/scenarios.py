@@ -22,8 +22,6 @@ Apart from those, only APIs that also exist in older versions are used here, so
 benchmark.py can time an older checkout (see docs/performance/README.md).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from threading import Event

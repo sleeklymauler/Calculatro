@@ -1,7 +1,5 @@
 """The odds panel and target editor: the app's odds file, and the mod reading it and drawing the panel."""
 
-from __future__ import annotations
-
 import json
 import re
 import sys

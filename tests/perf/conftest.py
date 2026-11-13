@@ -5,8 +5,6 @@ measures; a scenario selected to run with no timing there stops the whole run
 at collection, saying what to measure.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from perfdata import BASELINE_FILE, ROOT, load_results

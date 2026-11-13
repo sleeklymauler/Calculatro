@@ -5,8 +5,6 @@ machine's baseline.json. These tests take no timings and need no baseline, and
 leave out the scenarios in SLOW, which `pytest -m perf` still checks.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from perfdata import load_expected
