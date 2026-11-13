@@ -40,14 +40,15 @@ local function build_options()
     special('Sealed', 'sealed')
 
     return {
+        -- Each count goes from `min` to `under` below the largest (largest_count).
         cmp = {
-            -- "at least 0" is always true, and so is "at most 8" with 8 or fewer in hand.
-            { text = 'at least', query = 'at least', min = 1, max = 8 },
-            { text = 'exactly', query = 'exactly', min = 0, max = 8 },
-            { text = 'at most', query = 'at most', min = 0, max = 7 },
-            -- From the count to `high`, which is above it and at most 8. From 0 it
-            -- would be "at most".
-            { text = 'between', query = 'between', min = 1, max = 7 },
+            -- "at least 0" is always true, and so is "at most" the most cards in hand.
+            { text = 'at least', query = 'at least', min = 1, under = 0 },
+            { text = 'exactly', query = 'exactly', min = 0, under = 0 },
+            { text = 'at most', query = 'at most', min = 0, under = 1 },
+            -- From the count to `high`, which is above it and at most the largest.
+            -- From 0 it would be "at most".
+            { text = 'between', query = 'between', min = 1, under = 1 },
         },
         -- Sets of ranks the rank cycle sets the chips to, lowest first. Those
         -- with a query are groups the app knows by name, which it matches as
@@ -67,6 +68,15 @@ local function build_options()
 end
 local OPTIONS = build_options()
 Calculatro.OPTIONS = OPTIONS
+
+-- The largest count the builder offers: the hand size, or the cards held if
+-- more (DNA's copy), and at least the usual 8, so a smaller hand for a while
+-- (The Manacle) doesn't keep the player from building for the next one.
+local function largest_count()
+    local hand = G and G.hand
+    local size = hand and hand.config and tonumber(hand.config.card_limit) or 0
+    return math.max(8, size, hand and hand.cards and #hand.cards or 0)
+end
 
 local function all_suits()
     local set = {}
@@ -247,7 +257,7 @@ end
 
 -- Steps one of the builder's cycles (cmp, count, high, preset, special) by
 -- `dir`, wrapping around. The count stays in its comparison's range, and a
--- range's top above its count.
+-- range's top above its count, both up to largest_count.
 function Calculatro.cycle(field, dir)
     local b = Calculatro.builder
     if field == 'preset' then
@@ -258,19 +268,22 @@ function Calculatro.cycle(field, dir)
         for _, r in ipairs(OPTIONS.preset[i].ranks) do b.ranks[r] = true end
         return
     end
+    local largest = largest_count()
     local cmp = OPTIONS.cmp[b.cmp]
     if field == 'count' then
-        b.count = b.count + dir
-        if b.count > cmp.max then b.count = cmp.min elseif b.count < cmp.min then b.count = cmp.max end
+        local top = largest - cmp.under
+        b.count = math.min(b.count, top) + dir
+        if b.count > top then b.count = cmp.min elseif b.count < cmp.min then b.count = top end
     elseif field == 'high' then
-        b.high = b.high + dir
-        if b.high > 8 then b.high = b.count + 1 elseif b.high <= b.count then b.high = 8 end
+        b.high = math.min(b.high, largest) + dir
+        if b.high > largest then b.high = b.count + 1 elseif b.high <= b.count then b.high = largest end
     else
         b[field] = (b[field] - 1 + dir) % #OPTIONS[field] + 1
         cmp = OPTIONS.cmp[b.cmp]
-        b.count = math.max(cmp.min, math.min(cmp.max, b.count))
     end
-    b.high = math.max(b.count + 1, math.min(8, b.high))
+    -- Into range, should the hand have shrunk since the count was chosen.
+    b.count = math.max(cmp.min, math.min(largest - cmp.under, b.count))
+    b.high = math.max(b.count + 1, math.min(largest, b.high))
 end
 
 -- The rank and suit chips. Turning off the last suit turns them all back
@@ -317,7 +330,7 @@ function Calculatro.builder_for(query)
         count, rest = rest:match('^(%d+) (.*)$')
     end
     if not rest then return nil end
-    b.count, b.high = tonumber(count), tonumber(high) or math.min(8, tonumber(count) + 1)
+    b.count, b.high = tonumber(count), tonumber(high) or tonumber(count) + 1
     if rest:sub(1, 4) == 'not ' then b.negate, rest = true, rest:sub(5) end
     -- The longest special that starts it: "gold seal" rather than "gold".
     for i, s in ipairs(OPTIONS.special) do

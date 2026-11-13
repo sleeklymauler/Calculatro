@@ -273,6 +273,36 @@ def test_builder_cycles_wrap_and_keep_counts_in_range(lua):
     assert (mod.builder.cmp, mod.builder.count) == (1, 1)
 
 
+def test_builder_counts_go_up_to_the_hand_size(lua):
+    rt, mod = lua
+    rt.execute("G.hand.config.card_limit = 11")
+    mod.cycle("count", -1)  # at least 1 -> at least 11
+    assert (mod.builder.cmp, mod.builder.count) == (1, 11)
+    mod.cycle("cmp", -1)  # between: 1..10, and its top above that, up to 11
+    assert (mod.builder.cmp, mod.builder.count, mod.builder.high) == (4, 10, 11)
+    mod.cycle("count", -1)
+    mod.cycle("high", -1)
+    assert (mod.builder.count, mod.builder.high) == (9, 10)
+    mod.cycle("high", -1)  # not down to the count: wraps to 11
+    assert mod.builder.high == 11
+    mod.cycle("high", 1)  # wraps to just above the count
+    assert mod.builder.high == 10
+    # A copy from DNA can hold one more than the hand size.
+    rt.execute("for i = 1, 12 do G.hand.cards[i] = G.hand.cards[i] or {} end")
+    mod.cycle("cmp", 1)  # at least: 1..12
+    mod.cycle("count", -1)
+    assert (mod.builder.cmp, mod.builder.count) == (1, 8)
+    mod.builder.count = 1
+    mod.cycle("count", -1)
+    assert mod.builder.count == 12
+    # A smaller hand later: back into range on the next step, but never below 8.
+    rt.execute("G.hand.config.card_limit = 5; for i = #G.hand.cards, 6, -1 do G.hand.cards[i] = nil end")
+    mod.cycle("count", 1)
+    assert mod.builder.count == 1  # 8 at most, so it wraps
+    mod.cycle("count", -1)
+    assert mod.builder.count == 8
+
+
 def test_panel_draws_suits_as_icons(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)

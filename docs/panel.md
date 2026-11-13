@@ -293,7 +293,8 @@ The `+` after the title opens the editor (`editor_model`/`editor_definition`) on
 
 ### The builder
 
-The builder has a count (comparison cycle and number, with a second number for "between"), 13 rank
+The builder has a count (comparison cycle and number, with a second number for "between", up to the
+hand size or the cards held, and at least 8: `largest_count`), 13 rank
 chips under a preset cycle (`OPTIONS.preset`; the chips show "Custom" when they match none; presets
 with a `query`, like Face and Even, are sent by name so the app matches them as the game does), 4 suit
 chips (all on by default; turning off the last turns them all back on) and a special with a `not`

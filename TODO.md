@@ -134,8 +134,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 - [ ] **M1** **[low] (carried)** The editor and the settings page close whenever the panel is hidden for a moment (`panel.lua:202`)
   - The pause menu, Run Info and View Deck all set `G.OVERLAY_MENU`. Looking at the deck while building a card query loses the query. Keep the state until the blind ends.
-- [ ] **M2** **[low] (seen)** The builder's counts stop at 8 (`builder.lua:45-50`)
+- [x] **M2** **[low] (seen)** The builder's counts stop at 8 (`builder.lua:45-50`)
   - Hands of 10 or 11 cards are reachable (Juggler, Troubadour, Turtle Bean). Take the largest count from the hand size, or raise it.
+  - Done: counts go up to `largest_count`, the hand size or the cards held if more (DNA), and never below 8 so
+    a smaller hand for a while (The Manacle) doesn't stop the player building for the next. A count out of
+    range after the hand shrinks comes back into it on the next step. The count cells are as wide as the rank
+    chips, to fit "10". Tested in `test_builder_counts_go_up_to_the_hand_size`.
 - [ ] **M3** **[low] (seen)** `Calculatro.visible` isn't saved
   - There's a settings file now (`calculatro_settings.json`), so the panel's shown or hidden state could go in it.
 - [ ] **M4** **[low] (seen)** The hint's search runs on the game's thread, up to 20000 steps in one frame (`hint.lua:23`)
