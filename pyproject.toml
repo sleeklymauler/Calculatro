@@ -8,7 +8,7 @@ dependencies = []
 [project.optional-dependencies]
 # Bounded so a new release (a new ruff rule, a lupa without a Windows luajit21 wheel) can't break CI
 # with no change here. Dependabot opens a pull request to raise each bound.
-dev = ["pytest>=9.2,<10", "pytest-xdist>=3.8,<4", "lupa>=2.8,<3", "ruff>=0.17.3,<0.18"]
+dev = ["pytest>=9.2,<10", "pytest-xdist>=3.8,<4", "lupa>=2.8,<3", "ruff>=0.17.4,<0.18"]
 
 [project.scripts]
 calculatro = "calculatro.__main__:main"
