@@ -7,9 +7,22 @@ unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list
 draws one by one. Every technique below exists to count large groups of
 draws at once, or to avoid looking at them at all.
 
-Joker-specific notes are in [jokers/](jokers/) and measured timings in
-[benchmarks.md](benchmarks.md), which also has a step-by-step table for the
-second pass.
+Joker-specific notes are in [jokers/](jokers/), and how to measure in
+[README.md](README.md).
+
+Most of what's below came from two passes over the slow cases. The second
+pass made Four Fingers' and Shortcut's slow cases 2-20x faster. Step by
+step, on the standard deck's The House with Four Fingers + Shortcut and
+Straight Flush (single runs during development): 7.2 s at the start; 7.1 s
+with the bound on cards needed worked out over the classes still ahead;
+6.1 s with parts implied by a one-card part dropped; 3.4 s with classes
+sorted by card, rank by rank; 1.75 s with interned parts and cached
+transitions; 1.49 s with only one-card parts used for that, and suit by suit
+when suits are independent; 0.30 s with equal terms of interchangeable suits
+computed once. The partial-state reductions after it took another 20-27% off
+the slowest searches (those with unseen Wild Cards), and 21% off the sum of
+all scenarios. A few searches of 1-5 ms each got up to 1 ms slower from the
+extra setup per pattern, which wasn't worth chasing.
 
 ## The model
 
@@ -285,7 +298,7 @@ keyed by the sorted ranks of their suits and of the other suits, and each is
 computed once. With a full deck and nothing known, as in The House's first
 hand, that's 2 searches instead of 10 for Four Fingers' Straight Flush
 (0.27 s instead of 1.34 s with Shortcut as well, measured with the check
-turned off; see [benchmarks.md](benchmarks.md#after-smeared-joker-2026-10-07)). It does
+turned off). It does
 nothing once the suits differ, which is most of the time.
 
 **It's skipped with only two suits.** That only happens with Smeared Joker,
@@ -389,7 +402,7 @@ Recorded so they aren't retried blindly:
 
 - **Unseen Wild Cards.** They stop the split by suit, so Four Fingers with
   Shortcut still takes seconds from 7 unknown cards on the wild deck, and
-  10.5–14 s for The House. Conditioning on the Wild Cards drawn has been
+  more than 10 s for The House. Conditioning on the Wild Cards drawn has been
   tried twice; something that keeps the suits apart without making 3- and
   4-suit terms possible would be needed.
 - **Further canonicalization of partial states.** Merging one-card outs

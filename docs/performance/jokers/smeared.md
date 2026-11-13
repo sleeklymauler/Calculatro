@@ -17,7 +17,7 @@ patterns instead of four.
 Mostly this makes things faster. Half as many suited patterns means less
 work, and with Wild Cards unseen (when the split by suit is off anyway), the
 search follows two colours instead of four suits: the wild deck's The House
-with Four Fingers + Shortcut takes 0.55 s for Straight Flush, against 10.5 s
+with Four Fingers + Shortcut is about 20x faster for Straight Flush than
 without Smeared.
 
 The cost shows with Four Fingers, whose Straight Flush patterns have
@@ -28,18 +28,11 @@ a position carries up to 150 live parts.
 
 ## Changes
 
-Measured on the scenarios with Four Fingers + Shortcut + Smeared, 8 unknown
-cards (The House). "Before" is the first implementation, one run each.
-
-| Scenario | Before | Two colours as one search | + Joins cached | + Faster one-group positions |
-|---|---|---|---|---|
-| standard, Straight Flush | 1.26 s | 0.81 s | 0.56 s | 0.50 s |
-| standard, Full House + Straight Flush | 1.92 s | 1.10 s | 0.76 s | 0.68 s |
-| wild, Straight Flush | 1.13 s | (not split) | 0.78 s | 0.69 s |
-| wild, Full House + Straight Flush | 1.43 s | (not split) | 1.03 s | 0.93 s |
-
-Every result is exactly the same as before. Full tables are in
-[../benchmarks.md](../benchmarks.md#smeared-joker).
+Together, the changes below made the slow Four Fingers + Shortcut + Smeared
+scenarios (8 unknown cards, The House) 1.5-2.8x faster than the first
+implementation: the standard deck's Straight Flush went from 1.26 s to
+0.81 s with (1), 0.56 s with (2) and 0.50 s with (3). Every result is
+exactly the same as before.
 
 ### 1. Two colours aren't split
 

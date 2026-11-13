@@ -1,9 +1,9 @@
 # The probability model
 
 What the app calculates and the rules it follows. How it's kept fast is in
-[performance/](performance/README.md): read [engine.md](performance/engine.md) (design notes),
-`performance/jokers/` (per-joker notes) and [benchmarks.md](performance/benchmarks.md) before
-modifying the engine, and add benchmark scenarios to `tests/perf/scenarios.py` for new joker rules.
+[performance/](performance/README.md): read [engine.md](performance/engine.md) (design notes) and
+`performance/jokers/` (per-joker notes) before modifying the engine, run the benchmark before and
+after, and add benchmark scenarios to `tests/perf/scenarios.py` for new joker rules.
 
 ## Hand patterns
 

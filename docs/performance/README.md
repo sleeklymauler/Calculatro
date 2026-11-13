@@ -1,21 +1,17 @@
 # Performance notes
 
-How Calculatro's probability engine is kept fast, what it costs today, and
-how to measure it.
+How Calculatro's probability engine is kept fast, what was tried, what's
+still slow, and how to measure it.
 
 - [engine.md](engine.md): the engine's design, from a performance point of
   view: what each technique saves, what was tried and dropped, and what to
   do when a new joker rule is slow.
-- [benchmarks.md](benchmarks.md): measured timings for a fixed set of game
-  situations. The current numbers come first (The Mark, Cerulean Bell and
-  the partial-state reductions), then each earlier piece of work's before
-  and after, newest first.
 - [best-discard.md](best-discard.md): the panel's best-discard search,
   which compares every discard of the hand: how it avoids most of those
-  calculations and shares the engine's work between the rest, with its
-  timings.
+  calculations and shares the engine's work between the rest, and what's
+  still slow.
 - [face-down.md](face-down.md): the odds with face-down cards in the hand's
-  sorts: their timings, and the cases that are still slow.
+  sorts: what made them fast, and the cases that are still slow.
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)
@@ -33,14 +29,48 @@ per selection while the hand, deck, jokers and blind stay the same (`known`
 in [architecture.md](../architecture.md#the-app)), so the benchmarks' timings
 are for a selection's first time.
 
+These pages say what each change bought and what was tried and dropped, with
+a rough figure where it helps, but they don't keep tables of timings: those
+go stale with every engine change and depend on the machine. For current
+timings, run the benchmark, or look in your `tests/perf/baseline.json` (see
+[Regression tests](#regression-tests)). Older ones are in git history.
+
 ## Measuring
 
 The benchmark scenarios are in `tests/perf/scenarios.py`. Each one is a game
 state built like the mod exports it, with face-down cards, a discard
 selection and jokers, plus a target. It is timed through `evaluate_discard`,
-the same call the app makes for one odds row. The "Best discard" scenarios
-time `search.best_discards` instead, a click on a row's search button (see
+the same call the app makes for one odds row: one target, for one
+keep-or-discard choice. The "Best discard" scenarios time
+`search.best_discards` instead, a click on a row's search button (see
 [best-discard.md](best-discard.md)).
+
+Most scenarios start from one hand and vary what's unknown, the deck and the
+jokers:
+
+- **Hand:** 7♥ 8♥ 9♠ Q♣ K♦ 3♠ 5♦ J♥, hand size 8, from a 52-card deck.
+- **Decks:** *standard*, a plain 52-card deck; *wild*, the same deck with
+  4♣ 9♦ J♠ A♥ made Wild Cards. All four stay unseen, which is what makes it
+  slow: the split by suit is off (see [engine.md](engine.md#splitting-by-suit)).
+- **Unknown cards:** face-down cards kept, plus cards drawn after discarding.
+  - *Keep 3, draw 5*: keep 7♥ 8♥ 9♠, discard the rest. The common case.
+  - *6 unknown*: J♥ is face-down (The Wheel, The Fish); keep 7♥ 8♥ and
+    discard 5.
+  - *7 unknown*: 5♦ J♥ are face-down; keep 7♥ and discard 5.
+  - *8 unknown, The House*: the whole hand is face-down, so nothing is
+    known. On the standard deck this is a best case for the split by suit,
+    since the suits are interchangeable.
+  - *The Mark*: Q♣ K♦ J♥ are face-down, known to be face cards.
+  - *Cerulean Bell*: nothing face-down; the first card discarded is the
+    forced one.
+  - *sorted*: face-down cards narrowed down by the hand's sorts (see
+    [face-down.md](face-down.md)).
+- **"Any":** several targets combined, as in the "Any target" row.
+- **Nothing cached:** every cache is cleared before each run, so building
+  the target's patterns is timed too, as when a target is first tracked or a
+  joker changes the rules. Their situation keeps the search itself small.
+- **Jokers:** the combinations in `JOKERS` (`SEARCH_JOKERS`, fewer, for
+  the best-discard scenarios).
 
 ```
 .venv\Scripts\python tests\perf\benchmark.py                       # everything, 5 runs each
@@ -70,8 +100,8 @@ time `search.best_discards` instead, a click on a row's search button (see
   median and standard deviation, the exact probability, and the peak memory
   (`peak_mb`, `growth_mb`). `--compare FILE`
   shows a saved run alongside and flags any result that differs.
-  `--markdown` prints a table like the ones in [benchmarks.md](benchmarks.md),
-  and `--from FILE` prints it from a saved file without measuring.
+  `--markdown` prints the results as a Markdown table (for a pull request,
+  say), and `--from FILE` prints it from a saved file without measuring.
 - Background activity on the machine occasionally makes one run several
   times slower. `--save FILE --rerun-noisy` re-measures only the scenarios
   in FILE whose standard deviation is over 25% of the mean, and updates them
@@ -162,5 +192,4 @@ git worktree remove ..\calculatro-before
    does to the patterns, why it was slow, what fixed it, and what's still
    slow. Link it from the list above.
 4. Add the new scenarios' results to `tests/perf/expected.json`
-   (`--update-expected`), refresh your `tests/perf/baseline.json`, and
-   update the tables in [benchmarks.md](benchmarks.md).
+   (`--update-expected`) and refresh your `tests/perf/baseline.json`.

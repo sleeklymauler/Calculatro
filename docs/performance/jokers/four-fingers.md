@@ -31,17 +31,12 @@ half a second.
 
 ## What fixed it
 
-Each step measured with no known cards and 8 unknown cards, during
-development (benchmark setup slightly different from
-[benchmarks.md](../benchmarks.md)):
-
-| Change | Time |
-|---|---|
-| Original | 63 s |
-| Split the target by suit with inclusion–exclusion | 15 s |
-| Restate the pattern without "4 suited cards in all" | 4.6 s |
-| Faster search (patterns join late, duplicates merged, cached checks) | 3.2 s |
-| Cheaper setup; per-pattern tables | 2.7 s |
+Measured during development with no known cards and 8 unknown cards, it
+went from 63 s to 15 s by splitting by suit (1), then to 4.6 s by restating
+the pattern (2). A faster search (patterns joining late, duplicates merged,
+cached checks) took it to 3.2 s, and cheaper setup with per-pattern tables
+to 2.7 s. Later work on Shortcut and the engine's second pass took it much
+further (see [shortcut.md](shortcut.md) and [../engine.md](../engine.md)).
 
 ### 1. Split by suit
 
@@ -86,10 +81,9 @@ had to learn that several single-rank requirements add up. Otherwise
 Splitting by suit is skipped when an undrawn or face-down card is a Wild
 Card. It counts as every suit, so two-suit terms barely prune and the
 four-suit term is as hard as the original problem. These cases use one
-search over all suits. On the benchmarks' wild deck (4 unseen Wild Cards),
-a Straight Flush takes about 0.1 s at 6 unknown cards, 0.28 s at 7 and
-1.8 s at 8 (The House); 2.7 s with Full House as well. See
-[benchmarks.md](../benchmarks.md#current-numbers).
+search over all suits. The benchmarks' wild deck (4 unseen Wild Cards) with
+Straight Flush, 7 or 8 unknown cards, is the slowest of the Four Fingers
+scenarios, and slower still with Full House as well.
 
 An idea considered here: condition on which Wild Cards are drawn. For each
 combination, move them into the kept cards and split the rest by suit. The

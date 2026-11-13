@@ -47,10 +47,10 @@ them. Within a step, the items are in the order to take them. Every item is in e
 8. **Refactors.** A3, A5, A2, A1, A7, then B13.
    - Behaviour shouldn't change, which steps 3 and 6 let the tests show. A3 and A5 first, since they decide
      where A2's lines are cut. B13 (a hung app) is easier to add once A1 has split the loop up.
-9. **Performance.** P10, P11, P12, then P1, which settles B4, B5 and P2; D4 last.
+9. **Performance.** P10, P11, P12, then P1, which settles B4, B5 and P2.
    - Parallelism (P1) is the largest item in the file and changes how jobs, limits and memory are handled,
      so it wants the split-up loop from step 8. Look at B4, B5 and P2 again only after it: a search in its
-     own process may remove all three. Re-measure `benchmarks.md` (D4) once, at the end.
+     own process may remove all three.
 10. **What the player sees, and the README.** M1, M3, B7 with I1, then D6, D7, D8.
     - The README goes last so it describes the panel as it ends up. M1 and M3 need trying in game.
 
@@ -217,9 +217,9 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [x] **D2** **[med] (seen)** `docs/jokers.md:112` still calls several DNA copies of a face-down card a known limitation
   - The engine branches on what the card is now (`engine._dna_branch`), and `docs/probability-model.md:156` says so. The two pages disagree.
 - [ ] **D3** **[med] (carried)** The perf docs cite commits that no longer exist
-  - `7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac` aren't in the history. They're in `docs/performance/README.md:140-143`, `benchmarks.md` (19, 22, 112, 115, 197, 364, 418, 445) and `best-discard.md:146`. The "Comparing with an older version" recipe fails as written.
-- [ ] **D4** **[med] (carried)** `docs/performance/benchmarks.md` was measured on 2026-10-07 to 10-11
-  - The engine has changed a lot since (the sorts, windows, estimates, the last two commits). Re-run it, or mark the tables as historical.
+  - `7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac` aren't in the history. They're in `docs/performance/README.md` ("Comparing with an older version"). The "Comparing with an older version" recipe fails as written.
+- [x] **D4** **[med] (carried)** `docs/performance/benchmarks.md` was measured on 2026-10-07 to 10-11
+  - Removed: the perf docs no longer keep tables of timings (current ones are in `tests/perf/baseline.json`).
 - [x] **D5** **[med] (carried)** Broken anchor: `CONTRIBUTING.md:29` and `.github/ISSUE_TEMPLATE/config.yml:4` link `#installation`; the heading is "Installation (Users)", so `#installation-users`
 - [ ] **D6** **[med] (carried)** The README's Usage section says everything twice (`README.md:61-95`)
   - A bullet list with screenshots, then prose that repeats it, with stray blank lines. Merge them.

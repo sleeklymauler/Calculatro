@@ -29,22 +29,15 @@ a run, any card of the 4th rank, and a 4th suited card" (see
 [four-fingers.md](four-fingers.md)), for every 4-rank run. With 76 runs that
 was 5,168 patterns, and The House took 46 s (wild deck: over 120 s).
 
-Each step measured on the standard deck's Straight Flush with 8 unknown
-cards (The House), during development. The middle rows are rough: other work
-was sometimes running on the machine. The last two are side by side on an
-idle machine.
-
-| Change | Time |
-|---|---|
-| Original | 46 s |
-| Only live patterns follow the draw | 23.6 s |
-| Patterns wait for their own ranks before joining | 17.6 s |
-| Runs that share 3 suited ranks are one pattern | 12.8 s |
-| Deferred counts kept as running totals; patterns listed rank by rank | 7.6 s |
-| Garbage collector paused during the search | 7.2 s |
-
-Listing the patterns rank by rank (step 3) mattered most on the wild deck,
-where the suits aren't split: The House went from 130 s to 101 s.
+Measured during development on the standard deck's Straight Flush with 8
+unknown cards (The House), the steps below took it from 46 s to 23.6 s (1),
+17.6 s (2), 12.8 s (3), 7.6 s (4, with patterns listed rank by rank) and
+7.2 s (pausing the garbage collector). The middle figures are rough, as
+other work was sometimes running on the machine. Listing the patterns rank
+by rank mattered most on the wild deck, where the suits aren't split: The
+House went from 130 s to 101 s. The engine's second pass later took the
+standard deck's case to a fraction of a second (see
+[../engine.md](../engine.md)).
 
 ### 1. Only live patterns follow the draw
 
@@ -105,15 +98,13 @@ a search (`engine._gc_paused`) saves another 5–15% on the largest searches
 
 ## Still slow
 
-See [../benchmarks.md](../benchmarks.md) for current numbers.
-
 - **Unseen Wild Cards.** As with Four Fingers alone, these use one search
   over all suits, and with Shortcut each suit has far more partial runs to
-  remember. The wild deck's Straight Flush takes about 0.35 s at 6 unknown
-  cards, 1.7 s at 7 and 10.5 s at 8 (The House); 13.7 s with Full House as
-  well.
+  remember. The wild deck's The House with Straight Flush (and Full House
+  as well) is the slowest odds scenario of all, at over 10 s; 7 unknown
+  cards take seconds.
 - **The House on the standard deck** took about 7 s before the second pass,
-  mostly in the six two-suit terms of the split by suit. It's now 0.25 s with
-  a full deck, where the suits are interchangeable and equal terms are
-  computed once, and about 1.3 s once the suits differ (measured with that
-  check turned off; see [../benchmarks.md](../benchmarks.md#after-smeared-joker-2026-10-07)).
+  mostly in the six two-suit terms of the split by suit. With a full deck the
+  suits are interchangeable and equal terms are computed once, which made it
+  about 5x faster than once the suits differ (measured with that check
+  turned off).

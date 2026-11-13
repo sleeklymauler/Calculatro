@@ -137,70 +137,32 @@ build up across clicks.
 
 Scenarios "Best discard: ..." in `tests/perf/scenarios.py`: the 8-card
 benchmark hand (7♥ 8♥ 9♠ Q♣ K♦ 3♠ 5♦ J♥), the same with two pairs
-(7♥ 7♠ 9♠ Q♣ Q♦ 3♠ 5♦ J♥), a 10-card hand (adding 2♣ 10♦), and the 8-card
+(7♥ 7♠ 9♠ Q♣ Q♦ 3♠ 5♦ J♥), a 10-card hand (adding 2♣ 10♦), two 11-card
+hands (one holding a Full House, one holding no target), and the 8-card
 hand with 2 cards face down, under Cerulean Bell, and under The Hook with no
 discards left (so the discard is a played hand). Each result is the best
 odds plus the number of tied options and the first one, so the regression
 tests check the options too.
 
-Before is the first version (commit `6b93aac`), measured the same day with
-`--repeat 3 --budget 20` (so the slowest rows ran once or twice). Both give
-the same results in every scenario.
-
-| Hand | Target | No jokers | Four Fingers + Shortcut | Smeared |
-|---|---|---|---|---|
-| 8 cards | Pair | 67 ms → 6.2 ms | 70 ms → 6.3 ms | 111 ms → 6.3 ms |
-| 8 cards | Two Pair | 234 ms → 13 ms | 244 ms → 13 ms | 389 ms → 14 ms |
-| 8 cards | Straight | 98 ms → 40 ms | 300 ms → 57 ms | 148 ms → 43 ms |
-| 8 cards | Flush | 33 ms → 9.4 ms | 47 ms → 12 ms | 2.3 ms → 1.8 ms |
-| 8 cards | Full House | 358 ms → 21 ms | 368 ms → 20 ms | 582 ms → 20 ms |
-| 8 cards | Straight Flush | 294 ms → 46 ms | 8.83 s → 2.56 s | 227 ms → 44 ms |
-| 8 cards | Flush + Straight + Full House (any) | 2.86 s → 86 ms | 5.49 s → 228 ms | 1.53 s → 93 ms |
-| 8 cards, two pairs | Pair | 26 ms → 7.8 ms | 27 ms → 6.6 ms | 42 ms → 6.9 ms |
-| 8 cards, two pairs | Two Pair | 118 ms → 16 ms | 121 ms → 17 ms | 191 ms → 18 ms |
-| 8 cards, two pairs | Straight | 56 ms → 18 ms | 172 ms → 56 ms | 82 ms → 19 ms |
-| 8 cards, two pairs | Flush | 35 ms → 9.3 ms | 45 ms → 13 ms | 3.2 ms → 1.2 ms |
-| 8 cards, two pairs | Full House | 196 ms → 26 ms | 195 ms → 28 ms | 304 ms → 26 ms |
-| 8 cards, two pairs | Straight Flush | 291 ms → 46 ms | 8.84 s → 2.03 s | 226 ms → 47 ms |
-| 8 cards, two pairs | Flush + Straight + Full House (any) | 3.37 s → 94 ms | 5.58 s → 232 ms | 1.29 s → 106 ms |
-| 10 cards | Pair | 204 ms → 20 ms | 206 ms → 19 ms | 222 ms → 19 ms |
-| 10 cards | Two Pair | 755 ms → 25 ms | 775 ms → 26 ms | 996 ms → 27 ms |
-| 10 cards | Straight | 326 ms → 36 ms | 671 ms → 190 ms | 348 ms → 37 ms |
-| 10 cards | Flush | 62 ms → 10 ms | 91 ms → 15 ms | 4.4 ms → 3.5 ms |
-| 10 cards | Full House | 1.39 s → 33 ms | 1.22 s → 33 ms | 1.56 s → 36 ms |
-| 10 cards | Straight Flush | 1.60 s → 140 ms | 54.91 s → 15.14 s | 604 ms → 152 ms |
-| 10 cards | Flush + Straight + Full House (any) | 16.83 s → 236 ms | 24.49 s → 1.87 s | 2.83 s → 176 ms |
-| 8 cards, 2 face-down | Flush | 89 ms → 12 ms | - | - |
-| 8 cards, 2 face-down | Full House | 382 ms → 22 ms | - | - |
-| 8 cards, 2 face-down | Straight Flush | 373 ms → 44 ms | - | - |
-| 8 cards, 2 face-down | Flush + Straight + Full House (any) | 4.86 s → 92 ms | - | - |
-| 8 cards, Cerulean Bell | Flush | 70 ms → 18 ms | - | - |
-| 8 cards, Cerulean Bell | Full House | 932 ms → 290 ms | - | - |
-| 8 cards, Cerulean Bell | Straight Flush | 564 ms → 89 ms | - | - |
-| 8 cards, Cerulean Bell | Flush + Straight + Full House (any) | 5.15 s → 453 ms | - | - |
-| 8 cards, The Hook, played | Flush | 384 ms → 61 ms | - | - |
-| 8 cards, The Hook, played | Full House | 3.57 s → 50 ms | - | - |
-| 8 cards, The Hook, played | Straight Flush | 3.24 s → 329 ms | - | - |
-| 8 cards, The Hook, played | Flush + Straight + Full House (any) | 52.04 s → 470 ms | - | - |
-
-The 11-card hands were added later, so they have no first-version timing. Before
-`can_miss`, the first took 3.46 s; the second is unchanged by it.
-
-| Hand (no jokers) | Target | Time |
-|---|---|---|
-| 11 cards, holding a Full House | Flush + Straight + Full House (any) | 543 ms |
-| 11 cards, holding no target | Flush + Straight + Full House (any) | 4.55 s |
+The work on this page made most scenarios 3-30x faster than the first
+version of the search, with the same results. The gains were largest for
+"Any target" and under The Hook (a played hand), where most choices are now
+bounded or grouped rather than calculated: The Hook's "Any target" went from
+52 s to under 0.5 s. They were smallest for Four Fingers + Shortcut with
+Straight Flush (about 3.5x; see below) and for targets that were already
+quick, such as Flush with Smeared Joker. A draw that misses (`can_miss`)
+took the 11-card hand holding a Full House from 3.5 s to about 0.5 s.
 
 ### What's still slow
 
-- **Four Fingers + Shortcut with Straight Flush**: 2.0–2.6 s on 8 cards, about
-  15 s on 10. Every hand card counts towards some run of every suit ("any
+- **Four Fingers + Shortcut with Straight Flush**: seconds on 8 cards, and
+  over 10 s on 10. Every hand card counts towards some run of every suit ("any
   card that completes the run"), so no two discards look alike to the
   per-suit terms, and each of about 200 choices costs four 3 ms searches.
   Four Fingers alone is under 1 s.
-- **"Any target" on a big hand whose best odds are below 1**: 4.3–4.6 s on
-  random 11-card hands. The sum bound is 1 for over 400 of about 1000 choices,
-  a miss proves nothing since the best is below 1 too, and each exact union
+- **"Any target" on a big hand whose best odds are below 1**: several
+  seconds on 11-card hands (the scenario "11 cards, holding no target"). The
+  sum bound is 1 for over 400 of about 1000 choices, a miss proves nothing since the best is below 1 too, and each exact union
   costs about 10 ms, so that's almost all the time. Four Fingers + Shortcut on
   8 cards is the same (about 2 s, 185 choices of 219).
 - **Crimson Heart with no discards left**, where the selection is played and
