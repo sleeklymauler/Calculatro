@@ -154,8 +154,16 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     chips, to fit "10". Tested in `test_builder_counts_go_up_to_the_hand_size`.
 - [ ] **M3** **[low] (seen)** `Calculatro.visible` isn't saved
   - There's a settings file now (`calculatro_settings.json`), so the panel's shown or hidden state could go in it.
-- [ ] **M4** **[low] (seen)** The hint's search runs on the game's thread, up to 20000 steps in one frame (`hint.lua:23`)
+- [x] **M4** **[low] (seen)** The hint's search runs on the game's thread, up to 20000 steps in one frame (`hint.lua:23`)
   - Worth timing in LuaJIT for the worst hand (eight face-down cards sorted both ways). If it's more than a few milliseconds, spread it over frames.
+  - Measured (2026-11-13), in `lupa`'s LuaJIT: at most about 6 ms, so the frame was fine. The search wasn't: it
+    reached its limit on most hovers of eight face-down cards sorted both ways, and on The House's hands then
+    listed more than twice the cards possible (every one unseen for some). With no limit it took up to 6 s.
+  - Done: the search deals the card with the fewest values left next, narrowing the others' values as it goes,
+    and checks the cards left can still each get a different pool card. The limit is now 10000 steps: on The
+    House's hands 3% of hovers reach it (3% of the values listed couldn't be), the median takes 4 ms and the
+    slowest about 30 ms; with twelve face-down cards, up to about 60 ms. Spreading it over frames was left out.
+    Tested in `test_a_whole_hand_face_down_sorted_both_ways_is_exact`.
 
 ## Performance
 

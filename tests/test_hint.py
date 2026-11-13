@@ -95,6 +95,24 @@ def test_five_face_down_cards_from_the_game(game, fifth):
     assert game.hint() == "J-Q @light|[ui_1 0,1]|Q @light|[ui_1 2,1]"
 
 
+def test_a_whole_hand_face_down_sorted_both_ways_is_exact(game):
+    # The House: eight face down from a full deck, sorted by rank, then by suit. Searching
+    # card by card, the search used to stop at its limit here and list cards it hadn't ruled
+    # out: every one of the 51 unseen for the A♠. These are the sets found with no limit.
+    held = [(3, "Clubs"), (11, "Diamonds"), (13, "Spades"), (14, "Spades"),
+            (12, "Hearts"), (10, "Hearts"), (5, "Diamonds"), (6, "Hearts")]
+    named = [(str(c), c) for c in held]
+    down = {name: game.make(c[0], c[1], "back") for name, c in named}
+    deck = [game.make(r, s) for r in range(2, 15) for s in SUITS if (r, s) not in held]
+    game.deal([down[n] for n in game_order(named, "desc")], deck)
+    game.sort("suit desc", [down[n] for n in game_order(named, "suit desc")])
+
+    def suits(*ranges):
+        return {(r, s) for s, low, high in ranges for r in range(low, high + 1)}
+    assert game.possible(down[str((3, "Clubs"))]) == suits(("Clubs", 2, 11), ("Hearts", 2, 10), ("Spades", 2, 9))
+    assert game.possible(down[str((14, "Spades"))]) == suits(("Spades", 5, 14), ("Hearts", 6, 14), ("Clubs", 7, 14))
+
+
 def test_a_card_discarded_face_down_is_still_possible(game):
     down, gone = game.card("8C", "back"), game.card("8S", "back")
     gone.ability.wheel_flipped = True

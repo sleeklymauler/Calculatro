@@ -19,8 +19,10 @@ local RANKS, SUITS, SUIT_SYMBOLS = builder.RANKS, builder.SUITS, builder.SUIT_SY
 
 -- A search step is one card tried for one face-down card. A hand that uses them
 -- all up (many face-down cards, both sorts) mustn't freeze the game, so what it
--- couldn't rule out in time stays possible: too much, but never wrong.
-local SEARCH_STEPS = 20000
+-- couldn't rule out in time stays possible: too much, but never wrong. For eight
+-- face-down cards sorted both ways, 10000 steps took at most about 30 ms in LuaJIT,
+-- and cut short about 3% of them (docs/panel.md).
+local SEARCH_STEPS = 10000
 
 -- Whether `card` can only be a face card: The Mark drew it face down as one
 -- (observe.lua's marks, by whether Pareidolia was held then). The challenge's random
@@ -104,12 +106,16 @@ function Calculatro.possible_cards(card)
     for _, o in ipairs(observations) do observed = observed or o.position[card] ~= nil end
     if not observed then return nil end
 
-    -- Highest first in the first sort, so the search mostly finds a way at once.
+    -- Highest first in the first sort, so the search mostly finds a way at once. Each
+    -- candidate keeps its key in each mode, by the mode's name, for the search.
     local all = candidates()
+    for _, value in ipairs(all) do
+        for _, o in ipairs(observations) do value[o.mode] = sort_key(o.mode, value) end
+    end
     if observations[1] then
         local mode = observations[1].mode
         table.sort(all, function(a, b)
-            local x, y = sort_key(mode, a), sort_key(mode, b)
+            local x, y = a[mode], b[mode]
             if x ~= y then return x > y end
             return (a.stone and 'stone' or a.rank_id .. a.suit) < (b.stone and 'stone' or b.rank_id .. b.suit)
         end)
@@ -119,7 +125,7 @@ function Calculatro.possible_cards(card)
         if value.face == false and face_card_only(c) then return false end
         for _, o in ipairs(observations) do
             if o.position[c] then
-                local key = sort_key(o.mode, value)
+                local key = value[o.mode]
                 if key > o.high[c] or key < o.low[c] then return false end
             end
         end
@@ -134,31 +140,86 @@ function Calculatro.possible_cards(card)
         domains[c] = domain
     end
 
-    -- Whether `value` for cards[i] keeps every sort's order with those chosen so far.
-    local chosen, steps = {}, 0
-    local function in_order(i, value)
-        local c = cards[i]
-        for j = 1, i - 1 do
-            local other = cards[j]
-            for _, o in ipairs(observations) do
-                local here, there = o.position[c], o.position[other]
-                if here and there then
-                    local mine, theirs = sort_key(o.mode, value), sort_key(o.mode, chosen[other])
-                    if (here < there and mine < theirs) or (here > there and mine > theirs) then return false end
+    -- For each card, the others a sort places it beside: { other, mode, above }, where
+    -- `above` says it's above the other in that sort, so its key can't be lower.
+    local pairs_of = {}
+    for _, c in ipairs(cards) do
+        local list = {}
+        for _, other in ipairs(cards) do
+            if other ~= c then
+                for _, o in ipairs(observations) do
+                    local here, there = o.position[c], o.position[other]
+                    if here and there then list[#list + 1] = { other, o.mode, here < there } end
                 end
             end
         end
+        pairs_of[c] = list
+    end
+
+    -- Whether the cards in `left` can each get a different pool card from what's `live`
+    -- for them (a matching, with copies counted), ignoring how they're ordered.
+    local function matched(left, live)
+        local holders = {}
+        local function place(c, visited)
+            for _, v in ipairs(live[c]) do
+                if v.count > 0 and not visited[v] then
+                    visited[v] = true
+                    local held = holders[v]
+                    if not held then held = {}; holders[v] = held end
+                    if #held < v.count then held[#held + 1] = c; return true end
+                    for i, d in ipairs(held) do
+                        if place(d, visited) then held[i] = c; return true end
+                    end
+                end
+            end
+            return false
+        end
+        for _, c in ipairs(left) do
+            if not place(c, {}) then return false end
+        end
         return true
     end
-    local function search(i)
-        if i > #cards then return true end
-        local c = cards[i]
-        for _, value in ipairs(domains[c]) do
+
+    -- Each card left to deal keeps the values still in order with those dealt (forward
+    -- checking): a choice that leaves another card nothing, or the cards left too few
+    -- to share, fails at once, and the card with the fewest values left is dealt next.
+    local steps = 0
+    local function search(left, live)
+        if #left == 0 then return true end
+        if not matched(left, live) then return false end
+        local best, size = 1, math.huge
+        for i, c in ipairs(left) do
+            local n = 0
+            for _, value in ipairs(live[c]) do
+                if value.count > 0 then n = n + 1 end
+            end
+            if n == 0 then return false end
+            if n < size then best, size = i, n end
+        end
+        local c = left[best]
+        local rest, pending = {}, {}
+        for i, other in ipairs(left) do
+            if i ~= best then rest[#rest + 1], pending[other] = other, true end
+        end
+        for _, value in ipairs(live[c]) do
             steps = steps + 1
             if steps > SEARCH_STEPS then return true end
-            if value.count > 0 and in_order(i, value) then
-                value.count, chosen[c] = value.count - 1, value
-                local found = search(i + 1)
+            if value.count > 0 then
+                local narrowed = setmetatable({}, { __index = live })
+                for _, link in ipairs(pairs_of[c]) do
+                    local other, mode, above = link[1], link[2], link[3]
+                    if pending[other] then
+                        local domain = narrowed[other]
+                        local mine, kept = value[mode], {}
+                        for _, v in ipairs(domain) do
+                            local theirs = v[mode]
+                            if (above and theirs <= mine) or (not above and theirs >= mine) then kept[#kept + 1] = v end
+                        end
+                        narrowed[other] = kept
+                    end
+                end
+                value.count = value.count - 1
+                local found = search(rest, narrowed)
                 value.count = value.count + 1
                 if found then return true end
             end
@@ -170,11 +231,8 @@ function Calculatro.possible_cards(card)
     for _, value in ipairs(domains[card]) do
         if steps > SEARCH_STEPS then
             out[#out + 1] = value
-        elseif value.count > 0 then
-            value.count, chosen[card] = value.count - 1, value
-            local found = search(2)
-            value.count = value.count + 1
-            if found then out[#out + 1] = value end
+        elseif search(cards, setmetatable({ [card] = { value } }, { __index = domains })) then
+            out[#out + 1] = value
         end
     end
     return out

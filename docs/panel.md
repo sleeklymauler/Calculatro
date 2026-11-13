@@ -192,6 +192,10 @@ panel (the `C` hotkey), hides while the card is dragged, and needs no answer fro
   dealt like the rest: of two face-down cards side by side, the left one is still the higher once the
   right one has been discarded. It's a bounded search on the game's thread (`SEARCH_STEPS`),
   run only when the hovered card or what's known changes. What it can't rule out in time stays listed.
+  It deals the card with the fewest values left next, and drops a value at once if it leaves another
+  card nothing, or the cards left too few different pool cards to share. With all eight cards face down
+  and sorted both ways (The House), the limit cut short about 3% of hovers, and the slowest took about
+  30 ms; with twelve, up to about 60 ms.
   It can also list too much when two copies of a card would have to tie in opposite orders in two
   sorts. It never leaves out a card that's possible. The odds read the same sorts and agree with it
   otherwise; under The Mark with the challenges' `flipped_cards` modifier the hint allows every card,
