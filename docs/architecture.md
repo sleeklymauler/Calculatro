@@ -66,7 +66,11 @@ so a read on the main thread froze the game just as long. It skips to the newest
 and `Calculatro.check_worker` hears each frame what was written (`state_id` is the last one written, not
 the last one handed over) and gets any new odds file. The thread is its own Lua state, so it has its
 own copy of the FFI calls. Nothing may escape it, since an error in a thread stops the game
-(`love.threaderror`). Without `love.thread`, or once the thread has stopped, the mod uses the files
+(`love.threaderror`). LÖVE doesn't stop a thread when the game restarts (`love.event.quit('restart')`,
+as Steamodded does after its mods are changed), and named channels outlive the restart too. So each
+start numbers its thread in the `calculatro_file_thread` channel and names the thread's channels by that
+number. A thread from before the restart sees the number change and ends, and it can't take the new
+thread's requests in the meantime. Without `love.thread`, or once the thread has stopped, the mod uses the files
 itself (`Calculatro.replace_file`, `read_odds`).
 
 The player's settings ([panel.md](panel.md#settings)) are kept in `calculatro_settings.json`, which only

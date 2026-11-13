@@ -213,6 +213,8 @@ local function channel(name)
     getCount = function(self) return #self.items end,
     push = function(self, item) self.items[#self.items + 1] = item end,
     pop = function(self) return table.remove(self.items, 1) end,
+    peek = function(self) return self.items[1] end,
+    clear = function(self) self.items = {} end,
     demand = function(self)
       if #self.items == 0 then coroutine.yield() end
       return table.remove(self.items, 1)
@@ -237,8 +239,8 @@ love.thread = {
 for _, name in ipairs({'love.thread', 'love.filesystem'}) do
   package.preload[name] = function() return love end
 end
-function RUN_THREAD()
-  local thread = THREADS[1]
+function RUN_THREAD(n)
+  local thread = THREADS[n or 1]
   thread.co = thread.co or coroutine.create(assert(load(thread.code)))
   assert(coroutine.resume(thread.co, unpack(thread.args)))
 end

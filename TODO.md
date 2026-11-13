@@ -113,8 +113,14 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [x] **B11** **[low] (seen)** A payload can carry `"id": null` (`overlay.py:74`, `overlay.py:142`)
   - Only for a hand-written state file without an `id`, but it breaks the "no `null` in the odds file" rule. Leave the key out.
   - Done: `overlay._header` leaves it out. Tested in `test_payload_of_a_snapshot_without_an_id_has_no_id`.
-- [ ] **B12** **[low] (guess)** The file thread may outlive a restart of the game's Lua state (`worker.lua`)
+- [x] **B12** **[low] (guess)** The file thread may outlive a restart of the game's Lua state (`worker.lua`)
   - If Balatro restarts through `love.event.quit('restart')`, the old thread may keep running on the same named channels, beside the new one: two writers of the same `.tmp` file, and results read by either. Check what LÖVE does with threads on restart.
+  - Real (2026-11-13): vanilla Balatro never restarts, but Steamodded does (`SMODS.restart_game` after its mods
+    are changed, its crash handler, its preflight). Before restarting, it sends "kill" to the game's own
+    threads, so LÖVE evidently leaves them running. Not reproduced in game.
+  - Done: each start numbers its thread in the `calculatro_file_thread` channel and names the thread's channels
+    by that number. An older thread ends once it sees the number change. Tested in
+    `test_thread_from_before_a_restart_ends`.
 - [ ] **B13** **[low] (guess)** Nothing recovers from an app that hangs without exiting
   - The mod starts it again, but the new one finds the mutex held and exits. A heartbeat in the odds file, or the mod ending a silent app's process, would cover it. No hang is known.
 

@@ -6,6 +6,12 @@
 local Calculatro = require('calculatro.core')
 
 local REQUESTS, RESULTS = 'calculatro_state_requests', 'calculatro_state_results'
+-- LOVE doesn't stop a thread when the game restarts (love.event.quit('restart'), as
+-- Steamodded does after its mods are changed), and named channels outlive the restart
+-- with it. So each start numbers its thread, in this channel, and names the thread's
+-- channels by that number: an older thread finds the number changed and ends, and
+-- whatever it was still doing goes to channels nobody reads.
+local GENERATIONS = 'calculatro_file_thread'
 local SETTINGS_FILE = 'calculatro_settings.json'
 
 -- A thread has a Lua state of its own, so none of the mod's modules. An error
@@ -13,7 +19,7 @@ local SETTINGS_FILE = 'calculatro_settings.json'
 -- reports it, and ends, and the mod goes back to writing the file itself.
 -- With a newline in it, love.thread.newThread takes this for code, not a file name.
 local CODE = [[
-local REQUESTS, RESULTS, INTERVAL, SETTINGS_FILE = ...
+local REQUESTS, RESULTS, INTERVAL, SETTINGS_FILE, GENERATIONS, GENERATION = ...
 local results
 
 local function setup()
@@ -45,10 +51,12 @@ local function run()
     require('love.thread')
     local requests = love.thread.getChannel(REQUESTS)
     results = love.thread.getChannel(RESULTS)
+    local generations = love.thread.getChannel(GENERATIONS)
     local write = setup()
     local last_odds
     while true do
         local job = requests:demand(INTERVAL)  -- nil once that's passed, with nothing to write
+        if generations:peek() ~= GENERATION then return end  -- the game restarted, and started another
         -- A newer snapshot makes any older one pointless, and newer settings older ones.
         local snapshot, settings
         while job ~= nil do
@@ -82,10 +90,16 @@ local function start()
         Calculatro.worker = false
         local threads = love.thread
         if threads then
+            local generations = threads.getChannel(GENERATIONS)
+            local generation = (generations:peek() or 0) + 1
+            generations:clear()
+            generations:push(generation)
+            local requests, results = REQUESTS .. generation, RESULTS .. generation
             local ok, thread = pcall(threads.newThread, CODE)
-            if ok and pcall(thread.start, thread, REQUESTS, RESULTS, Calculatro.odds_interval, SETTINGS_FILE) then
-                Calculatro.worker = { thread = thread, requests = threads.getChannel(REQUESTS),
-                                      results = threads.getChannel(RESULTS) }
+            if ok and pcall(thread.start, thread, requests, results, Calculatro.odds_interval, SETTINGS_FILE,
+                            GENERATIONS, generation) then
+                Calculatro.worker = { thread = thread, requests = threads.getChannel(requests),
+                                      results = threads.getChannel(results) }
             end
         end
     end

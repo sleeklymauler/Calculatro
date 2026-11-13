@@ -778,7 +778,7 @@ def test_snapshot_is_sent_to_the_thread_once(threaded):
     rt, mod = threaded
     mod.write_snapshot()
     mod.write_snapshot()  # unchanged, though not written yet
-    assert rt.eval("#love.thread.getChannel('calculatro_state_requests').items") == 1
+    assert mod.worker.requests.getCount(mod.worker.requests) == 1
 
 
 def test_failed_write_on_the_thread_is_sent_again_and_reported(threaded, tmp_path):
@@ -797,6 +797,26 @@ def test_failed_write_on_the_thread_is_sent_again_and_reported(threaded, tmp_pat
     rt.eval("RUN_THREAD")()
     mod.check_worker()
     assert mod.state_id is not None and mod.write_failures == 0
+
+
+def test_thread_from_before_a_restart_ends(threaded, tmp_path):
+    rt, old = threaded
+    old.write_snapshot()
+    rt.eval("RUN_THREAD")(1)
+    old.check_worker()
+    # love.event.quit('restart'): the mod is loaded again, and LOVE keeps the thread running, and its channels.
+    new = load_mod(rt)
+    new.launch = rt.eval("function() return false end")
+    rt.execute("G.GAME.current_round.hands_left = 1")
+    new.write_snapshot()
+    rt.eval("RUN_THREAD")(1)  # the old thread wakes up
+    assert rt.eval("coroutine.status(THREADS[1].co)") == "dead"
+    assert new.worker.requests.getCount(new.worker.requests) == 1  # not taken by the old thread
+
+    rt.eval("RUN_THREAD")(2)
+    new.check_worker()
+    written = json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))
+    assert written["hands_left"] == 1 and written["id"] == new.state_id is not None
 
 
 def test_mod_writes_the_file_itself_once_the_thread_stops(threaded, tmp_path):
