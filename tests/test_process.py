@@ -50,7 +50,7 @@ def test_instance_claimed_again_once_the_first_exits():
     name = f"Local\\CalculatroTest-{uuid.uuid4()}"
     assert process.claim_instance(name)
     assert not process.claim_instance(name)
-    process._kernel32.CloseHandle(process._mutexes.pop())  # as if the first exited
+    process._kernel32().CloseHandle(process._mutexes.pop())  # as if the first exited
     assert process.claim_instance(name)
 
 

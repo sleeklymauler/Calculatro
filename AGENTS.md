@@ -26,11 +26,12 @@ PowerShell and Bash.
 No runtime dependencies; `pytest`, `lupa` and `ruff` are dev-only.
 
 **On Linux** (as in many cloud agents' sandboxes) the venv's tools are in `.venv/bin/`, and the app
-can't run. `calculatro/process.py` loads `kernel32` on import, so 7 test files fail to collect:
-`test_animation`, `test_log`, `test_mod_modules`, `test_overlay`, `test_process`, `test_state` and
-`test_watch`. `pytest --continue-on-collection-errors` still runs the others (the engine, the search,
-card queries and the Lua globals' lint) and `ruff` works. Changes to the mod or the app's main loop
-can't be tested there, so say so when reporting back.
+can't run. Every test file collects and `ruff` works, but about 110 tests of Windows behaviour fail:
+all of `test_process` (it calls `kernel32`), the `[luajit]` cases of the mod's file access in
+`test_state` and `test_overlay` (Windows' wide functions through the FFI), and `test_log`'s Windows
+paths and game start. Everything else passes, including the app's main loop (`test_watch`) and the
+mod's `[lua]` cases. Only a failure outside those is yours. Changes to the mod's file access, starting
+the app or the process helpers can't be tested there, so say so when reporting back.
 
 ## Architecture
 

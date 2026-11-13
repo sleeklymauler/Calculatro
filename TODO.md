@@ -205,7 +205,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [x] **C4** **[low] (carried)** The dev dependencies are unpinned, and Dependabot only watches the Actions
   - A new ruff rule, or a `lupa` release without a Windows `luajit21` wheel, breaks CI with no change in the repo. Add upper bounds, a `pip` entry in `dependabot.yml`, and `cache: pip` to the workflows.
   - `release.yml` runs the tests but not ruff.
-- [ ] **C5** **[low] (seen)** `calculatro/process.py` loads `kernel32` on import, so 7 test files can't be collected on Linux
+- [x] **C5** **[low] (seen)** `calculatro/process.py` loads `kernel32` on import, so 7 test files can't be collected on Linux
   - `AGENTS.md` documents it as a limit for cloud agents. Loading the DLL on first use (or `sys.platform` checks around the definitions) would let the engine-independent ones run there: `test_log`, `test_state`'s parsing tests, most of `test_watch`.
 - [ ] **C6** **[low] (carried)** The suite takes about 3.5 minutes; try `pytest-xdist`
 
