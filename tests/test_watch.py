@@ -20,7 +20,9 @@ from calculatro.log import open_log
 from calculatro.rules import Rules
 from calculatro.state import SCHEMA, SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Job, Limits, TooSlow, Watchdog, limited
-from test_report import no_estimates, taking  # noqa: F401 (no_estimates is autouse)
+from fakes import FakeSource, taking
+
+pytestmark = pytest.mark.usefixtures("no_estimates")
 
 
 def test_probability_cancelled():
@@ -80,16 +82,6 @@ def test_job_result_error_and_cancel():
     assert slow.wait(5) and slow.cancelled
     with pytest.raises(Cancelled):
         slow.result()
-
-
-class FakeSource:
-    """Hands out queued states, one per poll(); the test adds more as it goes."""
-
-    def __init__(self, *states: GameState):
-        self.queue = list(states)
-
-    def poll(self) -> GameState | None:
-        return self.queue.pop(0) if self.queue else None
 
 
 def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str = "SELECTING_HAND") -> GameState:

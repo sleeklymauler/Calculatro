@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import random
 import threading
-import time
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -19,6 +18,9 @@ from calculatro.hands import combine, get_target
 from calculatro.report import BOUNDS, ESTIMATE, PENDING, SAMPLE, SLOW, Approx, build_report
 from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Limits, TooSlow, Watchdog
+from fakes import taking
+
+pytestmark = pytest.mark.usefixtures("no_estimates")
 
 
 def card(rank_id: int, suit: str = "Spades", **kw) -> Card:
@@ -32,13 +34,6 @@ STATE = GameState(in_run=True, hand_size=5, hands_left=2, discards_left=2, hand=
 
 def selecting(state: GameState, *indices: int) -> GameState:
     return replace(state, hand=[replace(c, highlighted=i in indices) for i, c in enumerate(state.hand)])
-
-
-@pytest.fixture(autouse=True)
-def no_estimates(monkeypatch) -> None:
-    """build_report gets no estimates unless a test gives it some (`estimating`): with the engine stubbed, the real
-    ones would estimate odds other than the stub's."""
-    monkeypatch.setattr(report, "estimate_discard", lambda *args, **kw: None)
 
 
 @pytest.fixture
@@ -139,23 +134,6 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
 
     monkeypatch.setattr(report, "evaluate_discard", only_the_discard)
     assert build_report(selecting(STATE, 0), [get_target("Pair")], known=known).targets[0].discard is not None
-
-
-def taking(seconds: dict[str, float], calls: list[tuple] | None = None, odds: dict[str, Fraction] | None = None):
-    """A stand-in for `evaluate_discard` whose rows take set times, by the target's
-    name (none for others), and stop when cancelled, as the engine does. The odds
-    are `odds` by the target's name, else 1/(number of cards discarded + 2)."""
-    def evaluate(state, target, discard, cancel=None):
-        if calls is not None:
-            calls.append((target.name, len(discard)))
-        end = time.monotonic() + seconds.get(target.name, 0)
-        while time.monotonic() < end:
-            if cancel is not None and cancel.is_set():
-                raise Cancelled
-            time.sleep(0.002)
-        p = (odds or {}).get(target.name, Fraction(1, len(discard) + 2))
-        return DiscardOutcome([state.hand[i] for i in discard], 1, p)
-    return evaluate
 
 
 def test_quick_values_first_then_the_slow_ones_then_given_up(monkeypatch):

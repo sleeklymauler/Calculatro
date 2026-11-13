@@ -45,10 +45,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # A table of one-line checks, aligned to read as one.
-"tests/test_engine.py" = ["E701"]
-# Tests take the `lua` fixture imported from test_state as a parameter.
-"tests/test_animation.py" = ["F811"]
-"tests/test_overlay.py" = ["F811"]
+"tests/poker.py" = ["E701"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["calculatro.rules.Rules"]

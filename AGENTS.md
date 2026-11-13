@@ -84,14 +84,18 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 
 ## Tests
 
-- `tests/test_state.py` runs the real mod inside `lupa`, loaded from the modules `lovely.toml` lists as
-  Lovely loads them (`load_mod`), against a mocked `G` and `love.filesystem`, then parses the written
-  file, so mod changes are testable without the game. Extend `MOCK_G` there when exporting new game
-  fields.
+- Fixtures shared between test modules are in `tests/conftest.py`; shared helpers are plain modules
+  beside it (`mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle`, `fakes`). Never
+  import from a `test_*` module.
+- `tests/mocked_game.py` loads the real mod into `lupa` from the modules `lovely.toml` lists, as Lovely
+  loads them (`load_mod`), against a mocked `G` and `love.filesystem`; `tests/test_state.py` parses
+  what it writes, so mod changes are testable without the game. Extend `MOCK_G` there when exporting
+  new game fields.
 - `MOCK_G` also mocks `UIBox` (recording every box in `BOXES`). `tests/test_overlay.py` checks the
   panel's text and colours end to end.
 - The `lua` fixture runs every Lua test in both LuaJIT, as in the game, and `lupa`'s newer Lua (`[lua]`
-  and `[luajit]`; each runtime has its own `LuaError`). pytest's faulthandler is off (`addopts`), since
+  and `[luajit]`; each runtime has its own `LuaError`), and skips it without `lupa`, so modules mixing
+  Lua and pure-Python tests don't skip as a whole. pytest's faulthandler is off (`addopts`), since
   LuaJIT's errors are Windows exceptions it would report by the thousand.
 - `tests/test_lua_globals.py` lints each module's globals from its LuaJIT bytecode: a local another
   module defines, not imported, fails here. Add to `GAME_GLOBALS` when the mod uses another game global.

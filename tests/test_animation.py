@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-from test_state import lua  # noqa: F401  (fixture: the mod running against a mocked game)
-
 pytest.importorskip("lupa")
 
 HELPERS = r"""

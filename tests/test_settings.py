@@ -6,16 +6,15 @@ import json
 
 import pytest
 
-pytest.importorskip("lupa")
+from hand_driver import Game
+from panel_driver import TEXTS, answer, click, find, panel_texts
 
-from test_hint import Game
-from test_overlay import TEXTS, answer, click, find, panel_texts
-from test_state import MOCK_THREAD, lua  # noqa: F401  (fixture: the mod running against a mocked game)
+pytest.importorskip("lupa")
 
 SETTINGS_FILE = "calculatro_settings.json"
 
 
-def open_settings(lua, tmp_path):  # noqa: F811
+def open_settings(lua, tmp_path):
     rt, mod = lua
     mod.update(1.0)
     answer(lua, tmp_path)
@@ -24,7 +23,7 @@ def open_settings(lua, tmp_path):  # noqa: F811
     return rt, mod
 
 
-def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):  # noqa: F811
+def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):
     with_memory(lua, 16 * GB)
     rt, mod = open_settings(lua, tmp_path)
     assert mod.settings_open and mod.editor is None
@@ -41,7 +40,7 @@ def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):
     assert not mod.settings_open and "Hands@muted" in panel_texts(rt)
 
 
-def test_gear_works_with_nothing_tracked(lua):  # noqa: F811
+def test_gear_works_with_nothing_tracked(lua):
     rt, mod = lua
     mod.update(1.0)
     assert panel_texts(rt)[2] == "[settings]"
@@ -49,7 +48,7 @@ def test_gear_works_with_nothing_tracked(lua):  # noqa: F811
     assert "Face-down hints@light" in panel_texts(rt)
 
 
-def test_settings_close_with_the_panel(lua, tmp_path):  # noqa: F811
+def test_settings_close_with_the_panel(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     mod.key_press("c")
     mod.update(0.1)
@@ -58,7 +57,7 @@ def test_settings_close_with_the_panel(lua, tmp_path):  # noqa: F811
     assert not mod.settings_open and "Hands@muted" in panel_texts(rt)
 
 
-def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):  # noqa: F811
+def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     toggle = "calculatro_setting_face_down"
     assert not mod.settings.face_down and find(rt, toggle).config.colour == "l_black"
@@ -74,7 +73,7 @@ def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):  # noqa:
     assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 2}
 
 
-def test_setting_name_explains_it_when_hovered(lua, tmp_path):  # noqa: F811
+def test_setting_name_explains_it_when_hovered(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     cell = find(rt, "calculatro_setting_name_face_down")
     assert cell.config.collideable
@@ -86,7 +85,7 @@ def test_setting_name_explains_it_when_hovered(lua, tmp_path):  # noqa: F811
     assert all(line.isascii() for line in lines)  # the game's font has nothing else
 
 
-def test_settings_are_read_as_the_mod_starts(lua, tmp_path):  # noqa: F811
+def test_settings_are_read_as_the_mod_starts(lua, tmp_path):
     rt, mod = lua
     (tmp_path / SETTINGS_FILE).write_text('{"face_down": true}', encoding="utf-8")
     mod.update(1.0)
@@ -94,7 +93,7 @@ def test_settings_are_read_as_the_mod_starts(lua, tmp_path):  # noqa: F811
 
 
 @pytest.mark.parametrize("content", ["", "not json", "[1, 2]", '{"face_down": "yes"}', '{"other": true}'])
-def test_unreadable_or_unknown_settings_keep_the_defaults(lua, tmp_path, content):  # noqa: F811
+def test_unreadable_or_unknown_settings_keep_the_defaults(lua, tmp_path, content):
     rt, mod = lua
     (tmp_path / SETTINGS_FILE).write_text(content, encoding="utf-8")
     mod.update(1.0)
@@ -107,7 +106,7 @@ def test_unreadable_or_unknown_settings_keep_the_defaults(lua, tmp_path, content
 GB = 2**30
 
 
-def with_memory(lua, installed: int | None):  # noqa: F811
+def with_memory(lua, installed: int | None):
     """The mod as if the computer had `installed` bytes of memory (None: it can't tell)."""
     rt, mod = lua
     mod.installed_memory = rt.eval(f"function() return {'nil' if installed is None else installed} end")
@@ -122,20 +121,20 @@ def choices(mod) -> list[int]:
     (64 * GB, [1, 2, 4, 8]), (16 * GB, [1, 2, 4, 8]), (15 * GB, [1, 2, 4]), (8 * GB, [1, 2, 4]),
     (4 * GB, [1, 2]), (2 * GB, [1]), (GB, [1]), (None, [1, 2]),
 ])
-def test_memory_offers_up_to_half_the_computers(lua, installed, offered):  # noqa: F811
+def test_memory_offers_up_to_half_the_computers(lua, installed, offered):
     _, mod = with_memory(lua, installed)
     assert choices(mod) == offered
 
 
 @pytest.mark.parametrize(("saved", "applies"), [(2, 2), (8, 4), (4, 4), (3, 2), (0.5, 1), (-1, 1)])
-def test_memory_applies_the_largest_choice_up_to_the_saved_one(lua, saved, applies):  # noqa: F811
+def test_memory_applies_the_largest_choice_up_to_the_saved_one(lua, saved, applies):
     _, mod = with_memory(lua, 8 * GB)
     mod.settings.memory_gb = saved
     assert mod.memory_gb() == applies
     assert mod.settings.memory_gb == saved  # kept for a computer with more
 
 
-def test_installed_memory_is_read_in_the_game(lua, request):  # noqa: F811
+def test_installed_memory_is_read_in_the_game(lua, request):
     _, mod = lua
     if "luajit" not in request.node.name:
         assert mod.installed_memory() is None  # no FFI: offers up to the default
@@ -145,7 +144,7 @@ def test_installed_memory_is_read_in_the_game(lua, request):  # noqa: F811
     assert mod.installed_memory() == mod.installed_memory()  # read once
 
 
-def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):  # noqa: F811
+def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):
     with_memory(lua, 16 * GB)
     rt, mod = open_settings(lua, tmp_path)
     shown = lambda: panel_texts(rt)[7].split("@")[0]  # between the cycle's arrows
@@ -160,7 +159,7 @@ def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):  # noq
     assert mod.settings.memory_gb == 8 and shown() == "8 GB"
 
 
-def test_memory_cycle_steps_from_what_it_shows(lua, tmp_path):  # noqa: F811
+def test_memory_cycle_steps_from_what_it_shows(lua, tmp_path):
     """A saved 8 GB shows as 4 on a computer with 8, and steps on from there."""
     _, mod = with_memory(lua, 8 * GB)
     mod.settings.memory_gb = 8
@@ -169,7 +168,7 @@ def test_memory_cycle_steps_from_what_it_shows(lua, tmp_path):  # noqa: F811
     assert mod.settings.memory_gb == 2
 
 
-def test_memory_cycle_is_inert_with_one_choice(lua, tmp_path):  # noqa: F811
+def test_memory_cycle_is_inert_with_one_choice(lua, tmp_path):
     with_memory(lua, 2 * GB)
     rt, mod = open_settings(lua, tmp_path)
     assert find(rt, "calculatro_setting_memory_gb_next").config.button is None
@@ -177,7 +176,7 @@ def test_memory_cycle_is_inert_with_one_choice(lua, tmp_path):  # noqa: F811
     assert mod.settings.memory_gb == 2 and mod.memory_gb() == 1
 
 
-def test_memory_explains_its_limit_when_hovered(lua, tmp_path):  # noqa: F811
+def test_memory_explains_its_limit_when_hovered(lua, tmp_path):
     with_memory(lua, 16 * GB)
     rt, mod = open_settings(lua, tmp_path)
     cell = find(rt, "calculatro_setting_name_memory_gb")
@@ -189,14 +188,14 @@ def test_memory_explains_its_limit_when_hovered(lua, tmp_path):  # noqa: F811
     assert all(line.isascii() for line in lines)
 
 
-def test_memory_setting_is_read_as_the_mod_starts(lua, tmp_path):  # noqa: F811
+def test_memory_setting_is_read_as_the_mod_starts(lua, tmp_path):
     rt, mod = lua
     (tmp_path / SETTINGS_FILE).write_text('{"memory_gb": 8}', encoding="utf-8")
     mod.update(1.0)
     assert mod.settings.memory_gb == 8
 
 
-def test_face_down_hint_needs_the_setting(lua):  # noqa: F811
+def test_face_down_hint_needs_the_setting(lua):
     game = Game(lua)
     game.mod.settings.face_down = False
     down = game.card("8C", "back")
@@ -213,14 +212,6 @@ def test_face_down_hint_needs_the_setting(lua):  # noqa: F811
 
 
 # --- On the file thread -------------------------------------------------------
-
-@pytest.fixture
-def threaded(lua, request):  # noqa: F811
-    if "luajit" not in request.node.name:
-        pytest.skip("the thread replaces the state file through LuaJIT's FFI")
-    lua[0].execute(MOCK_THREAD)
-    return lua
-
 
 def test_settings_are_saved_on_the_file_thread(threaded, tmp_path):
     rt, mod = threaded

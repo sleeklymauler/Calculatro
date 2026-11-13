@@ -9,22 +9,20 @@ from __future__ import annotations
 import pytest
 
 from calculatro.state import SCHEMA, GameState, MalformedState, Observation, ObservedCard
-from test_hint import Game, game  # noqa: F401  (fixture: a hand moved frame by frame)
-from test_state import lua, new_lua, snapshot_json  # noqa: F401  (fixture: the mod against a mocked game)
-
-pytest.importorskip("lupa")
+from hand_driver import Game
+from mocked_game import new_lua, snapshot_json
 
 
-def exported(game: Game) -> list:  # noqa: F811
+def exported(game: Game) -> list:
     return snapshot_json((game.rt, game.mod))["observations"]
 
 
-def parsed(game: Game) -> GameState:  # noqa: F811
+def parsed(game: Game) -> GameState:
     return GameState.from_json(snapshot_json((game.rt, game.mod)))
 
 
 @pytest.fixture
-def two_sorts(game):  # noqa: F811
+def two_sorts(game):
     """Two face-down cards between a 9♥ and a 6♠ by rank, sorted by rank and then by suit."""
     high, left, right, low = game.card("9H"), game.card("8C", "back"), game.card("7C", "back"), game.card("6S")
     game.deal([high, left, right, low], [game.card("8S"), game.card("KD")])
@@ -51,7 +49,7 @@ def test_both_sorts_with_shared_ids(two_sorts):
                               ObservedCard(rank_id=6, suit="Spades"))
 
 
-def test_a_stone(game):  # noqa: F811
+def test_a_stone(game):
     down = game.card("8C", "back")
     game.deal([game.card("9H"), down, game.card("Stone")], [game.card("8S")])
     assert exported(game) == [{"mode": "desc", "cards": [{"id": 0, "rank_id": 9, "suit": "Hearts"},
@@ -67,7 +65,7 @@ def test_sent_whether_the_hint_is_on_or_off(two_sorts):
     assert len(on) == 2 and snapshot_json((g.rt, g.mod))["observations"] == on
 
 
-def test_an_empty_array_without_sorts(game):  # noqa: F811
+def test_an_empty_array_without_sorts(game):
     assert snapshot_json((game.rt, game.mod))["observations"] == []  # an array, even empty
 
 
@@ -80,7 +78,7 @@ def test_the_mark_with_random_flips_sends_nothing(two_sorts, flips, disabled, se
     assert len(exported(g)) == (2 if sent else 0)
 
 
-def test_nothing_before_a_sort(game):  # noqa: F811
+def test_nothing_before_a_sort(game):
     game.set_area("hand", [game.card("9H"), game.card("8C", "back")])  # as after loading a save
     game.frame(2)
     assert exported(game) == []
@@ -139,7 +137,7 @@ def test_a_played_card_is_shown_and_a_discarded_one_stays(two_sorts):
     assert exported(g) == before
 
 
-def test_earlier_sorts_go_out_in_the_order_recorded(game):  # noqa: F811
+def test_earlier_sorts_go_out_in_the_order_recorded(game):
     # Sorted by rank, by suit, then a discard and a draw sorted by suit again.
     nine, left, right, six = game.card("9H"), game.card("8C", "back"), game.card("7C", "back"), game.card("6S")
     two, rest = game.card("2C"), game.card("KD")

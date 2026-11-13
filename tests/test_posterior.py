@@ -29,8 +29,8 @@ from calculatro.posterior import deals, reference
 from calculatro.search import best_card_discards, best_discards
 from calculatro.state import SCHEMA, SUITS, Card, GameState
 from game_order import nominal
-from test_engine import card, contains, contains_forced
-from test_search import check as check_search
+from poker import card, contains, contains_forced
+from search_oracle import check as check_search
 
 STONE = Card(enhancement="m_stone")
 

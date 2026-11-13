@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("lupa")
 
-from test_state import MOD_DIR, load_mod, mod_sources
+from mocked_game import MOD_DIR, load_mod, mod_sources
 
 MODULES = sorted(mod_sources())
 

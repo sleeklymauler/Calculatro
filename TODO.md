@@ -171,10 +171,10 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Tests
 
-- [ ] **T1** **[med] (seen)** The test modules import from each other, and there's no `tests/conftest.py`
+- [x] **T1** **[med] (seen)** The test modules import from each other, and there's no `tests/conftest.py`
   - `test_state.py` holds the `lua` fixture, `MOCK_G`, `load_mod` and `new_lua`, which six other files import (with `F401` and `F811` silenced). `test_hint` imports from `test_overlay`, `test_observations` from `test_hint`, `test_posterior` from `test_engine` and `test_search`, `test_watch` from `test_report`, `test_settings` from three files.
   - Importing a test module to get a helper also makes its autouse fixtures apply (`no_estimates`). Move the fixtures to `conftest.py` and the helpers (`card`, `Game`, `FakeSource`, `TEXTS`, the mocked game) to plain modules beside `game_order.py`.
-- [ ] **T2** **[low] (carried)** `test_state.py`'s module-level `importorskip("lupa")` also skips its pure-Python tests of `GameState` and `FileStateSource`
+- [x] **T2** **[low] (carried)** `test_state.py`'s module-level `importorskip("lupa")` also skips its pure-Python tests of `GameState` and `FileStateSource`
   - T1's split fixes this too.
 - [ ] **T3** **[med] (carried)** Seeded fuzz tests against brute force, as a `-m fuzz` tier
   - `random_card` only deals ranks 9 to 14, into decks of 8 to 12 cards (`test_engine.py:191-219`). Small hands, `select_limit` of 0 or 1, empty decks, and modifiers under The Mark or The Hook aren't reached.
