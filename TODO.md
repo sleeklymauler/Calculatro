@@ -116,8 +116,10 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done: the path's stat is still the cheap check for "unchanged", but the key recorded is the open handle's
     (`os.fstat`), so it's always that of the bytes read. Tested in
     `test_poll_keys_a_file_replaced_after_its_stat_by_what_was_read`.
-- [ ] **R3** **[low] (seen)** `engine._ignored` grows without limit (`engine.py:1208`)
+- [x] **R3** **[low] (seen)** `engine._ignored` grows without limit (`engine.py:1208`)
   - One entry per set of observations no deal fits. Small, but the other caches beside it are bounded.
+  - Done: an LRU of the latest 16 (`_IGNORED_KEPT`), like `_usable`. One forgotten is only logged a second
+    time. Tested in `test_evidence_set_aside_is_remembered_only_for_the_latest`.
 
 ## Mod (Lua)
 

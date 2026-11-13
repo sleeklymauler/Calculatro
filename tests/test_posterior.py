@@ -877,6 +877,29 @@ def test_evidence_no_deal_fits_is_set_aside(capsys):
     assert capsys.readouterr().err.count("fit no deal") == 1
 
 
+def test_evidence_set_aside_is_remembered_only_for_the_latest(capsys, monkeypatch):
+    # The observations already logged are bounded: one forgotten is logged again, not kept for good.
+    # `_usable` keeps nothing here, so each call reaches the log.
+    monkeypatch.setattr(engine, "_usable", type(engine._usable)())
+    monkeypatch.setattr(engine, "_USABLE_KEPT", 0)
+    monkeypatch.setattr(engine, "_ignored", type(engine._ignored)())
+    monkeypatch.setattr(engine, "_IGNORED_KEPT", 1)
+
+    def unfit(suit: str) -> GameState:
+        case = worked_example()
+        case.cards["ten"] = card(8, suit)
+        case.views = {"desc": ["ten", "left", "right", "six"]}
+        case.cards["six"] = card(8, "Hearts")
+        case.cards["right"] = card(8, "Clubs")
+        case.deck = clubs(7)
+        return case.state()
+
+    for suit in ("Spades", "Spades", "Diamonds", "Spades"):
+        assert not engine.usable(unfit(suit))
+    assert len(engine._ignored) == 1
+    assert capsys.readouterr().err.count("fit no deal") == 3
+
+
 def test_face_up_cards_out_of_order_are_set_aside():
     case = worked_example()
     case.views = {"desc": ["six", "left", "right", "ten"]}

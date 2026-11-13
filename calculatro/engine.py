@@ -1219,7 +1219,10 @@ def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) 
 _USABLE_KEPT = 16  # states whose evidence was checked: build_report and the search ask many times
 _usable: OrderedDict[tuple, bool] = OrderedDict()
 _usable_lock = Lock()
-_ignored: set[tuple] = set()  # observations no deal fits, already logged
+# Observations no deal fits, already logged: the latest few, so the same ones aren't logged again for every
+# state of the hand. One forgotten is only logged a second time.
+_IGNORED_KEPT = 16
+_ignored: OrderedDict[tuple, None] = OrderedDict()
 # Samplers of deals (_deals_for), shared by every value estimated for a state. Each can take tens of
 # MB (36 MB for The House's first hand sorted both ways), so only the latest few are kept.
 _DEALS_KEPT = 2
@@ -1266,7 +1269,10 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
         failure = state.observations, state.observed
         with _usable_lock:
             first = failure not in _ignored
-            _ignored.add(failure)
+            _ignored[failure] = None
+            _ignored.move_to_end(failure)
+            while len(_ignored) > _IGNORED_KEPT:
+                _ignored.popitem(last=False)
         if first:
             print("The hand's sorts fit no deal of the unseen cards, so the odds don't use them: "
                   f"{state.observations} of {state.observed}", file=sys.stderr, flush=True)
