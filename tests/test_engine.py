@@ -636,6 +636,20 @@ def test_mark_card_queries_match_brute_force(text):
                 == Fraction(sum(outcomes), len(outcomes)))
 
 
+def test_mark_draws_past_the_pool_are_clamped_alike():
+    """More draws than the pool less the marked cards not kept: only a hand-written state
+    asks for that. Both clamp to what can be drawn, rather than finding no draw at all."""
+    pool = [card(13, "Hearts"), card(12, "Clubs"), card(2, "Spades"), card(3, "Spades")]
+    kept = [card(13, "Spades")]
+    # Two marked, one kept: three cards can be in the final hand, the marked one and both others.
+    exact = mark_brute({"Pair"}, kept, pool, 2, 1, 2)
+    query = parse_query("1+ king")
+    exact_query = count_probability(query, pool, 3, Rules(), 2, 1)
+    for draws in (3, 4, 9):
+        assert probability(get_target("Pair"), kept, pool, draws, Rules(), None, 2, 1) == exact
+        assert count_probability(query, pool, draws, Rules(), 2, 1) == exact_query
+
+
 MARKED = Card(hidden=True, marked=True)  # drawn face down by The Mark without Pareidolia: a face card
 
 

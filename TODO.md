@@ -70,9 +70,15 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done: `receive_odds` reports it once when the file answers one of this session's snapshots. Another
     session's file is still ignored silently, since it's usually the last session's, left until the app
     answers. Tested in `test_odds_of_another_schema_are_reported_once`.
-- [ ] **B3** **[low] (guess)** `probability` and `count_probability` clamp the draws differently under The Mark (`engine.py:109`, `engine.py:2183`)
+- [x] **B3** **[low] (guess)** `probability` and `count_probability` clamp the draws differently under The Mark (`engine.py:109`, `engine.py:2183`)
   - `probability` clamps to `len(pool)`, `count_probability` to `len(pool) - marked + marked_kept`. In `_mark_split`, `comb(n - marked, d)` is 0 when `d > n - marked`, which would be a division by zero.
   - `_discard` seems to keep the draws within range for real states, so this may be unreachable. DNA's `added_hidden` with The Mark is the case to check.
+  - Unreachable (2026-11-13): a fuzz of about 39k random Mark states (marked and unmarked face-down cards in
+    hand and discarded, Pareidolia, DNA with 0 to 3 copies, every discard of up to 3 cards) gave no error. Only
+    DNA's 2+ copies of a face-down card overflow in `_discard`, and the exact path branches on that card first.
+    Nor would it divide by zero: past the bound `_mark_split`'s range of `k` is empty, so the odds came out 0.
+  - Done: both clamp with `_drawable` (also bounded by `len(pool)`, as `marked_kept` exceeds `marked` for
+    DNA's unresolved copies). Tested in `test_mark_draws_past_the_pool_are_clamped_alike`.
 - [ ] **B4** **[low] (guess)** A value can be given up on for memory another job used (`worker.py:111-114`, `report.py:273`)
   - The watchdog stops every running attempt when the process is over the limit. An odds value in its exact pass that was stopped because a best-discard search filled the memory is stored as `TooSlow(MEMORY)` until `odds_basis` changes.
   - Possible fix: retry a value stopped for memory once, after the other job has ended.

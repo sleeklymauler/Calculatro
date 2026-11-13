@@ -107,7 +107,7 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
 
     Raises Cancelled soon after `cancel` is set.
     """
-    draws = max(0, min(draws, len(pool)))
+    draws = _drawable(pool, draws, marked, marked_kept)
     patterns = target.patterns(rules) if forced is None else forced_patterns(target, rules, card_key(forced, rules))
     if not draws:
         # Nothing to draw (The Mark's split then weighs the one draw by 1): the
@@ -151,6 +151,16 @@ def flipped_by_mark(card: Card) -> bool:
     which ignores debuffs. With Pareidolia it draws every card face down, and those
     aren't marked (`Card.marked`), so this is what a marked card can be."""
     return not card.is_stone and card.rank_id in (11, 12, 13)
+
+
+def _drawable(pool: list[Card], draws: int, marked: int, marked_kept: int) -> int:
+    """`draws` within what the pool can give: the marked cards not kept are in the
+    discard pile or thrown away, so they can't be drawn. _mark_split counts the
+    other draws from the pool less every marked card, and finds no way to draw
+    past this (odds of 0). Real states stay within it (`_discard`); a hand-written one might not.
+    `marked_kept` can exceed `marked` only for DNA's unresolved copies of a card
+    (_posterior_for found none it can be), so the pool's size bounds it too."""
+    return max(0, min(draws, len(pool), len(pool) - marked + marked_kept))
 
 
 def _mark_split(pool: list[Card], draws: int, marked: int,
@@ -2243,7 +2253,7 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
     the `draws`. The other draws come from the rest of the pool; see _mark_split.
     Windows of face-down cards skew the draw instead (_window_split).
     """
-    draws = max(0, min(draws, len(pool) - marked + marked_kept))
+    draws = _drawable(pool, draws, marked, marked_kept)
     split = _window_split(pool, draws, windows) if windows else _marks(
         _mark_split(pool, draws, marked, marked_kept))
     if split is not None:
