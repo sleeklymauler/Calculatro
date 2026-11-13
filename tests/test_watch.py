@@ -196,7 +196,7 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
                   stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
     assert sent[-1] == {"odds": "C"}
     answers = [p for p in sent if not p.get("pending")]
-    assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "id": None, "targets": [], "cards": []}] * 2
+    assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "targets": [], "cards": []}] * 2
     assert writes[0].endswith("\n" + cli.ODDS_FAILED) and writes[1].endswith("\n" + cli.ODDS_FAILED)
     assert capsys.readouterr().err.count("ValueError: boom") == 1
 
@@ -386,7 +386,7 @@ def test_summary_only_without_targets(monkeypatch):
 
 def test_tracked_skips_unknown_repeated_and_overflowing():
     hands = ["Pair", "Pair", "Big Hand", "Three of a Kind"]
-    cards = ["2+ queens", "2+ queens", "no such card", *[f"at least {n} spade" for n in range(1, 13)]]
+    cards = ["2+ queens", " 2+ queens ", "no such card", *[f"at least {n} spade" for n in range(1, 13)]]
     targets, queries = cli.tracked(GameState(in_run=True, tracked_hands=hands, tracked_cards=cards))
     assert [t.name for t in targets] == ["Pair", "Three of a Kind"]
     # 3 hand rows (with "Any target") take a column, leaving 2 of 6 for queries.

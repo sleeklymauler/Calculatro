@@ -37,6 +37,13 @@ from panel_driver import (
 
 # --- Python side -----------------------------------------------------------
 
+def test_payload_of_a_snapshot_without_an_id_has_no_id():
+    """B11: the odds file never contains `null`, so a hand-written state file without an id gets none back."""
+    state = GameState(in_run=True)
+    assert overlay.pending(state) == {"schema": overlay.SCHEMA, "pending": True}
+    assert overlay.odds(state, None) == {"schema": overlay.SCHEMA, "targets": [], "cards": []}
+
+
 def test_percent_never_rounds_to_certainty():
     assert overlay.percent(Fraction(0)) == "0%"
     assert overlay.percent(Fraction(1)) == "100%"

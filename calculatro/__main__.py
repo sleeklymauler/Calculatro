@@ -131,7 +131,7 @@ def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
             query = parse_query(text)
         except ValueError:
             continue
-        if text not in [q.text for q in queries] and fits(len(targets), len(queries) + 1):
+        if query.text not in [q.text for q in queries] and fits(len(targets), len(queries) + 1):
             queries.append(query)
     return targets, queries
 

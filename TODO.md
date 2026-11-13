@@ -87,13 +87,17 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - "Keep hand" is first, since options are ordered by size. Consider returning only that when the best odds equal Keep's, or capping the list.
 - [ ] **B8** **[low] (seen)** The hint over a face-down card isn't refreshed when the rules change (`hint.lua:271`)
   - Its key is the observations and the piles' sizes. Selling Pareidolia, or Chicot or Luchador disabling The Mark, changes `only_face_cards()` but not the key, so the box stays as it was until another card is hovered.
-- [ ] **B9** **[low] (seen)** Snapshot numbers aren't coerced (`state.py:312-328`)
+- [x] **B9** **[low] (seen)** Snapshot numbers aren't coerced (`state.py:312-328`)
   - `select_limit` of `null` becomes `None` and fails in `min()` in the search. A float `hand_size` would fail in `comb`. The mod writes neither today, and `run_watch` logs and carries on, but every state would fail the same way.
   - `int()` the numeric fields in `_parse`, falling back to the default.
-- [ ] **B10** **[low] (seen)** `tracked()` compares a query's raw text with the stripped text of those already parsed (`__main__.py:132`)
+  - Done: `_number` truncates a float and takes the default for anything but a finite number (`null`, `true`,
+    text, NaN). Tested in `test_snapshot_numbers_made_whole`.
+- [x] **B10** **[low] (seen)** `tracked()` compares a query's raw text with the stripped text of those already parsed (`__main__.py:132`)
   - `"queen"` and `"queen "` both get rows. The builder never sends padded text.
-- [ ] **B11** **[low] (seen)** A payload can carry `"id": null` (`overlay.py:74`, `overlay.py:142`)
+  - Done: compares the parsed query's text. Covered in `test_tracked_skips_unknown_repeated_and_overflowing`.
+- [x] **B11** **[low] (seen)** A payload can carry `"id": null` (`overlay.py:74`, `overlay.py:142`)
   - Only for a hand-written state file without an `id`, but it breaks the "no `null` in the odds file" rule. Leave the key out.
+  - Done: `overlay._header` leaves it out. Tested in `test_payload_of_a_snapshot_without_an_id_has_no_id`.
 - [ ] **B12** **[low] (guess)** The file thread may outlive a restart of the game's Lua state (`worker.lua`)
   - If Balatro restarts through `love.event.quit('restart')`, the old thread may keep running on the same named channels, beside the new one: two writers of the same `.tmp` file, and results read by either. Check what LÖVE does with threads on restart.
 - [ ] **B13** **[low] (guess)** Nothing recovers from an app that hangs without exiting

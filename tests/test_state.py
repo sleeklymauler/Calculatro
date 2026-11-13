@@ -466,6 +466,20 @@ def test_malformed_snapshot_raises(raw):
         GameState.from_json(raw)
 
 
+@pytest.mark.parametrize(("raw", "parsed"), [
+    (None, 5), (True, 5), ("3", 5), (float("nan"), 5), (float("inf"), 5), (3.0, 3), (2.7, 2), (0, 0),
+])
+def test_snapshot_numbers_made_whole(raw, parsed):
+    """B9: a number the mod wrote as a float or null doesn't fail every calculation later on."""
+    fields = ["hand_size", "hands_left", "discards_left", "hands_played", "discards_used", "dna_copies"]
+    state = GameState.from_json({"schema": SCHEMA, "in_run": True, "select_limit": raw,
+                                 **{name: raw for name in fields}})
+    assert state.select_limit == parsed and type(state.select_limit) is int
+    for name in fields:
+        value = getattr(state, name)
+        assert value == (0 if parsed == 5 else parsed) and type(value) is int
+
+
 def test_empty_lua_table_is_an_empty_list():
     state = GameState.from_json({"schema": SCHEMA, "in_run": True, "tracked": {"hands": {}, "cards": {}}})
     assert state.tracked_hands == [] and state.tracked_cards == []

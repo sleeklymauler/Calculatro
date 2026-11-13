@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -105,6 +106,16 @@ def _search(raw: Any) -> tuple[str, int] | None:
     nonce = raw.get("nonce")
     # bool is a kind of int, but `true` isn't a number.
     return (raw["key"], nonce) if isinstance(nonce, int) and not isinstance(nonce, bool) else None
+
+
+def _number(d: dict[str, Any], key: str, default: int = 0) -> int:
+    """A whole-number field. The mod's encoder may write the game's numbers as floats,
+    or as null (NaN, infinity), so a float is truncated and anything but a finite
+    number is `default`."""
+    value = d.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return default
+    return int(value)
 
 
 def _memory_gb(raw: Any) -> int | None:
@@ -281,7 +292,8 @@ class GameState:
         Raises SchemaMismatch for one of another schema, and MalformedState for
         one whose fields aren't what the schema says (a hand-edited file or a
         bug in the mod). Only shapes are checked, not ranges, and of the scalars
-        only those that must be text (`_text`). The exception is the observations
+        only those that must be text (`_text`); the numbers are made whole, or
+        their default (`_number`). The exception is the observations
         (`_observations`), whose ids, cards and hand indices must agree.
         """
         if not isinstance(d, dict):
@@ -309,23 +321,23 @@ class GameState:
             in_run=True,
             id=_text(d, "id"),
             state=_text(d, "state"),
-            hand_size=d.get("hand_size") or 0,
-            hands_left=d.get("hands_left") or 0,
-            discards_left=d.get("discards_left") or 0,
+            hand_size=_number(d, "hand_size"),
+            hands_left=_number(d, "hands_left"),
+            discards_left=_number(d, "discards_left"),
             blind=_text(d, "blind") or None,
             blind_disabled=bool(d.get("blind_disabled")),
-            hands_played=d.get("hands_played") or 0,
-            discards_used=d.get("discards_used") or 0,
+            hands_played=_number(d, "hands_played"),
+            discards_used=_number(d, "discards_used"),
             hand=hand,
             played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
             discard=discard,
             jokers=[Joker(_text(j, "key"), bool(j.get("debuff", False)), bool(j.get("perished", False)))
                     for j in (d.get("jokers") or []) if j.get("key")],
-            dna_copies=d.get("dna_copies") or 0,
+            dna_copies=_number(d, "dna_copies"),
             tracked_hands=_strings(tracked.get("hands")),
             tracked_cards=_strings(tracked.get("cards")),
-            select_limit=d.get("select_limit", 5),  # 0 stays 0
+            select_limit=_number(d, "select_limit", 5),  # 0 stays 0
             search=_search(d.get("search")),
             observations=observations,
             observed=observed,

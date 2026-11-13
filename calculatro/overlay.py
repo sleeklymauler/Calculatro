@@ -70,8 +70,13 @@ def percent(p: Fraction) -> str:
     return f"{value:.1f}%"
 
 
+def _header(state: GameState) -> dict[str, Any]:
+    """The schema, and the snapshot's id if it has one: the odds file never contains `null`."""
+    return {"schema": SCHEMA} if state.id is None else {"schema": SCHEMA, "id": state.id}
+
+
 def pending(state: GameState) -> dict[str, Any]:
-    return {"schema": SCHEMA, "id": state.id, "pending": True}
+    return {**_header(state), "pending": True}
 
 
 TOO_SLOW = "?"  # a value given up on
@@ -139,7 +144,7 @@ def _trend(keep: Value, discard: Value) -> int | None:
 
 def odds(state: GameState, report: Report | None) -> dict[str, Any]:
     """The panel's odds for `state`: none without a report (nothing tracked)."""
-    payload: dict[str, Any] = {"schema": SCHEMA, "id": state.id, "targets": [], "cards": []}
+    payload: dict[str, Any] = {**_header(state), "targets": [], "cards": []}
     if report is None:
         return payload
     if report.partial:
