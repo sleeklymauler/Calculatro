@@ -181,8 +181,10 @@ def search(key: str, nonce: int, found: Search | TooSlow | None) -> dict[str, An
 
 
 def write(path: Path, payload: dict[str, Any], attempts: int = 20) -> bool:
-    """Replace the odds file atomically. False if it couldn't: the mod kept it open
-    throughout (it reads it briefly), or something else (antivirus) had a file locked."""
+    """Replace the odds file atomically. False if a file stayed locked (a
+    `PermissionError`): the mod kept it open throughout (it reads it briefly), or
+    something else (antivirus) had it open, which soon passes. Any other `OSError`
+    (a missing folder, a full disk) is raised, since trying again at once won't help."""
     tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
@@ -192,6 +194,6 @@ def write(path: Path, payload: dict[str, Any], attempts: int = 20) -> bool:
                 return True
             except PermissionError:
                 time.sleep(0.005)
-    except OSError:
+    except PermissionError:
         pass
     return False

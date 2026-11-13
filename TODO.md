@@ -101,8 +101,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## App robustness (Python)
 
-- [ ] **R1** **[low] (carried)** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s for good (`overlay.py:183-197`, `__main__.py:329`)
+- [x] **R1** **[low] (carried)** Every `OSError` from `overlay.write` is reported as "something else has it open; retrying" and retried every 0.5 s for good (`overlay.py:183-197`, `__main__.py:329`)
   - Tell `PermissionError` from the rest, and stop retrying what won't go away (a missing folder, a full disk).
+  - Done: `write` returns False only for a `PermissionError` and raises any other `OSError`. `run_watch`
+    logs the error itself, and retries it every `RETRY_ERROR` (10 s) rather than never, since a full disk
+    can be cleared. A newer payload is still tried at once. Each new problem is logged once. Tested in
+    `test_write_fails_softly_only_for_a_lock` and `test_watch_reports_other_write_errors_and_retries_them_slowly`.
 - [ ] **R2** **[low] (carried)** `FileStateSource.poll` stats the file before reading it (`source.py:71-93`)
   - A file replaced in between is delivered under the older key, then again on the next poll. The cost is one restarted job. Stat again after reading, or deduplicate on the snapshot's `id`.
 - [ ] **R3** **[low] (seen)** `engine._ignored` grows without limit (`engine.py:1208`)

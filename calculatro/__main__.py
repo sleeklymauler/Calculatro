@@ -230,7 +230,8 @@ def settled(state: GameState) -> bool:
     return state.state in (None, "SELECTING_HAND")
 
 
-RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get
+RETRY = 0.5  # seconds between attempts to resend odds the panel didn't get, while the file is locked
+RETRY_ERROR = 10.0  # the same after another error (a missing folder, a full disk), which may last
 PARTIAL_INTERVAL = 0.1  # seconds at least between payloads with some odds still to come (the mod reads ~10x/s)
 ALREADY_RUNNING = ("Calculatro is already running (the game starts it) and updates the in-game "
                    "panel: this one only shows the odds here.")
@@ -257,8 +258,11 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     hand isn't `settled`): `partial` ones as values are found, at most one
     every PARTIAL_INTERVAL seconds (none if they're all found sooner), then
     all of them. It returns False if it couldn't
-    deliver one; that payload is then sent again every RETRY seconds until it
-    is, or a newer one replaces it.
+    deliver one for a lock; that payload is then sent again every RETRY seconds until it
+    is, or a newer one replaces it. It raises an `OSError` for any other failure,
+    which is logged and retried the same way but only every RETRY_ERROR seconds
+    (a newer payload is still tried at once). Each problem is logged when it
+    starts, and once more when the file is written again.
 
     Each odds value, and each search, stops at its `limits` (`build_report`),
     or once `watchdog` finds the app using too much memory, and is given up on
@@ -305,6 +309,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     deadline = 0.0
     unsent: dict | None = None  # the latest payload, until the panel gets it
     retry_at = 0.0
+    unwritten = ""  # why the odds file couldn't be written, as last logged ("" once it has been)
     logged: set[tuple] = set()  # the failures reported so far, each only once (a message's values may change)
 
     def failed(what: str, error: Exception) -> None:
@@ -319,16 +324,19 @@ def run_watch(source: StateSource, write: Callable[[str], None],
             pass  # a full disk, say: this is the last resort for errors, so one here would stop the app
 
     def send(payload: dict) -> None:
-        nonlocal unsent, retry_at
-        if panel(payload) is not False:
-            if unsent is not None:
-                print("Odds file written again.", file=sys.stderr, flush=True)
-            unsent = None
-            return
-        if unsent is None:
-            print("Couldn't write the odds file (something else has it open); retrying.",
-                  file=sys.stderr, flush=True)
-        unsent, retry_at = payload, time.monotonic() + RETRY
+        nonlocal unsent, retry_at, unwritten
+        try:
+            if panel(payload) is not False:
+                if unwritten:
+                    print("Odds file written again.", file=sys.stderr, flush=True)
+                unsent, unwritten = None, ""
+                return
+            why, wait = "something else has it open", RETRY
+        except OSError as error:
+            why, wait = f"{type(error).__name__}: {error}", RETRY_ERROR
+        if why != unwritten:
+            print(f"Couldn't write the odds file ({why}); retrying.", file=sys.stderr, flush=True)
+        unsent, retry_at, unwritten = payload, time.monotonic() + wait, why
 
     def show(payload: dict) -> None:
         nonlocal base

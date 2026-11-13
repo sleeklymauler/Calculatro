@@ -394,10 +394,10 @@ def test_watch_drops_missed_odds_for_a_newer_state(monkeypatch):
     assert delivered == [overlay.odds(new, None)]
 
 
-def test_write_fails_softly(tmp_path, monkeypatch):
+def test_write_fails_softly_only_for_a_lock(tmp_path, monkeypatch):
     path = tmp_path / "calculatro_odds.json"
     payload = {"schema": overlay.SCHEMA, "id": "s:1", "pending": True}
-    (tmp_path / "calculatro_odds.json.tmp").mkdir()  # the temporary file can't be written
+    (tmp_path / "calculatro_odds.json.tmp").mkdir()  # the temporary file can't be opened: access denied
     assert overlay.write(path, payload) is False
     (tmp_path / "calculatro_odds.json.tmp").rmdir()
 
@@ -411,7 +411,34 @@ def test_write_fails_softly(tmp_path, monkeypatch):
     def gone(src, dst):  # e.g. removed by something else
         raise FileNotFoundError
     monkeypatch.setattr(overlay.os, "replace", gone)
-    assert overlay.write(path, payload) is False
+    with pytest.raises(FileNotFoundError):
+        overlay.write(path, payload)
+
+    with pytest.raises(FileNotFoundError):  # the folder is gone
+        overlay.write(tmp_path / "missing" / "calculatro_odds.json", payload)
+
+
+def test_watch_reports_other_write_errors_and_retries_them_slowly(monkeypatch, capsys):
+    """An error other than a lock is logged as itself, and retried every RETRY_ERROR seconds."""
+    monkeypatch.setattr(cli, "RETRY", 0.01)
+    monkeypatch.setattr(cli, "RETRY_ERROR", 0.2)
+    state = GameState(in_run=True, id="s:1", hand_size=1)  # nothing tracked: one payload, the odds
+    attempts: list[float] = []
+
+    def panel(payload):
+        attempts.append(time.monotonic())
+        if len(attempts) <= 2:
+            raise OSError(28, "No space left on device")
+        return True
+
+    end = time.monotonic() + 5
+    cli.run_watch(FakeSource(state), lambda text: None, panel,
+                  poll_interval=0.005, stop=lambda: len(attempts) >= 3 or time.monotonic() > end)
+    assert len(attempts) == 3
+    assert attempts[1] - attempts[0] >= 0.2 and attempts[2] - attempts[1] >= 0.2
+    err = capsys.readouterr().err
+    assert err.count("Couldn't write the odds file (OSError: [Errno 28] No space left on device)") == 1
+    assert "something else has it open" not in err and err.count("written again") == 1
 
 
 # --- Lua side --------------------------------------------------------------

@@ -9,8 +9,9 @@ the app work is in [architecture.md](architecture.md).
 The app answers each snapshot in `calculatro_odds.json` (same directory, atomic `os.replace`): first
 `{id, pending: true}`, then the odds as they're found (`partial` until the last; see
 [the shapes](architecture.md#shapes)), echoing the snapshot's `id`. `overlay.write` returns False
-rather than raising if the file stays locked; `run_watch` then resends the latest payload every
-`RETRY` seconds until it's written or a newer one replaces it. The mod reads the file ~10×/sec (on its file thread) with
+if the file stays locked, and raises any other `OSError` (a missing folder, a full disk); `run_watch`
+logs why, then resends the latest payload every `RETRY` seconds for a lock, or `RETRY_ERROR` for
+anything else, until it's written or a newer one replaces it. The mod reads the file ~10×/sec (on its file thread) with
 a small JSON decoder.
 
 Python sends display-ready values (`overlay.percent`), but the mod names the rows itself, since it
