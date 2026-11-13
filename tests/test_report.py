@@ -192,9 +192,18 @@ def test_a_value_using_too_much_memory_is_given_up(monkeypatch):
 
 def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
     """Only the limits give a value up: cancelling the job still cancels it."""
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair": 10}))
+    slow, calls = taking({"Pair": 10}), []
     control = Control(Watchdog(period=0.005))
-    threading.Timer(0.2, control.cancel).start()
+
+    def cancelled_on_last_try(state, target, discard, cancel=None):
+        # Cancelled once a value is tried again (the exact pass), not on a timer, which a busy runner's quick
+        # pass could outlast.
+        if (target.name, tuple(discard)) in calls:
+            control.cancel()
+        calls.append((target.name, tuple(discard)))
+        return slow(state, target, discard, cancel)
+
+    monkeypatch.setattr(report, "evaluate_discard", cancelled_on_last_try)
     known = {}
     with pytest.raises(Cancelled):
         build_report(selecting(STATE, 0), [get_target("Pair")], cancel=control, known=known,
