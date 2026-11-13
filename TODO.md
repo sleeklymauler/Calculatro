@@ -129,23 +129,41 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Rows, "Any target", `_union_by_suit`'s terms and a search's choices are independent, but everything runs on one thread. A persistent process pool, or at least the search in its own process, would also make the time limits mean the same thing whatever else is running.
 - [ ] **P2** **[med] (carried)** "Any target" best-discard on 10 or 11 cards when the best odds are below 1 (`search.py`)
   - See "What's still slow" in `docs/performance/best-discard.md`. It now ends in estimates after 30 s rather than never, but it's still the slowest common case.
-- [ ] **P3** **[low-med] (guess)** Large pattern tuples are hashed again and again as cache keys
+- [x] **P3** **[low-med] (guess)** Large pattern tuples are hashed again and again as cache keys
+  - Measured (2026-11-13): nothing. Profiled the slowest Four Fingers + Shortcut scenarios (wild deck under The
+    House, The Mark sorted): `Requirement.__hash__` runs a few hundred times per scenario, 0.0% of the time.
   - `_split_by_suit(patterns)` and `_interchangeable(patterns)` are `@cache`d on the tuple (`engine.py:277`, `291`), and `probability` calls the first every time. `_layout`'s key and `reuse.necessary`'s include it too (`engine.py:355`, `498`), and so does `_merged`'s (`engine.py:2013`).
   - A tuple's hash isn't stored, and `Requirement` is a dataclass, so each lookup hashes every requirement. With Four Fingers and Shortcut a flush-type target has thousands of patterns, and a search or a posterior calls `probability` hundreds of times.
   - Time it first. If it shows, key these by the tuple's identity (the tuples come from `_patterns`' cache, so they're already unique), or wrap them in an object with a stored hash.
-- [ ] **P4** **[low-med] (guess)** `_evidence_key` builds and hashes `tuple(state.unseen)` on every call (`engine.py:1215`)
+- [x] **P4** **[low-med] (guess)** `_evidence_key` builds and hashes `tuple(state.unseen)` on every call (`engine.py:1215`)
+  - Measured (2026-11-13): nothing. One or two calls per value in the slowest sorted scenarios.
+  - The profile found the cost elsewhere: `_resolver`'s `resolve` made a new `Card` with `dataclasses.replace`
+    for every face-down card of every branch (1.25M calls, a fifth of the profile, in The House sorted both
+    ways). It now makes each once per resolver: that scenario 16.7 s to 14.2 s, its Pair 5.7 s to 5.1 s, the
+    rest unchanged. What's left there is `posterior.summed` and `_holds` (see A4).
   - `usable` is called two or three times for each value (`_windows_for`, `posterior`, `evidence_unchecked`), and `_windows_for` builds its own key the same way. `Card`'s hash isn't stored either. This only runs with face-down cards in the sorts, which are the slow states anyway.
   - Work the key out once per state (a field set in `GameState._parse`, or a small cache by `id(state)`).
-- [ ] **P5** **[low] (seen)** `GameState.rules` is worked out on every access (`state.py:366`)
+- [x] **P5** **[low] (seen)** `GameState.rules` is worked out on every access (`state.py:366`)
+  - Measured (2026-11-13): at most 0.5% of a profile (The House sorted both ways, 138k calls). Not worth a change.
   - It's read in `_allowed`, `_evidence_key`, `_rule_classes`, `_final_hands` and elsewhere. `functools.cached_property` doesn't work on a frozen dataclass with these fields as is, so set it in `_parse` or cache `Rules.from_jokers` by the jokers' tuple.
 - [ ] **P6** **[low] (seen)** `_can_miss` tests each draw with a slow loop over every pattern (`engine.py:2076-2087`)
   - `_holds_test` (`engine.py:1918`) does the same much faster and is already cached by `_target_test`.
-- [ ] **P7** **[low] (seen)** Caches that are never emptied count towards the memory limit
+- [x] **P7** **[low] (seen)** Caches that are never emptied count towards the memory limit
   - `hands._patterns`, `_bell_parts`, `_forced_patterns` (one entry per forced class), `engine._memberships`, `_forced_group`, `_split_by_suit`, `_interchangeable` and `posterior.orders` are plain `@cache`. Each set of tracked hands and each set of joker rules adds entries, and "Any target"'s can be large.
   - The watchdog reads the process's private bytes, so what these hold comes out of every calculation's allowance. Measure a long session with the targets changed often, then use `lru_cache` with a size where it matters.
-- [ ] **P8** **[low] (guess)** Building patterns can't be cancelled or timed out (`hands.py:59-65`)
+  - Measured (2026-11-13): after every benchmark scenario once (6 sets of rules, every target), the idle process
+    holds 367 MB, and 68 MB once the caches are emptied. `_hand_patterns` (6 entries) frees 202 MB, though the
+    patterns themselves are about 20 MB: built in the middle of a calculation, they keep the memory its
+    temporary objects used from going back to Windows. `_split_by_suit` frees 44 MB, `_memberships` 24 MB.
+  - So a size limit on the caches wouldn't help much.
+  - Done: `run_watch` empties them (`engine.clear_caches`) when the rule jokers held change, debuffed or not
+    (`rule_jokers`), so Crimson Heart moving its debuff doesn't rebuild them every hand. Rebuilding costs up to
+    about 0.2 s (Four Fingers + Shortcut). Tested in `test_caches_emptied_when_the_rule_jokers_change`.
+- [x] **P8** **[low] (guess)** Building patterns can't be cancelled or timed out (`hands.py:59-65`)
   - `Target.patterns` holds a lock while `_minimal` runs, and neither checks `cancel`. A value's quick try can overrun its 0.25 s, and a cancelled job keeps the lock from the next.
   - Time the worst build (Four Fingers with Shortcut, "Any target" over the flush-type hands). If it's well under 0.25 s, leave it.
+  - Measured (2026-11-13), every combination of hands under every set of rules, nothing cached: at most about
+    90 ms (Four Fingers + Shortcut: 10 ms for the hands' patterns, 80 ms to combine 7 or 8 of them). Left as is.
 - [ ] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
 - [ ] **P10** **[low] (carried)** `engine._gc_paused` turns the collector off for the whole process while any search runs (`engine.py:251`)
 - [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)

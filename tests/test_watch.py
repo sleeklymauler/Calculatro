@@ -359,6 +359,24 @@ def test_failure_printing_finished_odds_isnt_repeated(monkeypatch, capsys):
     assert capsys.readouterr().err.count("OSError: boom") == 1
 
 
+def test_caches_emptied_when_the_rule_jokers_change(monkeypatch):
+    """The engine's caches keep memory the next calculation's limit counts, so they're emptied when the jokers
+    that change the rules do: not for the first state, another joker, or a debuff (Crimson Heart moves one every
+    hand)."""
+    four, shortcut, debuffed = Joker("j_four_fingers"), Joker("j_shortcut"), Joker("j_four_fingers", debuff=True)
+    source = FakeSource(state("A"), replace(state("B"), jokers=[four]), replace(state("C"), jokers=[debuffed]),
+                        replace(state("D"), jokers=[four, Joker("j_joker")]),
+                        replace(state("E"), jokers=[four, shortcut]), replace(state("F"), jokers=[shortcut, four]),
+                        state("G"))
+    polled: list[str] = []  # the blind of each state handed out, the latest last
+    poll = source.poll
+    monkeypatch.setattr(source, "poll", lambda: (s := poll()) and (polled.append(s.blind) or s))
+    cleared: list[str] = []
+    monkeypatch.setattr(cli, "clear_caches", lambda: cleared.append(polled[-1]))
+    watch(source, lambda st, t, q, cancel: f"odds {st.blind}", lambda w: polled[-1:] == ["G"], monkeypatch)
+    assert cleared == ["B", "E", "G"]
+
+
 def test_summary_only_without_targets(monkeypatch):
     writes: list[str] = []
     cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,

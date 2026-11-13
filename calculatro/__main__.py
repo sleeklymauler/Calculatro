@@ -17,9 +17,11 @@ from threading import Event
 
 from . import overlay, process
 from .cards import CardQuery, parse_query
+from .engine import clear_caches
 from .hands import Target, combine, get_target
 from .log import header, open_log
 from .report import Approx, Report, Value, build_report, row_key
+from .rules import RULE_JOKERS
 from .search import Progress, Search, best_card_discards, best_discards, estimated_best
 from .source import FileStateSource, StateSource
 from .state import RANK_ORDER, RANK_SHORT, SUIT_SHORT, SUITS, GameState
@@ -191,6 +193,13 @@ def search_basis(state: GameState) -> GameState:
                    tracked_hands=[], tracked_cards=[], search=None)
 
 
+def rule_jokers(state: GameState) -> frozenset[str]:
+    """The jokers held that change the hands' rules, debuffed or not: when they change, `run_watch` empties the
+    engine's caches (`engine.clear_caches`). A debuff doesn't count, since Crimson Heart moves its debuff every
+    hand, and the next hand may want the same rules again."""
+    return frozenset(j.key for j in state.jokers if j.key in RULE_JOKERS)
+
+
 def odds_basis(state: GameState) -> tuple[GameState, Counter, tuple]:
     """What a row's odds depend on besides its target and selection: `search_basis`,
     but not the hand's order, which the odds don't look at. The observations go
@@ -280,6 +289,9 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     every payload (`overlay.search`) until that changes, and the mod drops its
     copy once a payload comes without it.
 
+    A state holding other rule jokers (`rule_jokers`) empties the engine's caches
+    (`engine.clear_caches`), so what the old rules built doesn't keep its memory.
+
     A calculation or search that fails (a bug, not a cancellation) is logged on
     stderr, once per run for each kind of error and place it's raised, and
     answered as if there were nothing to show: the panel gets odds without
@@ -311,6 +323,7 @@ def run_watch(source: StateSource, write: Callable[[str], None],
     retry_at = 0.0
     unwritten = ""  # why the odds file couldn't be written, as last logged ("" once it has been)
     logged: set[tuple] = set()  # the failures reported so far, each only once (a message's values may change)
+    rules_held: frozenset[str] | None = None  # `rule_jokers` of the latest state
 
     def failed(what: str, error: Exception) -> None:
         where = tuple((frame.f_code.co_filename, line) for frame, line in traceback.walk_tb(error.__traceback__))
@@ -380,6 +393,10 @@ def run_watch(source: StateSource, write: Callable[[str], None],
                 send(unsent)
             state = source.poll()
             if state is not None:
+                if rule_jokers(state) != rules_held:
+                    if rules_held is not None:
+                        clear_caches()  # what the old rules built only holds memory now
+                    rules_held = rule_jokers(state)
                 if memory_limit is not None:
                     watchdog.memory_limit = memory_limit(state.memory_gb)
                 start_search(state)

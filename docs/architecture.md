@@ -140,6 +140,13 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   the odds, `test_odds_do_not_depend_on_the_hands_order`). A row's key uses the cards, not their
   positions, and `row_key`: a query's text, not the query, since two parses of one may not be equal. There's no size limit:
   one hand has only so many selections, and everything goes at the next discard.
+- **The engine's caches.** The hands' patterns, and what the engine works out from them, are kept in
+  functools caches with no size limit. What they hold is small, but it's built in the middle of a calculation,
+  and keeps the memory of that calculation's temporary objects from going back to Windows (about 200 MB after
+  every benchmark scenario once), which the memory limit counts. So `run_watch` empties them
+  (`engine.clear_caches`) whenever the rule jokers held change (`rule_jokers`: Four Fingers, Shortcut, Smeared,
+  Pareidolia, debuffed or not, since Crimson Heart moves its debuff every hand). Building them again costs up to
+  about 0.2 s, with Four Fingers and Shortcut.
 - **Failures in a job.** A job that fails (anything but `Cancelled`) doesn't stop the app: `run_watch`
   logs the traceback on stderr (once per run for each exception type and stack; a failure to log is
   ignored) and answers as if there were nothing to show, odds without values

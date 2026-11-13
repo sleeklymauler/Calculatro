@@ -62,6 +62,7 @@ from random import Random
 from threading import Event, Lock
 from time import monotonic
 
+from . import hands
 from .cards import CardQuery
 from .hands import (
     WILD,
@@ -272,6 +273,19 @@ def _gc_paused() -> Iterator[None]:
             _gc_searches -= 1
             if not _gc_searches and _gc_was_enabled:
                 gc.enable()
+
+
+def clear_caches() -> None:
+    """Empty every functools cache in the hands and engine modules: the patterns, and what's worked out from them.
+
+    What they hold is small, but it's built in the middle of a calculation, and keeps the memory that
+    calculation's temporary objects used from going back to Windows: about 200 MB after a session of every
+    benchmark scenario, which comes out of every later calculation's memory limit. `run_watch` calls this when
+    the rule jokers held change. Building them again costs up to about 0.2 s (Four Fingers with Shortcut)."""
+    for module in (hands, sys.modules[__name__]):
+        for value in vars(module).values():
+            if hasattr(value, "cache_clear"):
+                value.cache_clear()
 
 
 @cache
@@ -1427,6 +1441,9 @@ def _resolver(state: GameState) -> Callable[[Branch], GameState]:
     for j, card in enumerate(state.unseen):
         places.setdefault(card, []).append(j)
     hidden = [i for i, c in enumerate(state.discard) if c.hidden]
+    # A card turned up in the hand keeps its slot's selection and Cerulean Bell's mark.
+    # A branch turns up a handful of the few unseen cards, so each is made once.
+    turned: dict[tuple[int, Card], Card] = {}
 
     def resolve(branch: Branch) -> GameState:
         taken: dict[Card, int] = {}
@@ -1437,7 +1454,10 @@ def _resolver(state: GameState) -> Callable[[Branch], GameState]:
             taken[card] = n + 1
         hand = list(state.hand)
         for i, card in branch.cards:
-            hand[i] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
+            made = turned.get((i, card))
+            if made is None:
+                made = turned[i, card] = replace(card, highlighted=hand[i].highlighted, forced=hand[i].forced)
+            hand[i] = made
         discard = list(state.discard)
         for i, card in zip(hidden, branch.discarded):
             discard[i] = card

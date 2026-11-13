@@ -230,12 +230,7 @@ CRIMSON_KEEP_3 = Situation("Keep 3, draw 5, Crimson Heart, played", kept=3, hidd
                            discards=0, jokers=(Joker("j_four_fingers", debuff=True), Joker("j_joker")))
 
 
-def clear_caches() -> None:
-    """Empty every functools cache in the hands and engine modules."""
-    for module in (calculatro.hands, calculatro.engine):
-        for value in vars(module).values():
-            if hasattr(value, "cache_clear"):
-                value.cache_clear()
+clear_caches = calculatro.engine.clear_caches
 
 
 @dataclass(frozen=True)
