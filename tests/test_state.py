@@ -597,14 +597,16 @@ def test_poll_keys_a_file_replaced_after_its_stat_by_what_was_read(tmp_path, mon
     def replaced_after(self, *args, **kwargs):
         result = stat(self, *args, **kwargs)
         newer = tmp_path / "calculatro_state.tmp"
-        newer.write_text(json.dumps({"schema": SCHEMA, "id": "x:22", "in_run": False}))
+        newer.write_text(json.dumps({"schema": SCHEMA, "id": "x:333", "in_run": False}))
         newer.replace(path)
         monkeypatch.undo()
         return result
 
-    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:2", "in_run": False}))
+    # Each snapshot a different size: writes this close together often share an mtime, so
+    # same-sized ones would have the same key, and poll would skip x:22 (or miss the bug).
+    path.write_text(json.dumps({"schema": SCHEMA, "id": "x:22", "in_run": False}))
     monkeypatch.setattr(Path, "stat", replaced_after)
-    assert source.poll().id == "x:22"
+    assert source.poll().id == "x:333"
     assert source.poll() is None
 
 
