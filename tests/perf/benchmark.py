@@ -47,8 +47,6 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Event, Thread, Timer
 
-sys.path.insert(0, str(Path(__file__).parent))
-
 from calculatro.engine import Cancelled
 from calculatro.process import memory_used
 from calculatro.worker import LIMITS

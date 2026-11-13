@@ -11,13 +11,9 @@ conftest.py). Measure them, and refresh them after changing the engine, with
 
 from __future__ import annotations
 
-import sys
 import time
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from perfdata import BASELINE_FILE, load_expected, load_results
 from scenarios import SCENARIOS, Scenario

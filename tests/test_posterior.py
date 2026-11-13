@@ -1020,7 +1020,7 @@ def test_estimates_share_one_sampler_of_deals(monkeypatch):
 def test_evidence_unchecked_until_usable_is_known():
     """The odds start by checking the sorts until `usable` has, for that state; not where the sorts say nothing
     (The House's first hand sorted once, kept), or there are none."""
-    from tests.perf.scenarios import THE_HOUSE, THE_HOUSE_BOTH, THE_HOUSE_SORTED, Scenario
+    from scenarios import THE_HOUSE, THE_HOUSE_BOTH, THE_HOUSE_SORTED, Scenario
 
     def state(situation):
         return Scenario(situation, ("Pair",), "No jokers").state()[0]

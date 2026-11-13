@@ -314,7 +314,7 @@ def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
 def test_estimates_hold_the_exact_odds():
     """On the sorted scenarios that finish, each estimate's range holds the exact odds (it's seeded, so this is
     stable)."""
-    from tests.perf.scenarios import SCENARIOS, Scenario
+    from scenarios import SCENARIOS, Scenario
     expected = json.loads((Path(__file__).parent / "perf" / "expected.json").read_text())
     checked = 0
     for scenario in SCENARIOS:

@@ -7,12 +7,7 @@ leave out the scenarios in SLOW, which `pytest -m perf` still checks.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from perfdata import load_expected
 from scenarios import SCENARIOS, Scenario

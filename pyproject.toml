@@ -22,6 +22,8 @@ packages = ["calculatro"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/perf's helpers (scenarios, perfdata) import by their own names, as benchmark.py imports them.
+pythonpath = ["tests/perf"]
 # No faulthandler: on Windows, LuaJIT raises Lua errors as SEH exceptions, which it reports
 # as "Windows fatal exception" thousands of times in the mod's LuaJIT tests.
 addopts = "-m 'not perf' -p no:faulthandler"

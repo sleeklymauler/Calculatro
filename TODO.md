@@ -191,7 +191,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - An odds file of another schema (B2).
 - [ ] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
 - [ ] **T9** **[low] (carried)** Perf scenarios to add: The Serpent (none today), and a single odds row under The Hook without the sorts
-- [ ] **T10** **[low] (seen)** `tests/perf/*.py` put their folder on `sys.path` by hand (`benchmark.py:50`, `test_expected.py:15`, `test_perf.py:20`)
+- [x] **T10** **[low] (seen)** `tests/perf/*.py` put their folder on `sys.path` by hand (`benchmark.py:50`, `test_expected.py:15`, `test_perf.py:20`)
   - A `pythonpath` entry in `pyproject.toml`'s pytest options would do it for the tests.
 
 ## Tooling, CI and releases
