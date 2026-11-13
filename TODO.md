@@ -194,11 +194,13 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     not counted as answers. The failure seen under load was another one: `run_watch` left its jobs running when it
     stopped, and one called the next test's patched `evaluate_discard`. It now cancels them, and an autouse fixture
     waits for each test's jobs.
-- [ ] **T7** **[low] (carried)** Lua tests still missing
+- [x] **T7** **[low] (carried)** Lua tests still missing
   - The encoder's edge cases (NaN and infinity as `null`, control characters, `2^60`).
   - The decoder rejecting trailing commas, `null` and truncated input.
   - A search reply with bad indices (B1).
   - ~~An odds file of another schema (B2).~~ Done with B2.
+  - Done: `test_encode_numbers` and `test_encode_control_characters` in `test_state.py`, `test_decode_rejects`
+    in `test_overlay.py` (each rejection checked for its reason). B1's was done with B1.
 - [ ] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
 - [ ] **T9** **[low] (carried)** Perf scenarios to add: The Serpent (none today), and a single odds row under The Hook without the sorts
 - [x] **T10** **[low] (seen)** `tests/perf/*.py` put their folder on `sys.path` by hand (`benchmark.py:50`, `test_expected.py:15`, `test_perf.py:20`)

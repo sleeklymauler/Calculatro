@@ -200,6 +200,35 @@ def test_empty_areas_encode_as_arrays(lua):
     assert data["hand"] == [] and data["played"] == []
 
 
+def test_encode_numbers(lua):
+    rt, _ = lua
+    encode = rt.eval("require('calculatro.json').encode")
+    # Not finite: JSON has no such numbers, so null.
+    for expr in ["0/0", "-(0/0)", "math.huge", "-math.huge"]:
+        assert encode(rt.eval(expr)) == "null", expr
+    assert json.loads(encode(rt.eval("{1, 0/0, math.huge}"))) == [1, None, None]
+    # Whole numbers below 1e15 exactly, without an exponent; larger ones to 14 digits.
+    for expr, text in [("0", "0"), ("-7", "-7"), ("1e15 - 1", "999999999999999"), ("-(1e15 - 1)", "-999999999999999"),
+                       ("0.1", "0.1"), ("-1.5", "-1.5"), ("1/3", "0.33333333333333")]:
+        assert encode(rt.eval(expr)) == text, expr
+    for power in [53, 60, 70]:
+        for sign in [1, -1]:
+            text = encode(rt.eval(f"{sign} * 2^{power}"))
+            assert json.loads(text) == pytest.approx(sign * 2**power, rel=1e-13), text
+
+
+def test_encode_control_characters(lua):
+    rt, _ = lua
+    encode = rt.eval("require('calculatro.json').encode")
+    lua_text = r'"a\0b\1\31\127\n\r\t\b\f\"\\/é中"'  # a Lua literal: \31 and \127 are decimal
+    expected = 'a\x00b\x01\x1f\x7f\n\r\t\b\f"\\/é中'
+    text = encode(rt.eval(lua_text))
+    assert all(c >= " " for c in text), text  # escaped, as JSON requires
+    assert text.count("\\u") == 4  # \0, \1, \31 and \127; the others have short escapes, and UTF-8 is kept
+    assert json.loads(text) == expected
+    assert json.loads(encode(rt.eval(f"{{[{lua_text}] = 1}}"))) == {expected: 1}  # keys too
+
+
 def test_deck_order_not_leaked(lua):
     rt, mod = lua
     before = snapshot_json(lua)["unseen"]

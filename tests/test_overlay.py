@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from dataclasses import replace
@@ -418,15 +419,31 @@ def test_write_fails_softly(tmp_path, monkeypatch):
 def test_decode_round_trip(lua):
     rt, _ = lua
     mod = rt.eval("require('calculatro.json')")
-    lua_error = sys.modules[type(rt).__module__].LuaError  # each lupa runtime has its own
     text = ' {"s":"a\\"b\\\\c\\n\\t\\/\\u00e9\\u4e2d","n":-1.5e2,"i":42,"t":true,"f":false,\n' \
            '  "list":[1,"x",{"k":"v"}],"empty":[]} '
     decoded = mod.decode(text)
     assert json.loads(mod.encode(decoded)) == json.loads(text)  # "empty" stays an array
     assert decoded.s == 'a"b\\c\n\t/é中'
-    for bad in ['{"a":1', '{"a" 1}', '[1,]', '"open', '{"a":nul}', '1 2']:
-        with pytest.raises(lua_error):
-            mod.decode(bad)
+
+
+@pytest.mark.parametrize(("text", "reason"), [
+    # null isn't supported: the app never writes it.
+    ("null", "unexpected n"), ("[null]", "unexpected n"), ('{"a":null}', "unexpected n"), ('{"a":nul}', "unexpected n"),
+    # Trailing and stray commas.
+    ("[1,]", "unexpected ]"), ('{"a":1,}', "expected key"), ("[,1]", "unexpected ,"), ("{,}", "expected key"),
+    # Truncated, as a file read while it's written would be.
+    ("", "unexpected end"), ("   ", "unexpected end"), ("[", "unexpected end"), ("[1,", "unexpected end"),
+    ('{"a":', "unexpected end"), ('{"a":1', "expected , or }"), ("[1", "expected , or ]"), ("tru", "unexpected t"),
+    ("-", "unexpected -"), ('"open', "unterminated string"), ('"\\u00e', "unterminated string"),
+    # Otherwise malformed.
+    ('{"a" 1}', "expected :"), ('"\\x"', "bad escape"), ("1 2", "trailing data"), ('{"a":1}x', "trailing data"),
+])
+def test_decode_rejects(lua, text, reason):
+    rt, _ = lua
+    decode = rt.eval("require('calculatro.json').decode")
+    lua_error = sys.modules[type(rt).__module__].LuaError  # each lupa runtime has its own
+    with pytest.raises(lua_error, match=f"JSON: {re.escape(reason)} at "):
+        decode(text)
 
 
 def test_snapshot_ids_change_with_the_state(lua, tmp_path):
