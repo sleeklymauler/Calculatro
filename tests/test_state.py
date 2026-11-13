@@ -590,10 +590,8 @@ def unicode_filesystem(rt, save_dir):
 
 
 @pytest.mark.parametrize("name", ["Luké", "Łukasz", "光"])
-def test_non_ascii_save_directory(lua, tmp_path, request, name):
-    if "luajit" not in request.node.name:
-        pytest.skip("the state file is replaced through LuaJIT's FFI")
-    rt, mod = lua
+def test_non_ascii_save_directory(luajit, tmp_path, name):
+    rt, mod = luajit
     save_dir = tmp_path / name
     mod_dir = install(save_dir, f"Calculatro {name}")  # the folder's name can be non-ASCII too
     unicode_filesystem(rt, save_dir)

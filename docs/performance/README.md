@@ -130,6 +130,10 @@ the mean in `tests/perf/baseline.json` (+0.1 s). These tests are marked
 .venv\Scripts\python -m pytest -m perf
 ```
 
+They run in one process, not one per core as the other tests do: with `-m perf`,
+`tests/conftest.py` gives `-n auto` no workers, so the timings aren't taken on a
+busy machine. Don't pass a number of workers with `-n` for them.
+
 A plain `pytest` (and so CI) checks the exact results without timings
 (`tests/perf/test_expected.py`): every scenario but the slowest, the ones
 in its `SLOW` set, whose mean is 0.5 s or more. Add a new scenario to

@@ -211,7 +211,9 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - `release.yml` runs the tests but not ruff.
 - [x] **C5** **[low] (seen)** `calculatro/process.py` loads `kernel32` on import, so 7 test files can't be collected on Linux
   - `AGENTS.md` documents it as a limit for cloud agents. Loading the DLL on first use (or `sys.platform` checks around the definitions) would let the engine-independent ones run there: `test_log`, `test_state`'s parsing tests, most of `test_watch`.
-- [ ] **C6** **[low] (carried)** The suite takes about 3.5 minutes; try `pytest-xdist`
+- [x] **C6** **[low] (carried)** The suite takes about 3.5 minutes; try `pytest-xdist`
+  - Done: `-n auto` in `addopts`. 300 s serial, 25 s on 32 cores, with no failures in repeated runs or at 64
+    workers. `-m perf` runs serially (`tests/conftest.py`), and `-n0` skips the workers' few seconds of startup.
 
 ## Docs
 

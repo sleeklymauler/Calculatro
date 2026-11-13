@@ -8,7 +8,7 @@ dependencies = []
 [project.optional-dependencies]
 # Bounded so a new release (a new ruff rule, a lupa without a Windows luajit21 wheel) can't break CI
 # with no change here. Dependabot opens a pull request to raise each bound.
-dev = ["pytest>=9.2,<10", "lupa>=2.8,<3", "ruff>=0.17.3,<0.18"]
+dev = ["pytest>=9.2,<10", "pytest-xdist>=3.8,<4", "lupa>=2.8,<3", "ruff>=0.17.3,<0.18"]
 
 [project.scripts]
 calculatro = "calculatro.__main__:main"
@@ -26,7 +26,9 @@ testpaths = ["tests"]
 pythonpath = ["tests/perf"]
 # No faulthandler: on Windows, LuaJIT raises Lua errors as SEH exceptions, which it reports
 # as "Windows fatal exception" thousands of times in the mod's LuaJIT tests.
-addopts = "-m 'not perf' -p no:faulthandler"
+# -n auto: one pytest-xdist worker per core (`-n0` runs in this process, quicker for a few tests).
+# tests/conftest.py makes it 0 for `-m perf`, whose timings mustn't share the cores.
+addopts = "-m 'not perf' -p no:faulthandler -n auto"
 markers = ["perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)"]
 
 [tool.ruff]

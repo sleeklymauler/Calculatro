@@ -10,8 +10,10 @@ Windows-only project (paths rely on `%APPDATA%`). Use the venv interpreter. Thes
 PowerShell and Bash.
 
 - Setup: `python -m venv .venv; .venv/Scripts/pip install -e ".[dev]"`
-- All tests: `.venv/Scripts/python -m pytest` (about 3.5 minutes)
-- Single test: `.venv/Scripts/python -m pytest tests/test_engine.py::test_name`
+- All tests: `.venv/Scripts/python -m pytest` (in parallel with `pytest-xdist`, one worker per core: about 30 s
+  on 32 cores, 5 minutes on one)
+- Single test: `.venv/Scripts/python -m pytest -n0 tests/test_engine.py::test_name` (`-n0` skips starting the
+  workers, a few seconds)
 - Lint: `.venv/Scripts/ruff check .` (`--fix` applies the safe fixes, including import sorting). Configured in
   `pyproject.toml`; there's no formatter.
 - Performance: `.venv/Scripts/python tests/perf/benchmark.py` (timings; `-k` filters, `--compare tests/perf/baseline.json`)
@@ -27,8 +29,8 @@ No runtime dependencies; `pytest`, `lupa` and `ruff` are dev-only.
 
 **On Linux** (as in many cloud agents' sandboxes) the venv's tools are in `.venv/bin/`, and the app
 can't run. Every test file collects and `ruff` works, but about 110 tests of Windows behaviour fail:
-all of `test_process` (it calls `kernel32`), the `[luajit]` cases of the mod's file access in
-`test_state` and `test_overlay` (Windows' wide functions through the FFI), and `test_log`'s Windows
+all of `test_process` (it calls `kernel32`), the LuaJIT cases of the mod's file access in
+`test_state` and `test_overlay` (`[luajit]`, and those using the `luajit` or `threaded` fixture) (Windows' wide functions through the FFI), and `test_log`'s Windows
 paths and game start. Everything else passes, including the app's main loop (`test_watch`) and the
 mod's `[lua]` cases. Only a failure outside those is yours. Changes to the mod's file access, starting
 the app or the process helpers can't be tested there, so say so when reporting back.
@@ -95,7 +97,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
   panel's text and colours end to end.
 - The `lua` fixture runs every Lua test in both LuaJIT, as in the game, and `lupa`'s newer Lua (`[lua]`
   and `[luajit]`; each runtime has its own `LuaError`), and skips it without `lupa`, so modules mixing
-  Lua and pure-Python tests don't skip as a whole. pytest's faulthandler is off (`addopts`), since
+  Lua and pure-Python tests don't skip as a whole. A test of what the mod does through LuaJIT's FFI takes the
+  `luajit` fixture instead (LuaJIT only), so the newer Lua has no copy of it to skip. pytest's faulthandler is off (`addopts`), since
   LuaJIT's errors are Windows exceptions it would report by the thousand.
 - `tests/test_lua_globals.py` lints each module's globals from its LuaJIT bytecode: a local another
   module defines, not imported, fails here. Add to `GAME_GLOBALS` when the mod uses another game global.

@@ -63,8 +63,18 @@ file: if the game already started one, this one only prints. To see your changes
 ## Tests and lint
 
 ```pwsh
-.venv\Scripts\python -m pytest       # everything but the performance timings and slowest scenarios
+.venv\Scripts\python -m pytest       # everything but the performance timings and slowest scenarios, one worker per core
+.venv\Scripts\python -m pytest -n0 tests\test_engine.py   # a few tests, without starting the workers
 .venv\Scripts\ruff check .           # lint (--fix applies the safe fixes)
+```
+
+The tests run in parallel with `pytest-xdist`. In VS Code's test explorer, a full run fails with
+`Error attempting to connect to extension named pipe ... [Errno 22] Invalid argument` and an `INTERNALERROR`: each
+worker connects to the extension's results pipe, which takes only a few connections at once. Cap the workers in
+`.vscode/settings.json` (`-n0` if it still fails):
+
+```json
+"python.testing.pytestArgs": ["tests", "-n", "4"]
 ```
 
 The tests cover the app, and run the mod's real Lua (via `lupa`, under both LuaJIT and a newer Lua) against a mocked
