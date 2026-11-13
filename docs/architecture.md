@@ -214,6 +214,10 @@ can't be decoded (invalid UTF-8, not JSON) or whose fields have the wrong shapes
 checked, not ranges, and of the scalars only those that must be text, since the encoder can write the
 game's numbers as floats or `null`. The message isn't repeated while the same error recurs.
 
+The mod ignores an odds file of another schema. If it answers one of this session's snapshots (an app of
+another version), the mod reports it once to the Lovely console and `calculatro.log`. One that doesn't
+may be the last session's file, which the app replaces once it answers, so it's ignored silently.
+
 ### Shapes
 
 - The odds file never contains `null` (the Lua decoder doesn't support it).

@@ -156,11 +156,21 @@ end
 -- the odds as they're calculated: partial ones while some are still to come
 -- (see merged), then all of them. Odds left over from an earlier game
 -- session or round are ignored.
+--
+-- Odds of another schema for one of this session's snapshots come from an app
+-- of another version (a partial update), which will never send odds the mod can
+-- read: that's reported, once. Any other file of another schema may just be the
+-- last session's, which the app replaces once it answers.
 local function receive_odds(raw)
     if not raw or raw == Calculatro.odds_raw then return end
     Calculatro.odds_raw = raw
     local ok, odds = pcall(decode, raw)
-    if not ok or type(odds) ~= 'table' or odds.schema ~= Calculatro.odds_schema or not own_id(odds.id) then
+    if not ok or type(odds) ~= 'table' or not own_id(odds.id) then return end
+    if odds.schema ~= Calculatro.odds_schema then
+        report('odds schema', string.format(
+            'ignoring calculatro_odds.json: it has schema %s, and this mod reads %d '
+                .. '(the app and the mod are from different versions: install both from the same release)',
+            tostring(odds.schema), Calculatro.odds_schema))
         return
     end
     Calculatro.ack_id = odds.id

@@ -744,6 +744,24 @@ def test_mod_reads_the_odds_file_itself_once_the_thread_stops(threaded, tmp_path
     assert mod.ack_id == mod.state_id
 
 
+def test_odds_of_another_schema_are_reported_once(lua, tmp_path):
+    _, mod = lua
+    mod.write_snapshot()
+    path = tmp_path / "calculatro_odds.json"
+    log = tmp_path / "calculatro.log"
+    # The last session's file, of an older version: the app replaces it once it answers.
+    path.write_text(json.dumps({"schema": mod.odds_schema - 1, "id": "an-earlier-session:4"}), encoding="utf-8")
+    mod.read_odds()
+    assert not log.exists()
+    # An app of another version answering this session's snapshot.
+    for seq in (1, 2):
+        path.write_text(json.dumps({"schema": mod.odds_schema - 1, "id": mod.state_id, "seq": seq}), encoding="utf-8")
+        mod.read_odds()
+    assert mod.ack_id is None
+    text = log.read_text(encoding="utf-8")
+    assert text.count(f"it has schema {mod.odds_schema - 1}, and this mod reads {mod.odds_schema}") == 1
+
+
 def test_thread_that_cannot_start_is_reported_without_stopping(threaded, tmp_path):
     rt, mod = threaded
     rt.execute("package.preload['love.filesystem'] = function() error('no filesystem') end\n"

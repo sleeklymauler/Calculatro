@@ -65,8 +65,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done: `valid_options` drops any option with an index that isn't a whole number in the hand, both on
     arrival and when comparing later payloads. A reply left with none is ignored, not taken as given up on.
     Tested in `test_search_options_outside_the_hand_dropped`.
-- [ ] **B2** **[low] (seen)** The mod ignores an odds file of another schema without saying so (`files.lua:163`)
+- [x] **B2** **[low] (seen)** The mod ignores an odds file of another schema without saying so (`files.lua:163`)
   - After a partial update (new mod, old app, or the reverse) the panel says "Waiting for app" then "App didn't start", and nothing is logged on the mod's side. `report()` it once, as the app does for a state schema it can't read.
+  - Done: `receive_odds` reports it once when the file answers one of this session's snapshots. Another
+    session's file is still ignored silently, since it's usually the last session's, left until the app
+    answers. Tested in `test_odds_of_another_schema_are_reported_once`.
 - [ ] **B3** **[low] (guess)** `probability` and `count_probability` clamp the draws differently under The Mark (`engine.py:109`, `engine.py:2183`)
   - `probability` clamps to `len(pool)`, `count_probability` to `len(pool) - marked + marked_kept`. In `_mark_split`, `comb(n - marked, d)` is 0 when `d > n - marked`, which would be a division by zero.
   - `_discard` seems to keep the draws within range for real states, so this may be unreachable. DNA's `added_hidden` with The Mark is the case to check.
@@ -195,7 +198,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - The encoder's edge cases (NaN and infinity as `null`, control characters, `2^60`).
   - The decoder rejecting trailing commas, `null` and truncated input.
   - A search reply with bad indices (B1).
-  - An odds file of another schema (B2).
+  - ~~An odds file of another schema (B2).~~ Done with B2.
 - [ ] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
 - [ ] **T9** **[low] (carried)** Perf scenarios to add: The Serpent (none today), and a single odds row under The Hook without the sorts
 - [x] **T10** **[low] (seen)** `tests/perf/*.py` put their folder on `sys.path` by hand (`benchmark.py:50`, `test_expected.py:15`, `test_perf.py:20`)
