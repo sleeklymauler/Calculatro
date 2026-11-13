@@ -8,11 +8,9 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from .engine import Cancelled
-
-T = TypeVar("T")
 
 # What stopped a part of a job besides the job being cancelled (`Attempt.reason`).
 TIME = "time"
@@ -179,7 +177,7 @@ class Control:
         self.latest, self.updates = value, self.updates + 1
 
 
-def limited(cancel: Control | threading.Event | None, seconds: float, fn: Callable[[Any], T]) -> T | TooSlow:
+def limited[T](cancel: Control | threading.Event | None, seconds: float, fn: Callable[[Any], T]) -> T | TooSlow:
     """`fn(cancel)` stopped after `seconds` or at the memory limit, when `cancel` is
     a job's Control: its result, or TooSlow if a limit stopped it. Raises
     Cancelled if the job was cancelled. Anything else as `cancel` sets no limits."""
@@ -194,7 +192,7 @@ def limited(cancel: Control | threading.Event | None, seconds: float, fn: Callab
             raise
 
 
-class Job(Generic[T]):
+class Job[T]:
     """Runs `fn(control)` on a daemon thread (see Control).
 
     `fn` should raise engine.Cancelled once `control` is set (the engine does).

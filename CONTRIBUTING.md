@@ -26,7 +26,7 @@ tools that look for those names, so edit `AGENTS.md` rather than them.
 ## Setup
 
 You need Windows, Balatro with the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases)
-(see the [README](README.md#installation-users)) and [Python 3.11+](https://www.python.org/downloads/). The scripts run in
+(see the [README](README.md#installation-users)) and [Python 3.14+](https://www.python.org/downloads/). The scripts run in
 Windows PowerShell 5.1 (built into Windows) or PowerShell 7.
 
 1. Clone the repository and install the app with its dev tools (`pytest`, `lupa`, `ruff`):
@@ -109,7 +109,7 @@ Run them before and after changing the engine or the search. See [docs/performan
 ## Pull requests
 
 - Keep each one to one change, with tests for it, and `pytest` and `ruff check .` passing. [CI](.github/workflows/ci.yml)
-  runs both on every pull request, the tests on Python 3.11 and 3.14.
+  runs both on every pull request, the tests on Python 3.14.
 - Update AGENTS.md, the README or `docs/` when you change what they describe.
 
 ## Releases

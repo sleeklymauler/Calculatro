@@ -2,7 +2,7 @@
 name = "calculatro"
 version = "0.1.0"
 description = "Interactive probability calculator for Balatro"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = []
 
 [project.optional-dependencies]
@@ -33,7 +33,7 @@ markers = ["perf: performance regression tests against tests/perf/expected.json 
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py314"
 src = [".", "tests", "tests/perf"]
 
 [tool.ruff.lint]
@@ -41,6 +41,7 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = [
     "E731",    # lambdas assigned to names are used deliberately for small callbacks
     "B905",    # zip() without strict=: lengths are known to match, and the engine is hot code
+    "B912",    # map() without strict=: likewise
     "RUF005",  # [*a, b] over a + [b]: a matter of taste
     "SIM105",  # contextlib.suppress over try/except/pass: a matter of taste
     "RUF059",  # unused names from unpacking, as in `rt, mod = lua`, keep the shape readable

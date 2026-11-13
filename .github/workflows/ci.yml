@@ -1,6 +1,6 @@
 # Lint and tests on every pull request, and on pushes to main that change more
-# than docs. The tests run on the oldest Python pyproject.toml supports and the
-# one releases bundle. The performance tests' timings aren't checked (shared
+# than docs. The tests run on the Python releases bundle, which is also the
+# oldest pyproject.toml supports. The performance tests' timings aren't checked (shared
 # runners' are too noisy), but their exact results are, for all but the slowest
 # scenarios (tests/perf/test_expected.py). The mod's Lua tests run under LuaJIT,
 # the game's Lua, as well as lupa's default Lua.
@@ -42,15 +42,11 @@ jobs:
 
   test:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: python -m pip install -e ".[dev]"
