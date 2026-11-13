@@ -108,8 +108,8 @@ order, or one with no face-down card and no two cards alike in print), which giv
 is *latent* (`Card.latent`, its id there): its place says what it can be. Between a 9 and a 7 in a rank
 sort it's a 7, 8 or 9, and of two side by side the left one is the higher. One discarded face down
 after the sort stays in it (`ObservedCard.discarded`): it's out of play, but what it is still bounds
-the cards around it, and says what's left to draw. The design and its reasoning are in
-[the plan](plans/face-down-windows.md).
+the cards around it, and says what's left to draw. When the mod trusts the hand's order is in
+[panel.md](panel.md#face-down-hint).
 
 - **The posterior** (`posterior.py`). The prior deals the unseen cards to the latent ones uniformly at
   random (under The Mark, the unseen face cards, `flipped_by_mark`). The likelihood is 0 unless every
@@ -159,12 +159,13 @@ the cards around it, and says what's left to draw. The design and its reasoning 
   doesn't allow, so the mod sends no sorts then. Selling Pareidolia, or changing a face-down card's rank,
   mid-round can leave a face-down card whose face status differs from when it was flipped. That isn't
   modelled.
-- **Speed.** Measured in stage 5 of [the plan](plans/face-down-windows.md#performance). One or two
+- **Speed.** Measured as the sorts were added ([performance/face-down.md](performance/face-down.md#measured)). One or two
   face-down cards in sorts take milliseconds for a single target, or 0.3-2.2 s for Four Fingers + Shortcut
   with Straight Flush or "any", and the best-discard search 0.06-0.8 s, or 1.4-20 s for Four Fingers +
   Shortcut with Straight Flush or "any". The House's hand after its first discard, kept or with earlier
   sorts, takes under a second, and so does a discard that throws away the highest or the lowest cards of
-  its first hand; one that splits it in the middle takes 1-10 s. What's still slow is listed there. It can
+  its first hand; one that splits it in the middle takes 1-10 s. What's still slow is listed in
+[performance/face-down.md](performance/face-down.md#whats-still-slow). It can
   always be cancelled (`check()` in `summed`, each branch in `_averaged`, and the engine's own checks).
   Benchmarks are the "sorted" scenarios in `tests/perf/scenarios.py`.
 - **Tests.** `tests/test_posterior.py` checks the posterior and the odds against dealing every way:

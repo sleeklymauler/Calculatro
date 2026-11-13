@@ -53,7 +53,7 @@ def _sorted(cards: list[Card], hand: list[Card], sorts: tuple[str, ...], gone: i
 
     The last `gone` cards, face down, were discarded face down after the sorts:
     they're in the discard pile, and in the sorts only in versions that keep them
-    there (stage 3 of docs/plans/face-down-windows.md).
+    there (since the mod kept cards discarded face down).
 
     `earlier` are sorts seen before those, as (mode, cards): each is one of the
     hand's, by its text in `texts`, or a standard deck's card since gone, "?"

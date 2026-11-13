@@ -1,6 +1,6 @@
 """What the hand's sorts say about its face-down cards: which unseen cards they are.
 
-See docs/plans/face-down-windows.md. The game sorts the hand by each card's true
+See docs/probability-model.md#face-down-cards-in-the-hands-sorts. The game sorts the hand by each card's true
 rank and suit, face-down cards included, and the mod exports the sorts it saw
 this round (`GameState.observations`), any number of each mode: a draw re-sorts
 the hand, but an earlier sort is still true of the cards in it. A face-down card
@@ -432,7 +432,8 @@ def _none(hand: int | None, card: Card) -> None:
 
 class Deals:
     """Draws deals of the latent cards at random, each as likely as its weight in
-    the posterior: exactly, not approximately (see `deals`)."""
+    the posterior (see `deals`): the weights are exact, but drawing by them uses
+    floats (`_table`), so each deal's chance is right to about 1e-16."""
 
     def __init__(self, trace: _Trace):
         self.cards, self.hand_of = trace.cards, trace.hand_of

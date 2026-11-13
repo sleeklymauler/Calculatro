@@ -1,6 +1,5 @@
 """How the game sorts the hand, for checking the face-down hint and the odds
-against dealing every way. Card:get_nominal (card.lua:950), as
-docs/plans/face-down-windows.md quotes it:
+against dealing every way. Card:get_nominal (card.lua:950):
 
     mult = 1, or 1000 sorting by suit, or -1000 for a Stone Card
     nominal + suit_nominal*mult + suit_nominal_original*0.0001*mult + face_nominal + 0.000001*unique_val

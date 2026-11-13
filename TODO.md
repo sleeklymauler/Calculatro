@@ -211,29 +211,29 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Docs
 
-- [ ] **D1** **[med] (seen)** Fourteen references to `docs/plans/face-down-windows.md` and `docs/plans/progressive-odds.md`, which are deleted in the working tree
+- [x] **D1** **[med] (seen)** Fourteen references to `docs/plans/face-down-windows.md` and `docs/plans/progressive-odds.md`, which are deleted in the working tree
   - `engine.py:1203`, `1675`; `posterior.py:3`; `search.py:23`; `state.py:140`; `observe.lua:15`, `360`; `tests/game_order.py:3`; `tests/perf/scenarios.py:56`; `test_observations.py:4`; `test_posterior.py:2`, `915`; `test_search.py:404`; `docs/jokers.md:112`.
   - If the plans are done, point these at `docs/probability-model.md` (and check it has what the code comments lean on: the snapshot's shape for observations, the tie rules, the tests' reference).
-- [ ] **D2** **[med] (seen)** `docs/jokers.md:112` still calls several DNA copies of a face-down card a known limitation
+- [x] **D2** **[med] (seen)** `docs/jokers.md:112` still calls several DNA copies of a face-down card a known limitation
   - The engine branches on what the card is now (`engine._dna_branch`), and `docs/probability-model.md:156` says so. The two pages disagree.
 - [ ] **D3** **[med] (carried)** The perf docs cite commits that no longer exist
   - `7d2af71`, `e239e4d`, `62eb51c`, `0c93930`, `80cb7d7`, `6b93aac` aren't in the history. They're in `docs/performance/README.md:140-143`, `benchmarks.md` (19, 22, 112, 115, 197, 364, 418, 445) and `best-discard.md:146`. The "Comparing with an older version" recipe fails as written.
 - [ ] **D4** **[med] (carried)** `docs/performance/benchmarks.md` was measured on 2026-10-07 to 10-11
   - The engine has changed a lot since (the sorts, windows, estimates, the last two commits). Re-run it, or mark the tables as historical.
-- [ ] **D5** **[med] (carried)** Broken anchor: `CONTRIBUTING.md:29` and `.github/ISSUE_TEMPLATE/config.yml:4` link `#installation`; the heading is "Installation (Users)", so `#installation-users`
+- [x] **D5** **[med] (carried)** Broken anchor: `CONTRIBUTING.md:29` and `.github/ISSUE_TEMPLATE/config.yml:4` link `#installation`; the heading is "Installation (Users)", so `#installation-users`
 - [ ] **D6** **[med] (carried)** The README's Usage section says everything twice (`README.md:61-95`)
   - A bullet list with screenshots, then prose that repeats it, with stray blank lines. Merge them.
 - [ ] **D7** **[low] (guess)** Check the README covers what's been added since it was written
   - The settings page (the gear, face-down hints, the memory limit), approximate values (`*`), values given up on (`?`, "Too slow"), and what an estimated best discard means. The Usage section mentions none of them.
 - [ ] **D8** **[low] (carried)** Add "Known limitations" to the README
   - Best discard looks one discard ahead. Windows only. Other mods (custom ranks, suits, enhancements, bosses) are untested. The slowest odds end as estimates.
-- [ ] **D9** **[low] (carried)** `docs/jokers.md:130`, `224`: Splash is tagged `rule`, but `rules.RULE_JOKERS` doesn't have it and its own section says it changes no hand
-- [ ] **D10** **[low] (seen)** Small ones
+- [x] **D9** **[low] (carried)** `docs/jokers.md:130`, `224`: Splash is tagged `rule`, but `rules.RULE_JOKERS` doesn't have it and its own section says it changes no hand
+- [x] **D10** **[low] (seen)** Small ones
   - `search.lua:4`: "each target hand's search button"; card rows have one too. (carried)
   - `posterior.py:434`: `Deals` says it draws "exactly, not approximately", but `_table` turns the weights into floats for `bisect`. True to about 1e-16; say so or drop "exactly".
   - `report.py:174`: "Share it only between states with the same `__main__.odds_basis`" has the lower module naming the upper one. `odds_basis` could live in `report.py`.
   - `core.lua:8-9` and `worker.py:26`: the mod's patience (0.3 s) and the app's quick limit (0.25 s) depend on each other by a comment on one side only.
-- [ ] **D11** **[low] (carried)** The bug report template could also ask for `calculatro_odds.json`, to tell the app's bugs from the panel's
+- [x] **D11** **[low] (carried)** The bug report template could also ask for `calculatro_odds.json`, to tell the app's bugs from the panel's
 
 ## Ideas
 

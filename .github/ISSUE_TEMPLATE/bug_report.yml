@@ -16,7 +16,8 @@ body:
       description: >
         For wrong odds: your hand, what you had selected, your jokers and the blind. Attaching
         `%AppData%\Balatro\calculatro_state.json`, taken while the odds are on screen, lets us reproduce it exactly.
-        It contains only what you can see in game.
+        It contains only what you can see in game. If the panel looks wrong rather than the odds, attach
+        `%AppData%\Balatro\calculatro_odds.json` too, taken at the same time: it's what the app sent the panel.
   - type: input
     id: calculatro-version
     attributes:

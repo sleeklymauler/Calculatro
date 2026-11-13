@@ -26,7 +26,7 @@ tools that look for those names, so edit `AGENTS.md` rather than them.
 ## Setup
 
 You need Windows, Balatro with the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector/releases)
-(see the [README](README.md#installation)), [Python 3.11+](https://www.python.org/downloads/) and
+(see the [README](README.md#installation-users)), [Python 3.11+](https://www.python.org/downloads/) and
 [PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows).
 
 1. Clone the repository and install the app with its dev tools (`pytest`, `lupa`, `ruff`):

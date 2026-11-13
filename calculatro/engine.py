@@ -1200,7 +1200,7 @@ def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) 
     return list(merged.values())
 
 
-# --- What the hand's sorts say about face-down cards (docs/plans/face-down-windows.md) ---
+# --- What the hand's sorts say about face-down cards (docs/probability-model.md) ---
 
 _USABLE_KEPT = 16  # states whose evidence was checked: build_report and the search ask many times
 _usable: OrderedDict[tuple, bool] = OrderedDict()
@@ -1672,7 +1672,7 @@ def _split(window: Window, kept: list[bool], state: GameState) -> list[WindowSpl
     return found if len(found) <= SPLITS else None
 
 
-# --- Estimates, while the exact odds are slow (docs/plans/progressive-odds.md) ---
+# --- Estimates, while the exact odds are slow (docs/probability-model.md#approximations) ---
 
 @dataclass(frozen=True)
 class Estimate:

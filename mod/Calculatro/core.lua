@@ -5,7 +5,8 @@
 local Calculatro = {
     interval = 0.2,       -- seconds between snapshots
     odds_interval = 0.1, -- seconds between reads of the odds file
-    patience = 0.3,       -- seconds before odds for an older state are greyed out
+    patience = 0.3,       -- seconds before odds for an older state are greyed out; just over the
+                          -- app's quick try at each value (worker.Limits.quick, 0.25 s)
     timeout = 2,          -- seconds without a reply before assuming the app isn't running
     toggle_key = 'c',     -- shows/hides the panel
     elapsed = 0,

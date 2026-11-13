@@ -14,6 +14,8 @@ how to measure it.
   which compares every discard of the hand: how it avoids most of those
   calculations and shares the engine's work between the rest, with its
   timings.
+- [face-down.md](face-down.md): the odds with face-down cards in the hand's
+  sorts: their timings, and the cases that are still slow.
 - [jokers/](jokers/): one page per joker whose rules needed performance
   work.
   - [Four Fingers](jokers/four-fingers.md)

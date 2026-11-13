@@ -166,10 +166,23 @@ panel (the `C` hotkey), hides while the card is dragged, and needs no answer fro
   card (`Card:hover`), so the two never meet.
 - **What's known.** `observe.lua` keeps every sort of the hand seen this round, less those that say
   nothing more than the rest (`prune`), so a card kept while its neighbours are discarded keeps its
-  window after the draw re-sorts the hand. See
-  [the plan](plans/face-down-windows.md#observation-state-machine) for when the hand's order is trusted.
-  With no observation of the card there's no box, as after loading a save or using a consumable (until
-  the next sort), or when the card was drawn during a drag.
+  window after the draw re-sorts the hand. With no observation of the card there's no box, as after
+  loading a save or using a consumable (until the next sort), or when the card was drawn during a drag.
+- **When the hand's order is trusted** (`Calculatro.track_hand`, every frame). Only public events
+  decide it, never the face-down cards' values. Two things are kept apart: the *evidence* (the sorts
+  recorded this round) and whether the hand is *pending* (the next stable order may be recorded).
+  - A draw from the deck or a Sort press (its button's `last_clicked` changed) makes it pending. A
+    drag, a card arriving from anywhere but the deck, or a reorder without a sort ends that, and so
+    does a frame with a sort and any of those (each frame sees all the last one did, so that proves
+    nothing). A drag keeps the evidence, which stays true of those cards wherever they're moved.
+  - A pending hand is recorded once it's the same cards in the same order as last frame, in
+    `SELECTING_HAND`, under a sort mode the mod knows, with nothing dragged, and its face-up cards in
+    order by printed values (a safety net that leaks nothing). A mode change on its own isn't a sort.
+  - Using a consumable (`PLAY_TAROT`, `G.TAROT_INTERRUPT`) clears the evidence too, since it may have
+    changed a face-down card; it takes a fresh sort after. So does a new run, a load or a new round.
+  - A face-down card that leaves the hand face up becomes its printed values. One discarded face down
+    (in the discard pile with `wheel_flipped`) stays where it was, as `discarded`. One gone anywhere
+    else is dropped from the sorts: what's left of a sorted order is still sorted.
 - **What's possible.** `possible_cards` lists the printed rank and suit pairs in the unseen pool for
   which the other face-down cards can still all be dealt consistently with every sort (with The Mark's
   face cards, as the engine models them). Those discarded face down since a sort are still in it, and

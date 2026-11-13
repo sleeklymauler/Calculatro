@@ -1,9 +1,9 @@
 local Calculatro = require('calculatro.core')
 
 ---------------------------------------------------------------------------
--- Best discard: each target hand's search button asks the app for the
--- discards with the best odds of making it (the request goes with the next
--- snapshot), and selects the first once they arrive. Clicking it again
+-- Best discard: each row's search button, a target hand's or a card query's,
+-- asks the app for the discards with the best odds for that row (the request
+-- goes with the next snapshot), and selects the first once they arrive. Clicking it again
 -- selects the next, as long as the hand and the selection are still the
 -- search's. The app's indices are positions in the hand as it was when the
 -- search was asked for, so a reply for another hand is dropped.

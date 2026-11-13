@@ -401,7 +401,7 @@ def test_dna_face_down_cards():
         check(state, get_target(name))
 
 
-# --- A search given up on (docs/plans/progressive-odds.md) ----------------------------
+# --- A search given up on (docs/probability-model.md#best-discard) -------------------
 
 
 class StopAfter:

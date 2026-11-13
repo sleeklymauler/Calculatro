@@ -171,7 +171,9 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     `known` holds each value as soon as it's worked out, or given up on, or
     found slow (SLOW), and its estimate (under ESTIMATE), so they outlive a
     cancelled report and come straight back when the same cards are selected
-    again. Share it only between states with the same `__main__.odds_basis`.
+    again. Its keys hold each value's target and selection, so share it only
+    between states alike in everything else the odds depend on: the same cards,
+    jokers, blind and sorts, in whatever order the hand is in.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None

@@ -109,7 +109,7 @@ The engine does predict across one of them: without discards left, a selection i
 **DNA** (`card.lua:3501`, in the jokers' `before` step, so not for a hand The Psychic debuffs, the only boss that debuffs a first hand):
 - The refill counts the copy, so a lone card played normally gives the same hand back, with nothing drawn: the odds equal keeping the hand. It's different when other cards move too: The Hook throws away 2 kept cards (never the copy, as it acts first), so 2 are drawn; The Serpent still draws 3; a hand left short is topped up.
 - The effect has no `not context.blueprint`, so every Blueprint or Brainstorm that reaches DNA makes another copy, past the hand size if need be. The mod follows the chains and sends the count as `dna_copies`, since the export hides the jokers' order. With a joker face down (Amber Acorn) the player can't see the order either, so only DNA itself counts, which can undercount.
-- A face-down card's copy comes back face up. One copy is the same as keeping that card face down. **Known limitation:** several copies are the same unknown card, but count as separate unseen cards, which can be well out for hands wanting duplicates (2 copies are always a Pair). `docs/plans/face-down-windows.md` is where this gets fixed.
+- A face-down card's copy comes back face up. One copy is the same as keeping that card face down. Several copies are all the same unknown card (2 copies are always a Pair), so the engine branches on what that card is (`engine._dna_branch`; see [probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
 
 ### Per-round targets (needed to evaluate these jokers' conditions)
 
@@ -127,7 +127,7 @@ The engine does predict across one of them: without discards left, a selection i
 
 ### "Calc" tags in the table
 
-- `rule`: changes how hands are detected or how cards are classified. Can't be ignored when computing odds: Four Fingers, Shortcut, Smeared, Pareidolia, Splash.
+- `rule`: changes how hands are detected or how cards are classified. Can't be ignored when computing odds: Four Fingers, Shortcut, Smeared, Pareidolia (`rules.RULE_JOKERS`). Splash isn't one: it changes which cards score, not which hand is made.
 - `size`: changes hand size, hands or discards. Already reflected in the exported state.
 - `deck`: adds, removes or changes playing cards.
 - `cond`: the effect depends on what is played, held or discarded. These are candidates for "chance this joker triggers" targets.
@@ -221,7 +221,7 @@ Columns:
 | 49 | Runner | `j_runner` | Common | $5 | Gains +15 Chips if played hand contains a Straight | Chips | Mixed | Y | cond | - |
 | 50 | Ice Cream | `j_ice_cream` | Common | $5 | +100 Chips; -5 Chips for every hand played | Chips | Indep. | Y |  | - |
 | 51 | DNA | `j_dna` | Rare | $8 | If first hand of round has only 1 card, add a permanent copy to deck and draw it to hand | Effect | On Played | Y | deck | - |
-| 52 | Splash | `j_splash` | Common | $3 | Every played card counts in scoring | Effect | N/A | N | rule | - |
+| 52 | Splash | `j_splash` | Common | $3 | Every played card counts in scoring | Effect | N/A | N |  | - |
 | 53 | Blue Joker | `j_blue_joker` | Common | $5 | +2 Chips for each remaining card in deck | Chips | Indep. | Y |  | - |
 | 54 | Sixth Sense | `j_sixth_sense` | Uncommon | $6 | If first hand of round is a single 6, destroy it and create a Spectral card (must have room) | Effect | N/A | N | deck | - |
 | 55 | Constellation | `j_constellation` | Uncommon | $6 | Gains X0.1 Mult every time a Planet card is used | xMult | Indep. | Y |  | - |

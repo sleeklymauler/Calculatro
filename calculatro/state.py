@@ -137,7 +137,7 @@ class ObservedCard:
 @dataclass(frozen=True)
 class Observation:
     """The hand's order when it was known to be the game's sort in `mode`, left
-    to right, as ids into `GameState.observed`. See docs/plans/face-down-windows.md."""
+    to right, as ids into `GameState.observed`. See docs/architecture.md#shapes."""
 
     mode: str  # one of SORT_MODES
     cards: tuple[int, ...]

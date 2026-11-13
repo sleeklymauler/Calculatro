@@ -1,5 +1,5 @@
 """The odds with what the hand's sorts show of its face-down cards, checked
-against dealing every way (docs/plans/face-down-windows.md#tests).
+against dealing every way (docs/probability-model.md#face-down-cards-in-the-hands-sorts).
 
 The oracle doesn't use the posterior's model: it deals the unseen cards to the
 face-down ones every way, gives the cards alike in print every order of the
@@ -912,7 +912,7 @@ def test_cancelled():
         engine.estimate_discard(state, TARGETS[0], [0], cancel)
 
 
-# --- Estimates (docs/plans/progressive-odds.md) ----------------------------------------
+# --- Estimates (docs/probability-model.md#approximations) ---------------------------
 
 @pytest.mark.parametrize("seed", range(8))
 def test_deals_are_drawn_by_their_posterior_weight(seed):

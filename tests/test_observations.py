@@ -1,7 +1,7 @@
 """The observations the snapshot sends: what the hand's order showed of its face-down cards.
 
 The mod keeps them in `observe.lua` (tested with the hint in `test_hint.py`); here is
-how they go out, and how `GameState` parses them. See docs/plans/face-down-windows.md.
+how they go out, and how `GameState` parses them. See docs/architecture.md#shapes.
 """
 
 from __future__ import annotations

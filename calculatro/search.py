@@ -20,7 +20,7 @@ and every choice of counts is simply evaluated.
 
 A face-down card the hand's sorts tell about (`Card.latent`) has a place of
 its own in them, so it's a group of its own, and discards aren't relabelled:
-which face-down card is thrown away matters (docs/plans/face-down-windows.md).
+which face-down card is thrown away matters (docs/probability-model.md).
 
 A search records what it has found as it goes (Progress), so that one given
 up on can still answer from estimates of the choices that could be best

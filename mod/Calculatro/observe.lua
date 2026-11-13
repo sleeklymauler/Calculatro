@@ -12,7 +12,7 @@
 -- comes only from public events (draws, Sort presses, drags, consumables), never
 -- from the face-down cards' values: asking if the hand is in its true order, or if
 -- a face-down card changed, would tell what they are. See
--- docs/plans/face-down-windows.md.
+-- docs/panel.md#face-down-hint.
 ---------------------------------------------------------------------------
 local Calculatro = require('calculatro.core')
 local array = require('calculatro.json').array
@@ -357,7 +357,7 @@ end
 -- hand now (0-based), where the snapshot sends it as {hidden = true}, and one
 -- discarded face down only as `discarded` (it's one of the discard pile's
 -- {hidden = true}, but which isn't said). Sent whether the hint's setting is on
--- or off: the odds always use them. See docs/plans/face-down-windows.md#snapshot.
+-- or off: the odds always use them. See docs/architecture.md#shapes.
 -- The odds take face-down cards under The Mark to be face cards (as
 -- `engine.flipped_by_mark` says), which the challenges' random flips
 -- (flipped_cards) make untrue: then the sorts go unused, and the odds are those
