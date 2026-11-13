@@ -1,4 +1,4 @@
-# Pushing a tag like v0.1.0 tests the code, builds the player zip
+# Pushing a tag like v0.1.0 lints and tests the code, builds the player zip
 # (scripts/build_release.ps1) and attaches it to a draft GitHub release, to be
 # reviewed and published by hand.
 name: Release
@@ -18,10 +18,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check --output-format=github .
       - name: Test
-        run: |
-          python -m pip install -e ".[dev]"
-          python -m pytest
+        run: python -m pytest
       - name: Build
         run: ./scripts/build_release.ps1 -Tag "${{ github.ref_name }}"
       - name: Create draft release

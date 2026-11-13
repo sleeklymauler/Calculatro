@@ -6,7 +6,9 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "lupa", "ruff"]
+# Bounded so a new release (a new ruff rule, a lupa without a Windows luajit21 wheel) can't break CI
+# with no change here. Dependabot opens a pull request to raise each bound.
+dev = ["pytest>=9.2,<10", "lupa>=2.8,<3", "ruff>=0.17.3,<0.18"]
 
 [project.scripts]
 calculatro = "calculatro.__main__:main"

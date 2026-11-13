@@ -73,6 +73,13 @@ $mod = Join-Path $stage "Calculatro"
 New-Item -ItemType Directory -Force $mod | Out-Null
 Copy-Item (Join-Path $root "mod\Calculatro\*") $mod -Exclude "launch.txt" -Recurse
 Copy-Item (Join-Path $root "LICENSE") $mod
+# The repository's lovely.toml has dump_lua = true, for development: Lovely then writes out
+# every patched game file on each launch. Players don't need that.
+$manifest = Join-Path $mod "lovely.toml"
+$toml = [System.IO.File]::ReadAllText($manifest)
+$toml = [regex]::Replace($toml, '(?m)^dump_lua\s*=\s*true\b', 'dump_lua = false')
+if ($toml -notmatch '(?m)^dump_lua = false\b') { throw "No dump_lua setting found in lovely.toml's manifest" }
+[System.IO.File]::WriteAllText($manifest, $toml, (New-Object System.Text.UTF8Encoding $false))
 $python = Join-Path $mod "python"
 Expand-Archive $pythonZip $python
 # The package goes next to pythonw.exe: the embeddable package's ._pth file

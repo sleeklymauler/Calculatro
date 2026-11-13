@@ -200,9 +200,9 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - A broken `build_release.ps1` is found on release day. Run it on pull requests that touch `scripts/`, `mod/` or `calculatro/`.
 - [x] **C2** **[low] (carried)** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 doesn't have
   - The mod is copied, then the script fails before `launch.txt` is written. Add `#Requires -Version 7`, or write the file as `build_release.ps1` does.
-- [ ] **C3** **[low] (carried)** `dump_lua = true` ships in releases (`lovely.toml:3`)
+- [x] **C3** **[low] (carried)** `dump_lua = true` ships in releases (`lovely.toml:3`)
   - Lovely then writes its dumps of the patched game files on every player's launch. Strip it in `build_release.ps1`.
-- [ ] **C4** **[low] (carried)** The dev dependencies are unpinned, and Dependabot only watches the Actions
+- [x] **C4** **[low] (carried)** The dev dependencies are unpinned, and Dependabot only watches the Actions
   - A new ruff rule, or a `lupa` release without a Windows `luajit21` wheel, breaks CI with no change in the repo. Add upper bounds, a `pip` entry in `dependabot.yml`, and `cache: pip` to the workflows.
   - `release.yml` runs the tests but not ruff.
 - [ ] **C5** **[low] (seen)** `calculatro/process.py` loads `kernel32` on import, so 7 test files can't be collected on Linux

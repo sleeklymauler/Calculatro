@@ -192,7 +192,8 @@ state file path). What to calculate is set in game, with the panel's target edit
 `dist\Calculatro-<version>-windows.zip` for players (not `Calculatro-<version>.zip`, the name of the
 "Source code" zip GitHub adds to every release): the mod plus a pinned, hash-checked embeddable
 Python (`$PythonVersion`/`$PythonSha256`) with the `calculatro` package in the mod's `python` folder,
-which the mod runs when there's no `launch.txt` (`Calculatro.launch_command`).
+which the mod runs when there's no `launch.txt` (`Calculatro.launch_command`). The zip's `lovely.toml`
+has `dump_lua = false`; the repository's keeps `true`, for development.
 
 The versions in `pyproject.toml`, `lovely.toml`, `Calculatro.json` and `calculatro/__init__.py` must
 match (and `-Tag`, if given). Pushing a `v*` tag runs `.github/workflows/release.yml`: tests, build, and a draft GitHub
