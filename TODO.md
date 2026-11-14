@@ -216,6 +216,9 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Time the worst build (Four Fingers with Shortcut, "Any target" over the flush-type hands). If it's well under 0.25 s, leave it.
   - Measured (2026-11-13), every combination of hands under every set of rules, nothing cached: at most about
     90 ms (Four Fingers + Shortcut: 10 ms for the hands' patterns, 80 ms to combine 7 or 8 of them). Left as is.
+  - Cerulean Bell's forced patterns (`hands.forced_patterns`), measured 2026-11-14: at most 7 ms a forced card,
+    but `engine._bell_after_draw` built them for every pool card in a row, 120 ms in all with Four Fingers +
+    Shortcut on Full House + Straight Flush. It now checks `cancel` between cards; each build is left as is.
 - [ ] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
 - [ ] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
 - [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)

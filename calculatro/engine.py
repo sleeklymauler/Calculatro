@@ -2247,6 +2247,10 @@ def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: 
     if draws:
         groups: dict[object, list[int]] = {}
         for j, c in enumerate(pool):
+            # The first time, each card's forced patterns are built: up to 7 ms each, 120 ms for all
+            # (Four Fingers + Shortcut, Full House + Straight Flush), so check between them.
+            if cancel is not None and cancel.is_set():
+                raise Cancelled
             groups.setdefault(_forced_group(target.hands, rules, card_key(c, rules)), []).append(j)
         unseen = Fraction(0)
         for members in groups.values():
