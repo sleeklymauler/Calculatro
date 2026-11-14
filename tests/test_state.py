@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from calculatro.__main__ import calculate, summarize
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.paths import (
@@ -20,9 +19,11 @@ from calculatro.paths import (
     default_state_path,
     odds_path,
 )
+from calculatro.report import build_report
 from calculatro.rules import Rules
 from calculatro.source import FileStateSource
 from calculatro.state import SCHEMA, GameState, Joker, MalformedState, SchemaMismatch
+from calculatro.text import format_report, summarize
 from mocked_game import MOD_DIR, create_directory, directory_items, load_mod, mod_sources, snapshot_json
 
 
@@ -121,8 +122,8 @@ def test_rules_from_jokers():
 
 
 def odds(state, targets, queries=()) -> str:
-    """The odds as the console shows them."""
-    return calculate(state, targets, list(queries))[0]
+    """The odds as `calculatro odds` prints them."""
+    return format_report(build_report(state, targets, list(queries)))
 
 
 def test_odds_for_selection(lua):

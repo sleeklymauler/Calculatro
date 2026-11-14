@@ -88,7 +88,7 @@ def answer(lua, tmp_path, targets=("trips", "pair"), queries=("at most 1 nine",)
 def reply(tmp_path):
     """The app's odds for the mod's latest state."""
     state = read_state(tmp_path)
-    _, payload = cli.calculate(state, *cli.tracked(state))
+    payload = cli.calculate(state, *cli.tracked(state))
     assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
 
 

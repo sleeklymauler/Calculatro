@@ -88,7 +88,7 @@ def test_a_home_at_a_drives_root_isnt_hidden(monkeypatch, tmp_path):
 def test_the_header_hides_the_home_folder(monkeypatch, tmp_path):
     home = tmp_path / "Some One"
     monkeypatch.setenv("USERPROFILE", str(home))
-    text = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop, **_: None, home / "state.json")
+    text = start_from_game(monkeypatch, tmp_path, lambda source, panel, stop, **_: None, home / "state.json")
     assert str(home) not in text and text.rstrip().endswith(r"watching ~\state.json")
 
 
@@ -110,13 +110,13 @@ def start_from_game(monkeypatch, tmp_path, run_watch, state: Path | None = None,
 
 
 def test_game_start_says_when_the_game_is_missing(monkeypatch, tmp_path):
-    text = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop, **_: None,
+    text = start_from_game(monkeypatch, tmp_path, lambda source, panel, stop, **_: None,
                            exited=lambda pid: lambda: True)
     assert text.splitlines()[-1] == "Game process 1 isn't running or can't be opened: exiting."
 
 
 def test_game_start_says_nothing_of_a_running_game(monkeypatch, tmp_path):
-    text = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop, **_: None)
+    text = start_from_game(monkeypatch, tmp_path, lambda source, panel, stop, **_: None)
     assert "exiting" not in text
 
 
@@ -186,11 +186,11 @@ def test_game_start_watches_until_the_game_exits(monkeypatch, tmp_path, capsys, 
 def test_game_start_keeps_the_last_sessions_log(monkeypatch, tmp_path):
     monkeypatch.setenv("USERPROFILE", r"C:\Users\Some One")  # tmp_path is usually in the real one
 
-    def fails(source, write, panel, stop, **_):
+    def fails(source, panel, stop, **_):
         print("the traceback", file=sys.stderr)
 
     start_from_game(monkeypatch, tmp_path, fails)
-    lines = start_from_game(monkeypatch, tmp_path, lambda source, write, panel, stop, **_: None).splitlines()
+    lines = start_from_game(monkeypatch, tmp_path, lambda source, panel, stop, **_: None).splitlines()
     assert len(lines) == 3 and lines[1] == "the traceback"
     for line in lines[0], lines[2]:
         assert line.startswith(f"=== Calculatro {calculatro.__version__} started ")

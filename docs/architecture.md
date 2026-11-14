@@ -97,11 +97,11 @@ username isn't plain ASCII (`test_mod_never_uses_a_function_taking_an_ansi_path`
 
 `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card`
 dataclasses → `engine.py` computes exact odds → `report.py` collects them into a `Report` →
-`__main__.py` formats it for the console and `overlay.py` for the mod.
+`overlay.py` turns it into the mod's payload, and `__main__.run_watch` writes that to the odds file.
+`text.py` formats the state, a `Report` and a search as text, for `calculatro odds` only.
 
 - **Jobs.** `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread). Each new state
-  cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`), and
-  odds slower than ~0.25 s print the summary first with "Calculating odds..." and follow when ready.
+  cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`).
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
   when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
 - **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in three
@@ -116,7 +116,6 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   its first approximation in about 2 s rather than after every value's quick try (8 s for 30 values). The job reports each partial
   `Report` that shows something new (`Control.progress`), and `run_watch` sends it to the panel as a
   `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s), none if every value is found sooner.
-  The console prints only the finished report.
 - **Approximations.** A value that doesn't finish its quick try shows an approximation
   (`report.Approx`: its range `low` to `high`, `how` it was found, an `estimate` if it's one, and the
   `limit` once the exact odds are given up on) until its exact odds arrive, and keeps it if they're
@@ -168,7 +167,7 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   (`overlay.odds(state, None)`) or a search with no options, so the panel isn't left "Calculating..."
   or "Searching...".
 - **Failures on the main loop.** Any other error on `run_watch`'s main loop (a bad state that got past
-  the parser, the console failing) is logged the same way and the loop carries on, so the next state
+  the parser) is logged the same way and the loop carries on, so the next state
   is still answered.
 - **Settled hands only.** Odds are only calculated while the hand is `settled` (`SELECTING_HAND`, or
   no state given). While cards are dealt, a played hand scores or a pack is open, the hand changes
@@ -192,8 +191,8 @@ installed mod's `launch.txt` (skip with `-NoAutoStart`).
 - **One instance per state file.** With `--game-pid` the app exits at once if another instance is
   watching the same state file: a `Local\Calculatro-<hash of the path>` mutex
   (`process.instance_name`, `process.claim_instance`). Every `watch` claims its own, so a `--file`
-  elsewhere doesn't get in the game's way. One started by hand beside another on the same file only
-  prints, leaving the odds file to the first, since two writers would clash over it.
+  elsewhere doesn't get in the game's way. One started by hand beside another on the same file says so
+  and exits, leaving the odds file to the first, since two writers would clash over it.
 - **App log.** With `--game-pid` errors go to `%AppData%\Balatro\calculatro_data\calculatro.log` (`log.open_log`). It's
   kept across restarts, each session starting with a `log.header` line, and over 256 KB at startup
   it moves to `calculatro.log.1`. The home folder is written as `~`, since players post the log
@@ -205,8 +204,17 @@ installed mod's `launch.txt` (skip with `-NoAutoStart`).
   logged once a session, as counts only, since players post the log. It's there because the tests only know
   the game through its mock. Look for `the unseen pool doesn't match` after trying a change in game.
 
-By hand, `.venv/Scripts/python -m calculatro watch` shows the console output (`--file` overrides the
-state file path). What to calculate is set in game, with the panel's target editor.
+By hand, `.venv/Scripts/python -m calculatro watch` does the same, printing its errors rather than
+logging them (`--file` overrides the state file path). What to calculate is set in game, with the
+panel's target editor.
+
+## Debugging a state
+
+`.venv/Scripts/python -m calculatro odds [FILE]` reads a state file once (the game's by default) and
+prints the state, the odds of what it tracks and, with `--search ROW` or if the state asks for one, the
+best discard, worked out with the same limits as in game (`__main__.print_odds`, formatted by `text.py`).
+It writes no odds file, so it runs beside the game's app. A player's `state.json` from a bug report
+(the template asks for it) reproduces their panel this way.
 
 ## Releases
 

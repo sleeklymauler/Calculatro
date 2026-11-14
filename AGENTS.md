@@ -25,6 +25,8 @@ PowerShell and Bash.
   without timings. See `docs/performance/README.md`.
 - Install the mod into the game: `powershell -ExecutionPolicy Bypass -File scripts\install_mod.ps1`. Re-run after any change to the Lua.
 - Run by hand: `.venv/Scripts/python -m calculatro watch` (normally the mod starts the app with the game).
+- Debug a state: `.venv/Scripts/python -m calculatro odds [FILE] [--search ROW]` prints a state file's odds as
+  text (the game's by default, or a bug report's `state.json`).
 - Build a release: `powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1`.
 
 No runtime dependencies; `pytest`, `lupa` and `ruff` are dev-only.
@@ -45,8 +47,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (w
    (~5×/sec, only when it changes), reads the odds back from `odds.json` and draws the
    panel. It owns what's tracked, set in game with the panel's target editor.
 2. **Python app** (`calculatro/`): `source.py` polls the state file → `state.py` parses it →
-   `engine.py` computes exact odds → `report.py` collects them → `__main__.py` formats them for the
-   console and `overlay.py` for the mod. Odds and best-discard searches run in cancellable background
+   `engine.py` computes exact odds → `report.py` collects them → `overlay.py` turns them into the
+   odds file's payload (`text.py` into text, for `calculatro odds`). Odds and best-discard searches run in cancellable background
    jobs (`worker.Job`), whose parts stop at time and memory limits (`worker.Watchdog`).
 
 ## Read before changing
@@ -74,7 +76,7 @@ Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (w
   of CPU apart (`tests/test_cancel.py`; add a case for a new slow path).
 - **Exact odds.** The engine counts exactly (`Fraction`); it isn't Monte Carlo. The panel may show an
   approximation while the exact odds are worked out, or once they're given up on, but a value that isn't
-  exact is always marked as such (`report.Approx`: an asterisk, on the panel and in the console).
+  exact is always marked as such (`report.Approx`: an asterisk, on the panel and in `calculatro odds`).
 - **Lua 5.1.** The game runs LuaJIT, so no Lua 5.2+ features. The mod may not assign globals, and may
   read only LuaJIT's and the game's. Register every new Lua file in `lovely.toml`.
 - **File access in the mod.** Use `love.filesystem` or Windows' wide functions through the FFI, never

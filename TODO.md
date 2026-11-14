@@ -222,8 +222,9 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.
 - [ ] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)
   - `sorted_cards` also encodes every unseen card for each snapshot, changed or not (`snapshot.lua:102-109`).
-- [ ] **P13** **[low] (seen)** The game-started app formats console text nobody reads (`__main__.py:380`, `143-145`)
+- [x] **P13** **[low] (seen)** The game-started app formats console text nobody reads (`__main__.py:380`, `143-145`)
   - With `--game-pid`, stdout is the null device, but `summarize`, `format_report` and `format_search` still run for every state. It's cheap. It's also one more reason to decide what the console half is for.
+  - Done with A9: `run_watch` formats no text.
 
 ## Architecture and cleanup
 
@@ -247,7 +248,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [ ] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules
   - The rank labels (`builder.lua` `ranks_label`, `cards._ranks_label`), the panel's capacity (`tracked.lua`, `overlay.columns_needed`), the sort order (`observe.lua` `sort_key`, `posterior.sort_value`), The Mark's face cards (`hint.lua`, `engine.flipped_by_mark`) and the memory limit (`memory.lua`, `process.memory_limit`).
   - Some have a test that they agree (`test_builder_queries_parse_as_labelled`). Check each pair has one.
-- [ ] **A9** **[low] (carried)** Decide whether to keep the terminal output at all
+- [x] **A9** **[low] (carried)** Decide whether to keep the terminal output at all
+  - Done (2026-11-14): `watch` no longer prints the state or odds, only its errors; nobody sees its console. The
+    text moved to `calculatro/text.py`, for a new `calculatro odds [FILE] [--search ROW]` (I10) that prints one
+    state file's odds and best discard with the game's limits, to reproduce a bug report's `state.json`. A second
+    `watch` started by hand beside the game's now says so and exits, rather than only printing.
 
 ## Tests
 
@@ -378,3 +383,4 @@ Not findings, and none of them new since the last review except the first two.
 - [ ] **I8** Send the panel's visibility with the snapshot, so the app can idle while it's hidden
 - [ ] **I9** A configurable hotkey, and controller support for the panel's buttons
 - [ ] **I10** `calculatro odds FILE` to print one report and exit, for reproducing a bug report's state file; `--version`
+  - `calculatro odds` done with A9. `--version` is still to do.

@@ -99,18 +99,15 @@ def state(name: str, tracked_hands: tuple[str, ...] = ("Pair",), game_state: str
     return GameState(in_run=True, state=game_state, blind=name, tracked_hands=list(tracked_hands))
 
 
-def watch(source, fake_odds, done, monkeypatch, timeout=5.0, patience=5.0) -> list[str]:
-    """Run the watch loop until `done(writes)`, returning everything it wrote.
-
-    The default `patience` is long, so odds meant to print with their summary do, however busy the machine. A test of
-    odds that miss it passes a short one, and holds its job until the placeholder has been printed."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (fake_odds(st, t, q, cancel), {}))
-    writes: list[str] = []
+def watch(source, fake_odds, done, monkeypatch, timeout=5.0) -> list[dict]:
+    """Run the watch loop until `done(sent)`, returning every payload it sent the panel. A state's odds are
+    `{"odds": fake_odds(...)}`."""
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: {"odds": fake_odds(st, t, q, cancel)})
+    sent: list[dict] = []
     end = time.monotonic() + timeout
-    cli.run_watch(source, writes.append, patience=patience, poll_interval=0.005,
-                  stop=lambda: done(writes) or time.monotonic() > end)
-    assert done(writes), writes
-    return writes
+    cli.run_watch(source, sent.append, poll_interval=0.005, stop=lambda: done(sent) or time.monotonic() > end)
+    assert done(sent), sent
+    return sent
 
 
 def test_no_odds_until_the_hand_settles(monkeypatch):
@@ -120,37 +117,12 @@ def test_no_odds_until_the_hand_settles(monkeypatch):
     source = FakeSource(state("A", game_state="DRAW_TO_HAND"), state("B", game_state="HAND_PLAYED"), state("C"))
     sent: list[dict] = []
     monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (
-        calculated.append(st.blind) or f"odds {st.blind}", {"odds": st.blind}))
-    writes: list[str] = []
+        calculated.append(st.blind) or {"odds": st.blind}))
     end = time.monotonic() + 5
-    cli.run_watch(source, writes.append, sent.append, patience=0.05, poll_interval=0.005,
-                  stop=lambda: any("odds C" in w for w in writes) or time.monotonic() > end)
+    cli.run_watch(source, sent.append, poll_interval=0.005,
+                  stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
     assert calculated == ["C"]
-    assert writes[0].endswith("\n" + cli.WAITING_FOR_HAND) and writes[1].endswith("\n" + cli.WAITING_FOR_HAND)
     assert [p.get("pending") for p in sent[:2]] == [True, True] and sent[-1] == {"odds": "C"}
-
-
-def test_fast_odds_print_with_summary(monkeypatch):
-    writes = watch(FakeSource(state("A")), lambda st, t, q, cancel: f"odds {st.blind}",
-                   lambda w: len(w) == 1, monkeypatch)
-    assert "Blind: A" in writes[0] and writes[0].endswith("\nodds A")
-
-
-def test_slow_odds_print_summary_first(monkeypatch):
-    release = threading.Event()
-
-    def slow(st, t, q, cancel):
-        release.wait(5)
-        return "odds A"
-
-    def done(writes):
-        if writes:
-            release.set()  # only finish once the placeholder has been printed
-        return len(writes) == 2
-
-    writes = watch(FakeSource(state("A")), slow, done, monkeypatch, patience=0.05)
-    assert "Blind: A" in writes[0] and writes[0].endswith("\n" + cli.CALCULATING)
-    assert writes[1] == "odds A"
 
 
 def test_new_state_cancels_running_odds(monkeypatch):
@@ -165,17 +137,15 @@ def test_new_state_cancels_running_odds(monkeypatch):
         cancelled.set()
         raise Cancelled
 
-    def done(writes):
-        if len(writes) == 1 and not source.queue and "Blind: B" not in writes[0]:
+    def done(sent):
+        if len(sent) == 1 and not source.queue:
             source.queue.append(state("B"))  # the game moves on while A is still calculating
-        return any("odds B" in w for w in writes)
+        return {"odds": "odds B"} in sent
 
-    writes = watch(source, odds, done, monkeypatch, patience=0.05)  # A never finishes, so it misses its patience
+    sent = watch(source, odds, done, monkeypatch)
     assert cancelled.wait(5)
-    assert writes[0].endswith(cli.CALCULATING)
-    # B's odds print with its summary, or after it if a busy machine makes them miss the short patience.
-    assert "Blind: B" in writes[1] and writes[-1].endswith("odds B")
-    assert not any("odds A" in w for w in writes)
+    assert sent[0].get("pending") and sent[-1] == {"odds": "odds B"}
+    assert {"odds": "odds A"} not in sent
 
 
 def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
@@ -184,18 +154,17 @@ def test_failed_odds_logged_once_and_answered(monkeypatch, capsys):
     def odds(st, t, q, cancel, known=None, **_):
         if st.blind != "C":
             raise ValueError("boom")
-        return "odds C", {"odds": "C"}
+        return {"odds": "C"}
 
     monkeypatch.setattr(cli, "calculate", odds)
-    source, writes = FakeSource(state("A")), []
+    source = FakeSource(state("A"))
     sent = OneAtATime(source, [state("B"), state("C")])
     end = time.monotonic() + 5
-    cli.run_watch(source, writes.append, sent.append, patience=5, poll_interval=0.005,
+    cli.run_watch(source, sent.append, poll_interval=0.005,
                   stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
     assert sent[-1] == {"odds": "C"}
     answers = [p for p in sent if not p.get("pending")]
     assert answers[:2] == [{"schema": cli.overlay.SCHEMA, "targets": [], "cards": []}] * 2
-    assert writes[0].endswith("\n" + cli.ODDS_FAILED) and writes[1].endswith("\n" + cli.ODDS_FAILED)
     assert capsys.readouterr().err.count("ValueError: boom") == 1
 
 
@@ -218,14 +187,14 @@ def failing_odds(monkeypatch, fail) -> list[dict]:
     """The panel's payloads from running the watch loop over states A, B, X and Y, whose odds call `fail`, then C."""
     def odds(st, t, q, cancel, known=None, **_):
         if st.blind == "C":
-            return "odds C", {"odds": "C"}
+            return {"odds": "C"}
         fail(st.blind)
 
     monkeypatch.setattr(cli, "calculate", odds)
     source = FakeSource(state("A"))
     sent = OneAtATime(source, [*map(state, "BXYC")])
     end = time.monotonic() + 5
-    cli.run_watch(source, lambda text: None, sent.append, patience=5, poll_interval=0.05,
+    cli.run_watch(source, sent.append, poll_interval=0.05,
                   stop=lambda: sent[-1:] == [{"odds": "C"}] or time.monotonic() > end)
     return sent
 
@@ -274,7 +243,7 @@ BAD_STATES = {
     "joker-key": lambda: replace(state("A"), jokers=[Joker(5)]),
     "hand-rank": lambda: replace(state("A"), hand=[Card(rank=["x"])]),
     "unseen-suit": lambda: replace(state("A"), unseen=[Card(suit=["x"])]),
-    # A valid string that can't be printed or written: no type check catches these.
+    # A valid string that can't be written: no type check catches these.
     "surrogate-blind": lambda: state("\ud800"),
     "surrogate-id": lambda: replace(state("A"), id="\ud800"),
 }
@@ -283,16 +252,22 @@ BAD_STATES = {
 @pytest.mark.parametrize("bad", BAD_STATES.values(), ids=BAD_STATES.keys())
 def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsys, bad):
     """A state the loop can't handle doesn't stop the app, and the panel still gets the next one's odds."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (f"odds {st.blind}", {"odds": st.blind}))
+    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: {"odds": st.blind})
     odds_file = tmp_path / "odds.json"
-    source, writes = FakeSource(bad(), state("B")), []
+    source, written = FakeSource(bad(), state("B")), []
+
+    def panel(payload):
+        written.append(payload)
+        return cli.overlay.write(odds_file, payload)
+
     end = time.monotonic() + 5
-    cli.run_watch(source, lambda text: writes.append(text.encode("utf-8")),  # encoded like the real stdout
-                  lambda payload: cli.overlay.write(odds_file, payload), patience=0.05, poll_interval=0.005,
-                  stop=lambda: b"odds B" in b"".join(writes) or time.monotonic() > end)
-    assert b"odds B" in b"".join(writes)
+    cli.run_watch(source, panel, poll_interval=0.005,
+                  stop=lambda: {"odds": "B"} in written or time.monotonic() > end)
     assert json.loads(odds_file.read_text(encoding="utf-8")) == {"odds": "B"}
-    assert "Handling the game state failed" in capsys.readouterr().err
+    # Some only failed in the console's summary, which is gone: those are answered like any other.
+    err = capsys.readouterr().err
+    fine = (BAD_STATES["joker-key"], BAD_STATES["unseen-suit"])
+    assert ("Handling the game state failed" in err) == (bad not in fine)
 
 
 def test_bad_state_after_a_running_job_isnt_a_failed_calculation(monkeypatch, capsys):
@@ -304,14 +279,14 @@ def test_bad_state_after_a_running_job_isnt_a_failed_calculation(monkeypatch, ca
             raise Cancelled
         return f"odds {st.blind}"
 
-    writes = watch(FakeSource(state("A"), replace(state("X"), jokers=[Joker(5)]), state("B")), odds,
-                   lambda w: any("odds B" in text for text in w), monkeypatch)
-    assert not any(cli.ODDS_FAILED in text for text in writes)
+    sent = watch(FakeSource(state("A"), replace(state("X"), jokers=[Joker(5)]), state("B")), odds,
+                 lambda sent: {"odds": "odds B"} in sent, monkeypatch)
+    assert all("odds" in p for p in sent if not p.get("pending"))  # none without values, as for a failure
     assert "Odds for snapshot" not in capsys.readouterr().err
 
 
 def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
-    """An error unrelated to the running job doesn't lose its odds, or the summary printed with them."""
+    """An error unrelated to the running job doesn't lose its odds."""
     release = threading.Event()
 
     class Broken(FakeSource):
@@ -325,36 +300,8 @@ def test_error_polling_leaves_the_running_job(monkeypatch, capsys):
         release.wait(5)
         return "odds A"
 
-    writes = watch(Broken(state("A")), odds, lambda w: any("odds A" in text for text in w), monkeypatch)
-    assert any("Blind: A" in text and "odds A" in text for text in writes)
+    watch(Broken(state("A")), odds, lambda sent: {"odds": "odds A"} in sent, monkeypatch)
     assert "OSError: boom" in capsys.readouterr().err
-
-
-def test_failure_printing_finished_odds_isnt_repeated(monkeypatch, capsys):
-    """Odds that can't be printed are dropped, not printed again on every pass of the loop."""
-    monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (f"odds {st.blind}", {"odds": st.blind}))
-    attempts, writes = [], []
-
-    def write(text):
-        if "odds A" in text:
-            attempts.append(text)
-            raise OSError("boom")
-        writes.append(text)
-
-    source = FakeSource(state("A"))
-    end = time.monotonic() + 5
-    queued = []
-
-    def stop():
-        if attempts and not queued:
-            queued.append(True)
-            source.queue.append(state("B"))
-        return any("odds B" in text for text in writes) or time.monotonic() > end
-
-    cli.run_watch(source, write, patience=5, poll_interval=0.005, stop=stop)
-    assert any("odds B" in text for text in writes)
-    assert len(attempts) == 1
-    assert capsys.readouterr().err.count("OSError: boom") == 1
 
 
 def test_caches_emptied_when_the_rule_jokers_change(monkeypatch):
@@ -373,13 +320,6 @@ def test_caches_emptied_when_the_rule_jokers_change(monkeypatch):
     monkeypatch.setattr(cli, "clear_caches", lambda: cleared.append(polled[-1]))
     watch(source, lambda st, t, q, cancel: f"odds {st.blind}", lambda w: polled[-1:] == ["G"], monkeypatch)
     assert cleared == ["B", "E", "G"]
-
-
-def test_summary_only_without_targets(monkeypatch):
-    writes: list[str] = []
-    cli.run_watch(FakeSource(state("A", ())), writes.append, poll_interval=0.005,
-                  stop=lambda: bool(writes))
-    assert len(writes) == 1 and "Blind: A" in writes[0] and writes[0].endswith(cli.NOTHING_TRACKED)
 
 
 def test_tracked_skips_unknown_repeated_and_overflowing():
@@ -412,10 +352,9 @@ def wait_for(cond, timeout=5.0):
         time.sleep(0.005)
 
 
-def watch_thread(source, sent, writes=None, **kwargs):
+def watch_thread(source, sent, **kwargs):
     stopped = threading.Event()
-    t = threading.Thread(target=cli.run_watch, args=(source, (writes if writes is not None else []).append,
-                                                       sent.append),
+    t = threading.Thread(target=cli.run_watch, args=(source, sent.append),
                          kwargs={"poll_interval": 0.005, "stop": stopped.is_set, **kwargs}, daemon=True)
     t.start()
     return stopped, t
@@ -433,8 +372,8 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
         return Search([[2]], Fraction(1))
 
     monkeypatch.setattr(cli, "best_discards", search)
-    source, sent, writes = FakeSource(hand_state(1)), [], []
-    stopped, t = watch_thread(source, sent, writes)
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent)
     try:
         wait_for(lambda: any("targets" in p for p in sent))
         source.queue.append(hand_state(2, selected=(0,)))  # selecting cards doesn't cancel it
@@ -444,7 +383,6 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
         wait_for(lambda: "search" in sent[-1])
         reply = {"nonce": 1, "key": "Pair", "options": [[2]]}
         assert sent[-1]["search"] == reply and sent[-1]["id"] == "s:2"
-        assert any(w.startswith("Best discard for Pair: discard 2") for w in writes)
         source.queue.append(hand_state(3, selected=(2,)))  # the search's own selection
         wait_for(lambda: sent[-1]["id"] == "s:3" and "targets" in sent[-1])
         assert all(p.get("search") == reply for p in sent if p["id"] == "s:3")
@@ -730,7 +668,7 @@ def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
 
     end = time.monotonic() + 10
     # A value that missed its quick try would be calculated again in the exact pass: give it time on a busy machine.
-    cli.run_watch(source, lambda text: None, panel, patience=0.05, poll_interval=0.005, limits=Limits(quick=5),
+    cli.run_watch(source, panel, poll_interval=0.005, limits=Limits(quick=5),
                   stop=lambda: len(answers) == len(steps) or time.monotonic() > end)
     assert [a["id"] for a in answers] == [st.id for st, _ in steps]
     expected = [call for _, step in steps for call in step]
@@ -778,7 +716,7 @@ def test_each_state_sets_the_memory_limit_from_the_setting():
         limits.append(watchdog.memory_limit)
         return not source.queue
 
-    cli.run_watch(source, lambda text: None, poll_interval=0.001, stop=stop, watchdog=watchdog,
+    cli.run_watch(source, lambda payload: None, poll_interval=0.001, stop=stop, watchdog=watchdog,
                   memory_limit=lambda gb: (gb or 2) * 1000)
     assert limits == [0, 4000, 2000, 1000]  # none until the first state: the watchdog's own
 
@@ -814,8 +752,8 @@ def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch
     monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
     hands = ["Pair", "Flush", "Straight Flush"]
     first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=hands)
-    source, sent, writes = FakeSource(first), [], []
-    stopped, t = watch_thread(source, sent, writes, limits=Limits(quick=0.05, exact=0.4))
+    source, sent = FakeSource(first), []
+    stopped, t = watch_thread(source, sent, limits=Limits(quick=0.05, exact=0.4))
     try:
         wait_for(lambda: sent and "targets" in sent[-1] and not sent[-1].get("partial"))
         # Pair, done in the quick pass, while Flush is worked out.
@@ -830,7 +768,6 @@ def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch
         assert rows["Straight Flush"] == {"key": "Straight Flush", "keep": "?", "keep_mark": too_slow,
                                           "discard": "?", "discard_mark": too_slow}  # no trend
         assert all(no_nulls(p) for p in sent)
-        assert any("Straight Flush" in w and "?  ->        ?  (too slow)" in w for w in writes)
         # Given up on until something they depend on changes: the same cards again are answered at once.
         calls.clear()
         final = sent[-1]
@@ -845,13 +782,13 @@ def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch
 
 def test_a_slow_any_target_is_approximated(monkeypatch):
     """A slow "Any target" is sent as its bounds from the hands' odds while its exact odds are worked out, and keeps
-    them once those are given up on, in the console too."""
+    them once those are given up on."""
     any_name = "Pair / Flush"
     odds = {"Pair": Fraction(1, 5), "Flush": Fraction(1, 10)}
     monkeypatch.setattr(report, "evaluate_discard", taking({any_name: 10}, odds=odds))
     first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=["Pair", "Flush"])
-    source, sent, writes = FakeSource(first), [], []
-    stopped, t = watch_thread(source, sent, writes, limits=Limits(quick=0.05, exact=0.4))
+    source, sent = FakeSource(first), []
+    stopped, t = watch_thread(source, sent, limits=Limits(quick=0.05, exact=0.4))
     try:
         wait_for(lambda: sent and "targets" in sent[-1] and not sent[-1].get("partial"))
         refining = {"state": "refining", "how": "bounds", "low": "20.0%", "high": "30.0%"}
@@ -862,9 +799,6 @@ def test_a_slow_any_target_is_approximated(monkeypatch):
         assert sent[-1]["targets"][0] == {"key": "Any target", "keep": "20%+", "keep_mark": final,
                                           "discard": "20%+", "discard_mark": final}  # no trend: they overlap
         assert all(no_nulls(p) for p in sent)
-        line = "Any target    20%+*  ->    20%+*  (* keep 20.00% to 30.00%; * discard 20.00% to 30.00%; too slow)"
-        assert any(line in w
-                   for w in writes)
     finally:
         stopped.set()
         t.join(5)
@@ -883,8 +817,8 @@ def test_all_quick_rows_send_no_partial_payload(monkeypatch):
 
 
 def test_search_given_up_answers_from_estimates(monkeypatch):
-    """A search given up on at its limit answers from estimates of the choices it had, marked, in the console too,
-    and the same at once when asked for again."""
+    """A search given up on at its limit answers from estimates of the choices it had, marked, and the same at once
+    when asked for again."""
     calls: list[str] = []
     guesses = {(): Estimate(0.4, 0.35, 0.45, 1000, True), (0,): Estimate(0.6, 0.55, 0.65, 1000, True)}
 
@@ -897,15 +831,13 @@ def test_search_given_up_answers_from_estimates(monkeypatch):
         raise Cancelled
 
     monkeypatch.setattr(cli, "best_discards", search)
-    source, sent, writes = FakeSource(hand_state(1)), [], []
-    stopped, t = watch_thread(source, sent, writes, limits=Limits(search=0.1, search_estimate=0.5))
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent, limits=Limits(search=0.1, search_estimate=0.5))
     try:
         wait_for(lambda: sent and "search" in sent[-1])
         estimated = {"nonce": 1, "key": "Pair", "options": [[0]],
                      "mark": {"state": "final", "how": "draws", "low": "55.0%", "high": "65.0%", "limit": "time"}}
         assert sent[-1]["search"] == estimated and no_nulls(sent[-1])
-        assert ("Best discard for Pair: discard 9\u2660, 60.00%* (* by estimates, too slow to compare exactly; "
-                "likely 55.00% to 65.00%)") in writes
         source.queue.append(hand_state(2, selected=(0,), search=("Pair", 2)))
         wait_for(lambda: sent[-1].get("search", {}).get("nonce") == 2)
         assert sent[-1]["search"] == {**estimated, "nonce": 2} and calls == ["s:1"]
@@ -924,13 +856,12 @@ def test_search_given_up_at_its_limit_and_answered_at_once_after(monkeypatch):
         raise Cancelled
 
     monkeypatch.setattr(cli, "best_discards", search)
-    source, sent, writes = FakeSource(hand_state(1)), [], []
-    stopped, t = watch_thread(source, sent, writes, limits=Limits(search=0.1))
+    source, sent = FakeSource(hand_state(1)), []
+    stopped, t = watch_thread(source, sent, limits=Limits(search=0.1))
     try:
         wait_for(lambda: sent and "search" in sent[-1])
         gave_up = {"nonce": 1, "key": "Pair", "options": [], "mark": {"state": "final", "limit": "time"}}
         assert sent[-1]["search"] == gave_up
-        assert "Best discard for Pair: too slow, given up on" in writes
         # Asked for again: answered at once.
         source.queue.append(hand_state(2, selected=(0,), search=("Pair", 2)))
         wait_for(lambda: sent[-1].get("search", {}).get("nonce") == 2)

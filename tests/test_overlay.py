@@ -376,13 +376,13 @@ def test_payloads(lua, tmp_path):
 def test_watch_sends_pending_then_odds():
     state = GameState(in_run=True, id="s:1", hand_size=1, tracked_hands=["Pair"])
     sent: list[dict] = []
-    cli.run_watch(FakeSource(state), lambda text: None, sent.append,
+    cli.run_watch(FakeSource(state), sent.append,
                   poll_interval=0.005, stop=lambda: len(sent) >= 2)
     assert sent == [overlay.pending(state), overlay.odds(state, None)]
 
     sent.clear()
     untracked = GameState(in_run=True, id="s:2", hand_size=1)
-    cli.run_watch(FakeSource(untracked), lambda text: None, sent.append,
+    cli.run_watch(FakeSource(untracked), sent.append,
                   poll_interval=0.005, stop=lambda: bool(sent))
     assert sent == [overlay.odds(untracked, None)]
 
@@ -402,7 +402,7 @@ def test_watch_resends_odds_the_panel_missed(monkeypatch, capsys):
         return True
 
     end = time.monotonic() + 5
-    cli.run_watch(FakeSource(state), lambda text: None, panel,
+    cli.run_watch(FakeSource(state), panel,
                   poll_interval=0.005, stop=lambda: bool(delivered) or time.monotonic() > end)
     assert attempts[0] == overlay.pending(state)
     assert delivered == [overlay.odds(state, None)]  # the odds replaced the pending payload
@@ -425,7 +425,7 @@ def test_watch_drops_missed_odds_for_a_newer_state(monkeypatch):
         return True
 
     end = time.monotonic() + 5
-    cli.run_watch(source, lambda text: None, panel, poll_interval=0.005,
+    cli.run_watch(source, panel, poll_interval=0.005,
                   stop=lambda: bool(delivered) or time.monotonic() > end)
     assert delivered == [overlay.odds(new, None)]
 
@@ -468,7 +468,7 @@ def test_watch_reports_other_write_errors_and_retries_them_slowly(monkeypatch, c
         return True
 
     end = time.monotonic() + 5
-    cli.run_watch(FakeSource(state), lambda text: None, panel,
+    cli.run_watch(FakeSource(state), panel,
                   poll_interval=0.005, stop=lambda: len(attempts) >= 3 or time.monotonic() > end)
     assert len(attempts) == 3
     assert attempts[1] - attempts[0] >= 0.2 and attempts[2] - attempts[1] >= 0.2
@@ -969,7 +969,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
 def app_payload(tmp_path) -> dict:
     """The app's odds for the mod's latest state, for a test to change before writing."""
     state = read_state(tmp_path)
-    return cli.calculate(state, *cli.tracked(state))[1]
+    return cli.calculate(state, *cli.tracked(state))
 
 
 def write_payload(tmp_path, payload: dict) -> None:
@@ -1957,7 +1957,7 @@ def reply_search(tmp_path, options=None):
     """The app's odds for the mod's latest state, with its search's result:
     `options` if given, else what the search finds."""
     state = read_state(tmp_path)
-    _, payload = cli.calculate(state, *cli.tracked(state))
+    payload = cli.calculate(state, *cli.tracked(state))
     key, nonce = state.search
     found = Search(options, Fraction(1)) if options is not None else cli.find_best(state, cli.search_target(state, key))
     payload["search"] = overlay.search(key, nonce, found)
@@ -2131,7 +2131,7 @@ def test_search_options_dropped_when_worked_out_again(lua, tmp_path):
     reply_search(tmp_path, [[0], [1]])
     mod.update(0.1)
     state = read_state(tmp_path)
-    _, payload = cli.calculate(state, *cli.tracked(state))
+    payload = cli.calculate(state, *cli.tracked(state))
     payload["search"] = overlay.search("Pair", 1, Search([[1]], Fraction(1)))
     assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
     mod.update(0.1)

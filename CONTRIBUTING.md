@@ -56,9 +56,13 @@ Python changes take effect the next time the game starts the app (the install is
 .venv\Scripts\python -m calculatro watch
 ```
 
-This prints the game state and the odds to the console, which is handy for debugging. Only one app writes the odds
-file: if the game already started one, this one only prints. To see your changes on the panel, install with
-`-NoAutoStart` and start the app by hand. `--file` reads the state from another path.
+This writes the odds for the panel, as the app the game starts does, and prints its errors. Only one app writes
+the odds file: if the game already started one, this one says so and exits. To see your changes on the panel,
+install with `-NoAutoStart` and start the app by hand. `--file` reads the state from another path.
+
+To see the odds as text instead, for debugging, run `.venv\Scripts\python -m calculatro odds`. It prints the
+current state and its odds once (and the best discard, with `--search ROW`), and runs beside the game's app.
+Give it a file to read another state, such as the `state.json` from a bug report.
 
 ## Tests and lint
 
