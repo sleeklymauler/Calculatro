@@ -230,7 +230,11 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   55,000 hands: about half a point either side. The same stopping rule and range as above, and seeded
   too. Card queries have none: without the sorts they're always quick. `test_estimates_from_draws_*`
   (in `test_report.py`) check it against the exact odds on random hands under every boss, DNA,
-  The Serpent and the joker rules.
+  The Serpent and the joker rules. Since `_final_hands` repeats the exact model's rules,
+  `tests/test_sampled_model.py` checks the two agree under each rule, alone and together (DNA under
+  The Hook, The Mark and Cerulean Bell; marked cards discarded face down; fewer face cards unseen than
+  marked ones), and that each case's rule changes the odds by more than its tolerance. A rule added
+  to one model belongs in a case there.
 
 A best-discard search given up on answers from estimates too: see [Best discard](#best-discard).
 

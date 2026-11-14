@@ -94,7 +94,8 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done: a budget, `Limits.quick_pass` (1 s), on the quick tries that ran out. Once it's spent, the quick pass
     estimates the values it has found slow, and then each one straight after its try. First approximation
     there: 1.8 s. The others are unchanged: no slow values, or `unchecked` skipping the tries. Tested in
-    `test_slow_values_estimated_during_the_quick_pass_once_it_has_taken_long_enough`.
+    `test_slow_values_estimated_during_the_quick_pass_once_it_has_taken_long_enough`. Tried in game (2026-11-13):
+    the approximations fill in much sooner.
   - Still slow: the last approximation. Estimates run one at a time, 0.4 to 0.8 s each, so that panel has all of
     them after 18 s, and The House's first hand sorted both ways (30 values) after 15 s. See I2.
 - [ ] **B7** **[low] (seen)** When every choice ties, a best-discard search returns every discard (`search.py:187`, `search.py:236`)
@@ -257,8 +258,16 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - T1's split fixes this too.
 - [ ] **T3** **[med] (carried)** Seeded fuzz tests against brute force, as a `-m fuzz` tier
   - `random_card` only deals ranks 9 to 14, into decks of 8 to 12 cards (`test_engine.py:191-219`). Small hands, `select_limit` of 0 or 1, empty decks, and modifiers under The Mark or The Hook aren't reached.
-- [ ] **T4** **[med] (seen)** A test that the sampled model agrees with the exact one
+- [x] **T4** **[med] (seen)** A test that the sampled model agrees with the exact one
   - See A3. `test_posterior.py` checks `estimate_discard` on a few states; nothing goes through every boss and DNA with `_estimate_draws` against `_evaluate_discard`.
+  - Mostly there already (2026-11-13): the review missed `test_estimates_from_draws_*` in `test_report.py`, which
+    catch each of the rules taken out of `_final_hands` (The Hook, The Mark's split, DNA's copies, Cerulean Bell,
+    Crimson Heart). They missed a DNA copy of a marked card, and the fallback when fewer face cards are unseen
+    than marked ones.
+  - Done: `tests/test_sampled_model.py`, eleven cases of each rule alone and together, comparing
+    `_final_hands`' share of 4000 hands with `evaluate_discard` within 4 standard errors, and checking that
+    each case's rule changes the odds by more than that. It catches all 13 mutations of `_final_hands` tried,
+    including those two. About 25 s of CPU, a few seconds in parallel.
 - [ ] **T5** **[low] (seen)** Cancelling is only tested with the event already set (`test_search.py:249`, `364`)
   - Add one that sets it partway through a heavy scenario and checks how long the job takes to end. (carried)
 - [x] **T6** **[low] (carried)** `test_watch.py` depends on fake jobs finishing within `patience=0.05` s (`:105`, `:121`, `:186`)
