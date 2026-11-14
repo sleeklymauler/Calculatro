@@ -280,8 +280,18 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     `_final_hands`' share of 4000 hands with `evaluate_discard` within 4 standard errors, and checking that
     each case's rule changes the odds by more than that. It catches all 13 mutations of `_final_hands` tried,
     including those two. About 25 s of CPU, a few seconds in parallel.
-- [ ] **T5** **[low] (seen)** Cancelling is only tested with the event already set (`test_search.py:249`, `364`)
+- [x] **T5** **[low] (seen)** Cancelling is only tested with the event already set (`test_search.py:249`, `364`)
   - Add one that sets it partway through a heavy scenario and checks how long the job takes to end. (carried)
+  - Done (2026-11-14): `tests/test_cancel.py` runs 15 slow cases (odds rows under each boss and the sorts,
+    estimates, best-discard and card-query searches, a search given up on) and checks the longest stretch of the
+    thread's CPU time between two checks of `cancel` is at most 0.1 s, then cancels one through `worker.Job`.
+    Runs stop after a number of checks, not of seconds, so a busy machine does the same work.
+  - It found three stretches, now checked: `search._relabelled`'s symmetry test (0.16 to 0.36 s each search with
+    Four Fingers + Shortcut), `posterior.Deals` building its tables (0.25 s, The House sorted both ways, once per
+    set of evidence) and `engine._union_by_suit`'s `necessary` (up to 0.08 s). Each case is now 0.03 s at most.
+  - Not covered: the caches built once per set of rules and target, which the test fills first. Cold, they go
+    up to 0.35 s (Cerulean Bell's forced patterns and `_split_by_suit` with Four Fingers + Shortcut), more
+    than P8 measured for the patterns alone. That's after the rule jokers change (P7) or a new target.
 - [x] **T6** **[low] (carried)** `test_watch.py` depends on fake jobs finishing within `patience=0.05` s (`:105`, `:121`, `:186`)
   - Likely to flake on a busy CI runner. Raise it, or drive the loop with a fake clock.
   - Done: long patience except where a test needs it to run out, states queued one at a time, and partial payloads

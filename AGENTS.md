@@ -69,7 +69,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 - **Schemas.** `SCHEMA` in `state.py` must match `schema` in `core.lua`, and `overlay.SCHEMA` must match
   `odds_schema`. Bump both sides when changing either JSON shape. The odds file never contains `null`
   (the Lua decoder doesn't support it).
-- **Cancellable.** Slow code paths must check the `cancel` Event and raise `engine.Cancelled`.
+- **Cancellable.** Slow code paths must check the `cancel` Event and raise `engine.Cancelled`, at most 0.1 s
+  of CPU apart (`tests/test_cancel.py`; add a case for a new slow path).
 - **Exact odds.** The engine counts exactly (`Fraction`); it isn't Monte Carlo. The panel may show an
   approximation while the exact odds are worked out, or once they're given up on, but a value that isn't
   exact is always marked as such (`report.Approx`: an asterisk, on the panel and in the console).

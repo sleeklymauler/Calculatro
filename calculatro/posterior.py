@@ -453,12 +453,18 @@ class Deals:
     the posterior (see `deals`): the weights are exact, but drawing by them uses
     floats (`_table`), so each deal's chance is right to about 1e-16."""
 
-    def __init__(self, trace: _Trace):
+    def __init__(self, trace: _Trace, check: Callable[[], None] = lambda: None):
         self.cards, self.hand_of = trace.cards, trace.hand_of
         self._last = self._table(list(trace.last.items()))
-        # For each slot, from the last: each state's ways back, by their weight.
-        self._back = [{state: self._table([((before, v), w) for before, v, w in ways])
-                       for state, ways in layer.items()} for layer in reversed(trace.layers)]
+        # For each slot, from the last: each state's ways back, by their weight. A slot's take up to a tenth of a
+        # second (The House's first hand sorted both ways).
+        self._back: list[dict] = []
+        for layer in reversed(trace.layers):
+            back = {}
+            for state, ways in layer.items():
+                check()
+                back[state] = self._table([((before, v), w) for before, v, w in ways])
+            self._back.append(back)
 
     @staticmethod
     def _table(weighted: list[tuple[object, Fraction]]) -> tuple[list, list[float]]:
@@ -502,7 +508,7 @@ def deals(observations: Sequence[Observation], observed: Sequence[ObservedCard],
     if not summed(observations, observed, unseen, allowed, extra, _none, check, trace=trace,
                   marked_rest=marked_rest).total:
         return None
-    return Deals(trace[0])
+    return Deals(trace[0], check)
 
 
 @dataclass(frozen=True)

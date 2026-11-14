@@ -133,7 +133,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
 
     def odds(goal: Target, discard: list[int]) -> Fraction:
         if goal not in relabelled:
-            relabelled[goal] = [_relabelled(state, goal, rules) for rules in rule_sets]
+            relabelled[goal] = [_relabelled(state, goal, rules, cancel) for rules in rule_sets]
         key = goal, tuple(k(discard) for k in relabelled[goal])
         p = known.get(key)
         if p is None:
@@ -355,7 +355,8 @@ def _hidden_group(card: Card) -> object:
     return ("hidden", card.marked) if card.latent is None else ("latent", card.latent)
 
 
-def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[list[int]], object]:
+def _relabelled(state: GameState, target: Target, rules: Rules,
+                cancel: Event | None = None) -> Callable[[list[int]], object]:
     """A key on discards, the same for two of them only if their odds of `target`
     with the final hand judged under `rules` are.
 
@@ -401,6 +402,8 @@ def _relabelled(state: GameState, target: Target, rules: Rules) -> Callable[[lis
     def symmetric(blocks: list[list], axis: int) -> bool:
         """Whether swapping any two ranks (axis 0) or suits (1) in a block maps the patterns onto themselves."""
         def swapper(a: object, b: object) -> Callable[[ClassKey], ClassKey]:
+            if cancel is not None and cancel.is_set():  # each swap reshapes every pattern: thousands of them with
+                raise Cancelled                         # Four Fingers and Shortcut, about 10 ms
             return lambda k: tuple((b if x == a else a if x == b else x) if i == axis else x
                                    for i, x in enumerate(k))
         return all({shape(pattern, swapper(a, b)) for pattern in patterns} == shapes

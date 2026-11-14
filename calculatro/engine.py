@@ -385,8 +385,11 @@ def _union_by_suit(patterns: tuple[Pattern, ...], kept: list[Card], pool: list[C
     present = frozenset(k for card in (*known, *pool) if (k := card_key(card, rules)) is not None)
     necessary = None if reuse is None else reuse.necessary.get((patterns, present))
     if necessary is None:
-        necessary = {s: Requirement(suit_keys(s), min(_cards_within(p, suit_keys(s), present) for p in pats))
-                     for s, pats in by_suit.items()}
+        necessary = {}
+        for s, pats in by_suit.items():  # thousands of patterns a suit with Four Fingers and Shortcut
+            if cancel is not None and cancel.is_set():
+                raise Cancelled
+            necessary[s] = Requirement(suit_keys(s), min(_cards_within(p, suit_keys(s), present) for p in pats))
         if reuse is not None:
             reuse.necessary[patterns, present] = necessary
     rest_ways: int | None = None
