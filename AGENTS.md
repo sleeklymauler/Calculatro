@@ -14,6 +14,8 @@ PowerShell and Bash.
   on 32 cores, 5 minutes on one)
 - Single test: `.venv/Scripts/python -m pytest -n0 tests/test_engine.py::test_name` (`-n0` skips starting the
   workers, a few seconds)
+- Fuzz: `.venv/Scripts/python -m pytest -m fuzz` (1000 random states against brute force, about 15 s;
+  `--fuzz-seeds N --fuzz-base B` for others). Run it after changing the engine or the search.
 - Lint: `.venv/Scripts/ruff check .` (`--fix` applies the safe fixes, including import sorting). Configured in
   `pyproject.toml`; there's no formatter.
 - Performance: `.venv/Scripts/python tests/perf/benchmark.py` (timings; `-k` filters, `--compare tests/perf/baseline.json`)
@@ -87,8 +89,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
 ## Tests
 
 - Fixtures shared between test modules are in `tests/conftest.py`; shared helpers are plain modules
-  beside it (`mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle`, `fakes`). Never
-  import from a `test_*` module.
+  beside it (`mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle`, `state_oracle`,
+  `rounds`, `fakes`). Never import from a `test_*` module.
 - A test that checks an estimate's values takes the `fake_clock` fixture: estimates stop at a deadline, so by
   the real clock a busy machine gets other (seeded) samples.
 - `tests/mocked_game.py` loads the real mod into `lupa` from the modules `lovely.toml` lists, as Lovely

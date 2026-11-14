@@ -256,8 +256,20 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Importing a test module to get a helper also makes its autouse fixtures apply (`no_estimates`). Move the fixtures to `conftest.py` and the helpers (`card`, `Game`, `FakeSource`, `TEXTS`, the mocked game) to plain modules beside `game_order.py`.
 - [x] **T2** **[low] (carried)** `test_state.py`'s module-level `importorskip("lupa")` also skips its pure-Python tests of `GameState` and `FileStateSource`
   - T1's split fixes this too.
-- [ ] **T3** **[med] (carried)** Seeded fuzz tests against brute force, as a `-m fuzz` tier
+- [x] **T3** **[med] (carried)** Seeded fuzz tests against brute force, as a `-m fuzz` tier
   - `random_card` only deals ranks 9 to 14, into decks of 8 to 12 cards (`test_engine.py:191-219`). Small hands, `select_limit` of 0 or 1, empty decks, and modifiers under The Mark or The Hook aren't reached.
+  - Done (2026-11-13): `tests/test_fuzz.py` makes one random state per seed (every boss the engine models, The
+    Wheel and The Psychic, disabled bosses, rule jokers, Wild, Stone, Lucky and debuffed cards, DNA, face-down
+    cards with and without the sorts, hands of 1 to 7, decks of 0 to 9, `select_limit` 0 to 5) and checks
+    `evaluate_discard`, `evaluate_cards` and both searches against brute force. The oracle moved out of
+    `test_posterior.py` into `tests/state_oracle.py`, and learnt Crimson Heart, The Psychic and its own copy of
+    The Mark's face cards. `-m fuzz` runs 1000 seeds in about 13 s (`--fuzz-seeds`, `--fuzz-base`); 3 run with
+    every `pytest`, with a check that the generator still makes every kind of state.
+  - 25,000 seeds found nothing in the engine. It catches all 8 mutations of the engine tried (The Hook,
+    The Psychic, The Serpent, DNA's room, Crimson Heart's picks and Perishables, The Mark, Cerulean Bell).
+  - Not covered: the oracle reads the game's rules from the same docs as the engine, so a misreading of the
+    game is in both; The Mark with Pareidolia sold mid-round (left to `test_posterior`); hands of 8 (too slow
+    to deal every way).
 - [x] **T4** **[med] (seen)** A test that the sampled model agrees with the exact one
   - See A3. `test_posterior.py` checks `estimate_discard` on a few states; nothing goes through every boss and DNA with `_estimate_draws` against `_evaluate_discard`.
   - Mostly there already (2026-11-13): the review missed `test_estimates_from_draws_*` in `test_report.py`, which

@@ -9,10 +9,13 @@ from fractions import Fraction
 
 import pytest
 
+from calculatro.cards import parse_query
 from calculatro.engine import evaluate_cards, evaluate_discard, posterior
+from calculatro.hands import get_target
 from calculatro.state import GameState
 from game_order import game_order
 from hand_driver import Game
+from rounds import played, random_round, round_discards
 
 pytest.importorskip("lupa")
 
@@ -576,7 +579,6 @@ def test_rounds_pruned_as_kept_and_the_hint_agrees(game, seed):
     # Every sort of a round, as the mod keeps them (less those the others imply, or that
     # say nothing), give the same odds as keeping every one; and the hint lists exactly
     # what each face-down card can be by them, as no two cards are alike here.
-    from test_posterior import QUERIES, TARGETS, played, random_round, round_discards
     rng = random.Random(1100 + seed)
     rnd, drawn = random_round(rng, plays=seed % 2 == 1)
     truth = played(rnd, drawn, seed)
@@ -591,10 +593,10 @@ def test_rounds_pruned_as_kept_and_the_hint_agrees(game, seed):
     kept = dataclasses.replace(state, observations=every.observations, observed=every.observed,
                                hand=[dataclasses.replace(c, latent=e.latent) for c, e in zip(state.hand, every.hand)])
     for discard in round_discards(rng, case):
-        for target in TARGETS[:2]:
+        for target in (get_target("Pair"), get_target("Two Pair")):
             assert (evaluate_discard(state, target, discard).probability
                     == evaluate_discard(kept, target, discard).probability), (target.name, discard)
-        for query in QUERIES[:2]:
+        for query in (parse_query("9"), parse_query("at least 2 hearts")):
             assert (evaluate_cards(state, query, discard).probability
                     == evaluate_cards(kept, query, discard).probability), (query.text, discard)
     post = posterior(state)
@@ -606,7 +608,6 @@ def test_rounds_pruned_as_kept_and_the_hint_agrees(game, seed):
 
 def test_some_rounds_are_pruned(lua):
     # So the test above compares something.
-    from test_posterior import played, random_round
     pruned = 0
     for seed in range(12):
         game = Game(lua)

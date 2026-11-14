@@ -173,9 +173,11 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
 [performance/face-down.md](performance/face-down.md#whats-still-slow). It can
   always be cancelled (`check()` in `summed`, each branch in `_averaged`, and the engine's own checks).
   Benchmarks are the "sorted" scenarios in `tests/perf/scenarios.py`.
-- **Tests.** `tests/test_posterior.py` checks the posterior and the odds against dealing every way:
-  every deal of the unseen cards, every order of the tie-breakers, sorted by the game's `get_nominal`
-  (`tests/game_order.py`), keeping the deals that show what the player saw, then every draw. That
+- **Tests.** `tests/test_posterior.py` checks the posterior and the odds against dealing every way
+  (`tests/state_oracle.py`): every deal of the unseen cards, every order of the tie-breakers, sorted by
+  the game's `get_nominal` (`tests/game_order.py`), keeping the deals that show what the player saw,
+  then every draw, after The Hook, DNA, Cerulean Bell and Crimson Heart. `tests/test_fuzz.py` checks
+  random states against it, with bosses, rule jokers, DNA and the hand's sorts in any mix (`-m fuzz`). That
   covers copies and Stones in both sorts, cards discarded face down after the sorts, Wild Cards and
   Smeared, The House, The Mark, The Hook, The Serpent, Cerulean Bell, DNA and an exhausted deck, plus
   the search against trying every discard. Rounds are also played out from the shuffled deck (`Round`):

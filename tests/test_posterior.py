@@ -1,267 +1,40 @@
 """The odds with what the hand's sorts show of its face-down cards, checked
-against dealing every way (docs/probability-model.md#face-down-cards-in-the-hands-sorts).
+against dealing every way (`state_oracle`, docs/probability-model.md#face-down-cards-in-the-hands-sorts)."""
 
-The oracle doesn't use the posterior's model: it deals the unseen cards to the
-face-down ones every way, gives the cards alike in print every order of the
-game's hidden tie-breakers (the same in both sorts), sorts with the game's
-get_nominal (`game_order`), keeps the deals that show what the player saw, and
-then plays out every draw.
-"""
-
-import itertools
 import random
 import threading
 from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from fractions import Fraction
-from math import factorial, prod
 
 import pytest
 
 from calculatro import engine
-from calculatro.cards import CardQuery, parse_query
+from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard, flipped_by_mark, posterior
-from calculatro.hands import Target, combine, get_target
+from calculatro.hands import combine, get_target
 from calculatro.posterior import deals, reference
 from calculatro.search import best_card_discards, best_discards
-from calculatro.state import SCHEMA, SUITS, Card, GameState
+from calculatro.state import SUITS, Card, GameState
 from game_order import nominal
-from poker import card, contains, contains_forced
+from poker import card
+from rounds import Played, Round, played, random_round, round_discards
 from search_oracle import check as check_search
+from state_oracle import (
+    STONE,
+    Case,
+    check,
+    face_for_the_mark,
+    oracle,
+    ours_by_cards,
+    posterior_by_cards,
+    printed,
+    query_holds,
+    target_holds,
+)
 
 # Estimates stop at a deadline: by a clock that moves with the work done, so they are the same on any machine.
 pytestmark = pytest.mark.usefixtures("fake_clock")
-
-STONE = Card(enhancement="m_stone")
-
-
-def as_json(c: Card) -> dict:
-    return {"rank": c.rank, "rank_id": c.rank_id, "suit": c.suit, "enhancement": c.enhancement,
-            "edition": c.edition, "seal": c.seal, "debuff": c.debuff}
-
-
-@dataclass
-class Case:
-    """A hand whose sorts the player saw, and what its face-down cards really are.
-
-    `hand` names its cards in order, `cards` says what every named card is, and
-    `down` are the face-down ones: those not in `hand` were discarded face down
-    after the sorts. `views` are the sorts seen, by mode, or as a list of (mode,
-    names) in the order the mod recorded them, where a mode may repeat: they may
-    hold face-up cards no longer in hand, and miss face-down ones (no evidence). `deck` is the
-    rest of the unseen cards, `discarded` the cards discarded face down that no
-    sort has, and `kw` the snapshot's other fields. `marked` names the face-down
-    cards The Mark drew as face cards ("discarded i" for `discarded[i]`).
-    """
-    hand: list[str]
-    cards: dict[str, Card]
-    down: set[str]
-    views: dict[str, list[str]] | list[tuple[str, list[str]]]
-    deck: list[Card]
-    discarded: list[Card] = field(default_factory=list)
-    forced: str | None = None
-    kw: dict = field(default_factory=dict)
-    marked: set[str] = field(default_factory=set)
-
-    @property
-    def gone(self) -> list[str]:
-        """The face-down cards discarded after the sorts, in the order the snapshot gives them ids."""
-        return [n for n in self.first_seen() if n in self.down and n not in self.hand]
-
-    @property
-    def sorts(self) -> list[tuple[str, list[str]]]:
-        """The sorts seen, in the order the snapshot sends them."""
-        return list(self.views.items()) if isinstance(self.views, dict) else list(self.views)
-
-    def first_seen(self) -> list[str]:
-        return list(dict.fromkeys(n for _, view in self.sorts for n in view))
-
-    @property
-    def unseen(self) -> list[Card]:
-        return [*self.deck, *(self.cards[n] for n in self.hand if n in self.down),
-                *(self.cards[n] for n in self.gone), *self.discarded]
-
-    def state(self) -> GameState:
-        """As the mod would export it, parsed."""
-        ids: dict[str, int] = {}
-        for _, view in self.sorts:
-            for name in view:
-                ids.setdefault(name, len(ids))
-
-        def marks(name: str) -> dict:
-            return {"marked": True} if name in self.marked else {}
-
-        def entry(name: str) -> dict:
-            if name in self.down:
-                if name not in self.hand:
-                    return {"id": ids[name], "discarded": True, **marks(name)}
-                return {"id": ids[name], "hand": self.hand.index(name)}
-            c = self.cards[name]
-            return {"id": ids[name], "stone": True} if c.is_stone else {"id": ids[name], "rank_id": c.rank_id,
-                                                                        "suit": c.suit}
-
-        def in_hand(name: str) -> dict:
-            out = {"hidden": True, **marks(name)} if name in self.down else as_json(self.cards[name])
-            return {**out, "forced": True} if name == self.forced else out
-
-        return GameState.from_json({
-            "schema": SCHEMA, "in_run": True, "hand_size": len(self.hand), "hands_left": 3, "discards_left": 1,
-            "hand": [in_hand(n) for n in self.hand], "unseen": [as_json(c) for c in self.unseen],
-            "discard": [{"hidden": True, **marks(n)}
-                        for n in [f"discarded {i}" for i in range(len(self.discarded))] + self.gone],
-            "observations": [{"mode": m, "cards": [entry(n) for n in v]} for m, v in self.sorts],
-            **self.kw})
-
-
-def printed(c: Card):
-    return "Stone" if c.is_stone else (c.rank_id, c.suit)
-
-
-def chance_seen(views: list[tuple[str, list[str]]], what: dict[str, Card]) -> Fraction:
-    """The chance that the game sorts these cards as `views`, (mode, names): cards
-    alike in print are in a random order, which is the same in every sort."""
-    groups: dict[object, list[str]] = {}
-    for name, c in what.items():
-        groups.setdefault(printed(c), []).append(name)
-    hits = 0
-    for orders in itertools.product(*(itertools.permutations(g) for g in groups.values())):
-        tiebreak = {name: i for order in orders for i, name in enumerate(order)}
-        hits += all(sorted(view, key=lambda n: nominal(printed(what[n]), mode, tiebreak[n]), reverse=True) == view
-                    for mode, view in views)
-    return Fraction(hits, prod(factorial(len(g)) for g in groups.values()))
-
-
-type Holds = Callable[[list[Card], bool], Fraction]  # a final hand, whether its first card is forced (Cerulean Bell)
-
-
-def worlds(case: Case) -> list[tuple[dict[str, Card], list[Card], Fraction]]:
-    """Every deal of the unseen cards to the face-down ones the player's view
-    allows: what each named card is, the deck left, and the deal's weight."""
-    unseen = case.unseen
-    assert not case.down - set(case.hand) - set(case.gone), "a card discarded face down in no sort"
-    slots = ([n for n in case.hand if n in case.down] + case.gone
-             + [f"discarded {i}" for i in range(len(case.discarded))])
-    shown = case.first_seen()
-    out = []
-    for picked in itertools.permutations(range(len(unseen)), len(slots)):
-        if any(n in case.marked and not flipped_by_mark(unseen[j]) for n, j in zip(slots, picked)):
-            continue
-        what = {**case.cards, **{n: unseen[j] for n, j in zip(slots, picked)}}
-        weight = chance_seen(case.sorts, {n: what[n] for n in shown})
-        if weight:
-            out.append((what, [c for j, c in enumerate(unseen) if j not in picked], weight))
-    return out
-
-
-type Worlds = list[tuple[dict[str, Card], list[Card], Fraction]]
-
-
-def oracle(case: Case, discard: list[int], holds: Holds, dealt: Worlds | None = None) -> Fraction:
-    """The odds after discarding `discard`, by dealing every way (`worlds`, or the
-    deals `dealt`) and drawing every way."""
-    state = case.state()
-    thrown = {case.hand[i] for i in discard}
-    kept = [n for n in case.hand if n not in thrown]
-    copies = state.dna_copies if (state.discards_left <= 0 and not state.hands_played and len(discard) == 1) else 0
-    hooked = min(2, len(kept)) if state.hook and discard and state.discards_left <= 0 else 0
-    total = norm = Fraction(0)
-    for what, deck, weight in worlds(case) if dealt is None else dealt:
-        if not discard:
-            draws = 0
-        elif state.serpent:
-            draws = 3
-        else:
-            draws = state.hand_size - len(kept) + hooked - copies
-        draws = max(0, min(draws, len(deck)))
-        added = [what[case.hand[discard[0]]]] * copies if copies else []
-        outcomes = []
-        for left in itertools.combinations(kept, len(kept) - hooked):
-            # Keeping the hand keeps Cerulean Bell's forced card; after a draw it's random.
-            first = [case.forced] if case.forced in left and not discard else []
-            rest = [n for n in left if n not in first]
-            for drawn in itertools.combinations(deck, draws):
-                outcomes.append(holds([what[n] for n in first + rest] + added + list(drawn), bool(first)))
-        total += weight * sum(outcomes) / len(outcomes)
-        norm += weight
-    return total / norm
-
-
-def target_holds(target: Target, state: GameState) -> Holds:
-    names, rules = set(target.hands), state.rules
-    memo: dict[tuple, Fraction] = {}
-
-    def holds(final: list[Card], forced_first: bool) -> Fraction:
-        key = (forced_first, final[0] if forced_first else None,
-               frozenset(Counter(final[forced_first:]).items()))
-        if key not in memo:
-            if forced_first:
-                memo[key] = Fraction(contains_forced(final[1:], final[0], names, rules))
-            elif state.bell:
-                memo[key] = Fraction(sum(contains_forced(final[:i] + final[i + 1:], c, names, rules)
-                                         for i, c in enumerate(final)), len(final))
-            else:
-                memo[key] = Fraction(contains(final, names, rules))
-        return memo[key]
-    return holds
-
-
-def query_holds(query: CardQuery, state: GameState) -> Holds:
-    return lambda final, _: Fraction(query.accepts(sum(query.filter.test(c, state.rules) for c in final)))
-
-
-def posterior_by_cards(case: Case, state: GameState, dealt: Worlds | None = None) -> dict[tuple, Fraction]:
-    """The oracle's posterior over what the face-down cards in the views are: by
-    hand index, then those discarded after the sorts, as `Branch.discarded`."""
-    latent = sorted(case.hand.index(n) for n in case.down if n in case.hand
-                    and any(n in v for _, v in case.sorts))
-    found: Counter = Counter()
-    for what, _, weight in worlds(case) if dealt is None else dealt:
-        found[tuple(what[case.hand[i]] for i in latent) + tuple(what[n] for n in case.gone)] += weight
-    total = sum(found.values())
-    return {k: v / total for k, v in found.items()}
-
-
-def ours_by_cards(post) -> dict[tuple, Fraction]:
-    found: Counter = Counter()
-    for b in post.branches:
-        found[tuple(c for _, c in sorted(b.cards, key=lambda ic: ic[0])) + b.discarded] += b.weight
-    return {k: v / post.total for k, v in found.items()}
-
-
-def check(case: Case, discards, targets=(), queries=()) -> None:
-    """The posterior, and the odds of each discard, against the oracle; and the
-    engine's merged branches against the reference that evaluates each deal.
-    Without sorts (no `views`), only the odds."""
-    state = case.state()
-    ref = None
-    if case.views:
-        post = posterior(state)
-        assert post is not None
-        assert ours_by_cards(post) == posterior_by_cards(case, state)
-        ref = reference(state.observations, state.observed, state.unseen, flipped_by_mark, (),
-                        engine._slots(state, state.observed, ())[1])
-        assert ours_by_cards(ref) == ours_by_cards(post)
-    for discard in discards:
-        for target in targets:
-            found = evaluate_discard(state, target, discard)
-            assert found.probability == oracle(case, discard, target_holds(target, state)), (target.name, discard)
-            if ref is not None:
-                # DNA's copies of a face-down card in no sort: enumerated too, as the engine does.
-                dna = engine._dna_branch(state, discard)
-                in_sorts = {o.hand for o in state.observed}
-                ref_here = ref if dna is None or dna in in_sorts else reference(
-                    state.observations, state.observed, state.unseen, flipped_by_mark,
-                    *engine._slots(state, state.observed, (dna,)))
-                one_by_one = engine._over_branches(
-                    state, ref_here,
-                    lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability, None)
-                assert one_by_one == found.probability
-            assert found.discarded == [state.hand[i] for i in sorted(discard)]  # as the player sees them
-        for query in queries:
-            found = evaluate_cards(state, query, discard)
-            assert found.probability == oracle(case, discard, query_holds(query, state)), (query.text, discard)
-
 
 # --- The plan's examples -------------------------------------------------------------
 
@@ -552,7 +325,7 @@ def marked_case(rng: random.Random, **kw) -> Case:
     """A random_case under The Mark, without Pareidolia: every face-down card a face card, and marked."""
     while True:  # The Mark only flips face cards
         case = random_case(rng, ranks=range(9, 14), blind="The Mark", **kw)
-        if all(flipped_by_mark(case.cards[n]) for n in case.down):
+        if all(face_for_the_mark(case.cards[n]) for n in case.down):
             case.marked = set(case.down)
             return case
 
@@ -589,7 +362,7 @@ def pareidolia_sold(rng: random.Random, need, **kw) -> Case:
         case = random_case(rng, ranks=range(9, 15), blind="The Mark", **kw)
         names = [*case.down, *(f"discarded {i}" for i in range(len(case.discarded)))]
         what = {**case.cards, **{f"discarded {i}": c for i, c in enumerate(case.discarded)}}
-        case.marked = {n for n in names if flipped_by_mark(what[n]) and rng.random() < 0.6}
+        case.marked = {n for n in names if face_for_the_mark(what[n]) and rng.random() < 0.6}
         if need(case):
             return case
 
@@ -670,124 +443,11 @@ def test_an_exhausted_deck():
 
 # --- Earlier sorts: playing out a round --------------------------------------------------
 #
-# The oracle above deals the unseen cards of the round's end. This one starts from
+# The oracle above deals the unseen cards of the round's end. This one (`rounds`) starts from
 # the shuffled deck: it draws the first hand every way, sorts it, throws cards away,
 # draws every way and sorts again, keeping the deals whose every step looks as the
 # player saw it. So it checks that conditioning on every sort seen this round, as
 # `posterior.summed` does, is right however the cards got there.
-
-@dataclass
-class Played:
-    """A round played out, by card slot ("s0", "s1", ... in the order drawn)."""
-    events: list[tuple]  # ("deal"/"sort"/"draw", mode, hand), or ("throw", "discard"/"play", thrown, hand)
-    trace: list[tuple]  # what the player saw of each event
-    what: dict[str, Card]  # what each slot drawn is
-    down: set[str]  # the slots drawn face down and never turned up
-    hand: list[str]
-    sorts: list[tuple[str, list[str]]]  # every sort seen, in order
-
-
-@dataclass
-class Round:
-    """A round from a shuffled `deck` (names to cards). The first hand is drawn with
-    the cards of `first` face down or not, and sorted in `mode`. Each step is
-    ("sort", mode), or ("discard" or "play", hand positions thrown away, for each
-    card then drawn whether it's face down), which draws and re-sorts in the
-    current mode as the game does. Played cards are turned up."""
-    deck: dict[str, Card]
-    first: list[bool]
-    steps: list[tuple]
-    mode: str = "desc"
-
-    @property
-    def facings(self) -> list[bool]:
-        return self.first + [d for step in self.steps if step[0] != "sort" for d in step[2]]
-
-    def play(self, drawn: list[str], tiebreak: dict[str, int]) -> Played:
-        """The round with the deck's cards `drawn` in this order, and `tiebreak` for
-        each slot (the game's hidden order of cards alike in print)."""
-        what = {f"s{i}": self.deck[n] for i, n in enumerate(drawn)}
-        face_down = dict(zip(what, self.facings))
-        hand = list(what)[:len(self.first)]
-        mode, turned = self.mode, set()
-        events, trace, sorts = [], [], []
-
-        def sort(kind: str) -> None:
-            hand.sort(key=lambda s: nominal(printed(what[s]), mode, tiebreak[s]), reverse=True)
-            events.append((kind, mode, list(hand)))
-            trace.append((kind, mode, tuple((s, None if face_down[s] else printed(what[s])) for s in hand)))
-            sorts.append((mode, list(hand)))
-
-        sort("deal")
-        count = len(self.first)
-        for step in self.steps:
-            if step[0] == "sort":
-                mode = step[1]
-                sort("sort")
-                continue
-            kind, positions, facings = step
-            thrown = [hand[p] for p in positions]
-            for s in thrown:
-                hand.remove(s)
-            if kind == "play":
-                turned.update(s for s in thrown if face_down[s])
-            events.append(("throw", kind, thrown, list(hand)))
-            trace.append(("throw", kind, tuple((s, printed(what[s]) if kind == "play" or not face_down[s] else None)
-                                               for s in thrown)))
-            hand += [f"s{i}" for i in range(count, count + len(facings))]
-            count += len(facings)
-            sort("draw")
-        down = {s for s in what if face_down[s] and s not in turned}
-        return Played(events, trace, what, down, hand, sorts)
-
-    def case(self, played: Played, **kw) -> Case:
-        """The round's end as the mod would send it with every sort it saw kept."""
-        left = list(self.deck)
-        for c in played.what.values():
-            left.remove(next(n for n in left if self.deck[n] == c))
-        return Case(hand=played.hand, cards=played.what, down=played.down, views=played.sorts,
-                    deck=[self.deck[n] for n in left], kw=kw)
-
-    def worlds(self, truth: Played) -> Worlds:
-        """Every order the deck can have been drawn in, with every hidden order of
-        the cards alike in print, that the player would have seen as `truth`: what
-        each slot is, the deck left, and its weight."""
-        names = list(self.deck)
-        facings = self.facings
-        turned = {s for event in truth.events if event[0] == "throw" and event[1] == "play" for s in event[2]}
-        # A card seen face up, or played, is one printed as it was.
-        shown = [None if facings[i] and f"s{i}" not in turned else printed(truth.what[f"s{i}"])
-                 for i in range(len(facings))]
-        out = []
-
-        def deal(drawn: list[str]) -> None:
-            if len(drawn) == len(facings):
-                cards = [self.deck[n] for n in drawn]
-                groups: dict[object, list[str]] = {}
-                for i, c in enumerate(cards):
-                    groups.setdefault(printed(c), []).append(f"s{i}")
-                hits = 0
-                for orders in itertools.product(*(itertools.permutations(g) for g in groups.values())):
-                    tiebreak = {s: i for order in orders for i, s in enumerate(order)}
-                    hits += self.play(drawn, tiebreak).trace == truth.trace
-                if hits:
-                    what = {f"s{i}": c for i, c in enumerate(cards)}
-                    out.append((what, [self.deck[n] for n in names if n not in drawn],
-                                Fraction(hits, prod(factorial(len(g)) for g in groups.values()))))
-                return
-            for n in names:
-                if n not in drawn and (shown[len(drawn)] is None or printed(self.deck[n]) == shown[len(drawn)]):
-                    deal([*drawn, n])
-
-        deal([])
-        return out
-
-
-def played(rnd: Round, drawn: list[str], seed: int = 0) -> Played:
-    """The round with the deck drawn as `drawn`, and a random hidden order of the cards."""
-    order = random.Random(seed).sample(range(100), len(drawn))
-    return rnd.play(drawn, {f"s{i}": order[i] for i in range(len(drawn))})
-
 
 def check_round(rnd: Round, truth: Played, discards, targets=(), queries=(), **kw) -> Case:
     """The posterior and the odds at the round's end with every sort kept, against
@@ -832,50 +492,6 @@ def test_the_plans_round():
     assert evaluate_cards(state, eight, []).probability == 1
     latest = Case(**{**case.__dict__, "views": case.sorts[-1:]})
     assert evaluate_cards(latest.state(), eight, []).probability == Fraction(1, 2)
-
-
-def random_round(rng: random.Random, copies=False, stones=False, plays=False, hands=2) -> tuple[Round, list[str]]:
-    """A narrow deck, a first hand of 4 or 5 with 1 or 2 face down, sorted, then
-    `hands` times: maybe a sort in the other mode, then 1 or 2 cards thrown away
-    (played, with `plays`, every other time), and as many drawn, one of them maybe
-    face down (as The Wheel or The Fish do). Then maybe a last sort."""
-    suits = rng.sample(SUITS, 2)
-    cards = [card(r, s) for r in range(6, 12) for s in suits]
-    rng.shuffle(cards)
-    cards = cards[:rng.randint(9, 10)]
-    if copies:
-        cards += [cards[0]]
-    if stones:
-        cards += [STONE, STONE]
-    deck = {f"c{i}": c for i, c in enumerate(cards)}
-    size = rng.randint(4, 5)
-    first = [False] * size
-    for i in rng.sample(range(size), rng.randint(1, 2)):
-        first[i] = True
-    mode = start = rng.choice(["desc", "suit desc"])
-    steps: list[tuple] = []
-    downs = sum(first)
-    for k in range(hands):
-        if rng.random() < 0.5:
-            mode = "suit desc" if mode == "desc" else "desc"
-            steps.append(("sort", mode))
-        thrown = sorted(rng.sample(range(size), rng.randint(1, 2)))
-        facings = [False] * len(thrown)
-        if downs < 4 and rng.random() < 0.6:
-            facings[rng.randrange(len(thrown))] = True
-            downs += 1
-        steps.append(("play" if plays and k % 2 else "discard", thrown, facings))
-    if rng.random() < 0.5:
-        steps.append(("sort", rng.choice(["desc", "suit desc"])))
-    rnd = Round(deck, first, steps, start)
-    return rnd, rng.sample(list(deck), len(rnd.facings))
-
-
-def round_discards(rng: random.Random, case: Case) -> list[list[int]]:
-    n = len(case.hand)
-    latent = [i for i, name in enumerate(case.hand) if name in case.down] or [0]
-    picks = [[], [rng.choice(latent)], sorted(rng.sample(range(n), 2))]
-    return [list(d) for d in dict.fromkeys(tuple(d) for d in picks)]
 
 
 @pytest.mark.parametrize("seed", range(10))

@@ -1,5 +1,6 @@
 """Fixtures shared by the test modules. Shared helpers that aren't fixtures are plain modules
-beside this one: `mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle` and `fakes`."""
+beside this one: `mocked_game`, `panel_driver`, `hand_driver`, `poker`, `search_oracle`, `state_oracle`, `rounds`
+and `fakes`."""
 
 import pytest
 
@@ -16,6 +17,23 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
     without them."""
     markexpr = config.getoption("markexpr")
     return 0 if "perf" in markexpr and "not perf" not in markexpr else None
+
+
+FUZZ_ALWAYS = 3  # seeds of test_fuzz that run with every `pytest`, so its generator keeps working
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--fuzz-seeds", type=int, default=1000, help="how many seeds test_fuzz runs with -m fuzz")
+    parser.addoption("--fuzz-base", type=int, default=0, help="test_fuzz's first seed")
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """`fuzz_seed`: --fuzz-base and the --fuzz-seeds after it. All but the first few are marked `fuzz`."""
+    if "fuzz_seed" in metafunc.fixturenames:
+        base, count = metafunc.config.getoption("fuzz_base"), metafunc.config.getoption("fuzz_seeds")
+        metafunc.parametrize("fuzz_seed", [
+            pytest.param(base + i, id=str(base + i), marks=() if i < FUZZ_ALWAYS else pytest.mark.fuzz)
+            for i in range(max(count, 1))])
 
 
 @pytest.fixture(params=["lupa", "lupa.luajit21"], ids=["lua", "luajit"])

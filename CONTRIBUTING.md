@@ -65,6 +65,7 @@ file: if the game already started one, this one only prints. To see your changes
 ```pwsh
 .venv\Scripts\python -m pytest       # everything but the performance timings and slowest scenarios, one worker per core
 .venv\Scripts\python -m pytest -n0 tests\test_engine.py   # a few tests, without starting the workers
+.venv\Scripts\python -m pytest -m fuzz   # random states against brute force (--fuzz-seeds N for more)
 .venv\Scripts\ruff check .           # lint (--fix applies the safe fixes)
 ```
 

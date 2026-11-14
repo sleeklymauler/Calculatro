@@ -28,8 +28,11 @@ pythonpath = ["tests/perf"]
 # as "Windows fatal exception" thousands of times in the mod's LuaJIT tests.
 # -n auto: one pytest-xdist worker per core (`-n0` runs in this process, quicker for a few tests).
 # tests/conftest.py makes it 0 for `-m perf`, whose timings mustn't share the cores.
-addopts = "-m 'not perf' -p no:faulthandler -n auto"
-markers = ["perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)"]
+addopts = "-m 'not perf and not fuzz' -p no:faulthandler -n auto"
+markers = [
+    "perf: performance regression tests against tests/perf/expected.json and baseline.json (slow; run with -m perf)",
+    "fuzz: random states against brute force, in tests/test_fuzz.py (run with -m fuzz; --fuzz-seeds, --fuzz-base)",
+]
 
 [tool.ruff]
 line-length = 120
