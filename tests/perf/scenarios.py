@@ -238,6 +238,14 @@ BELL_KEEP_6 = Situation("Keep 6, draw 2, Cerulean Bell", kept=6, hidden=0, blind
 # here comes back, and either the Joker is debuffed (Four Fingers + Shortcut) or Shortcut is (Four Fingers).
 CRIMSON_KEEP_3 = Situation("Keep 3, draw 5, Crimson Heart, played", kept=3, hidden=0, blind="Crimson Heart",
                            discards=0, jokers=(Joker("j_four_fingers", debuff=True), Joker("j_joker")))
+# The Serpent draws 3 whatever was discarded: a short final hand after a big discard, and a long one (past
+# the hand size) after a small one.
+SERPENT_KEEP_3 = Situation("Keep 3, draw 3, The Serpent", kept=3, hidden=0, blind="The Serpent")
+SERPENT_KEEP_7 = Situation("Keep 7, draw 3, The Serpent", kept=7, hidden=0, blind="The Serpent")
+# The Hook with the selection played, and no face-down cards (unlike SORTED_2_HOOK): one search per way of
+# splitting its 2 cards between the kinds of kept card (engine._after_hook).
+HOOK_KEEP_3 = Situation("Keep 3, The Hook takes 2, draw 7, played", kept=3, hidden=0, blind="The Hook", discards=0)
+HOOK_KEEP_6 = Situation("Keep 6, The Hook takes 2, draw 4, played", kept=6, hidden=0, blind="The Hook", discards=0)
 
 
 clear_caches = calculatro.engine.clear_caches
@@ -447,6 +455,10 @@ def _scenarios() -> list[Scenario]:
     out += [Scenario(CRIMSON_KEEP_3, t, "Shortcut")
             for t in (("Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
                       ("Full House", "Straight Flush"))]
+    out += [Scenario(s, t, jokers) for jokers in ("No jokers", "Four Fingers + Shortcut")
+            for s in (SERPENT_KEEP_3, SERPENT_KEEP_7, HOOK_KEEP_3, HOOK_KEEP_6)
+            for t in (("Pair",), ("Straight",), ("Flush",), ("Full House",), ("Straight Flush",),
+                      ("Full House", "Straight Flush"))]
     return out
 
 
@@ -461,6 +473,7 @@ SEARCH_BOSSES = [
     Hand("Best discard: 8 cards, 2 face-down", tuple(HAND), hidden=2, blind="The House"),
     Hand("Best discard: 8 cards, Cerulean Bell", tuple(HAND), blind="Cerulean Bell"),
     Hand("Best discard: 8 cards, The Hook, played", tuple(HAND), blind="The Hook", discards=0),
+    Hand("Best discard: 8 cards, The Serpent", tuple(HAND), blind="The Serpent"),
     # DNA with a Blueprint copying it: a lone card played comes back twice.
     Hand("Best discard: 8 cards, DNA + Blueprint, played", tuple(HAND), discards=0, dna_copies=2),
 ]

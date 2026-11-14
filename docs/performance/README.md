@@ -63,6 +63,11 @@ jokers:
   - *The Mark*: Q♣ K♦ J♥ are face-down, known to be face cards.
   - *Cerulean Bell*: nothing face-down; the first card discarded is the
     forced one.
+  - *The Serpent*: 3 drawn whatever is discarded, after keeping 3 (a final
+    hand of 6) or 7 (of 10).
+  - *The Hook*: the selection played, then 2 of the 3 or 6 kept cards
+    thrown away at random before the draw.
+  - *Crimson Heart*: the selection played, then the debuffed joker swapped.
   - *sorted*: face-down cards narrowed down by the hand's sorts (see
     [face-down.md](face-down.md)).
 - **"Any":** several targets combined, as in the "Any target" row.

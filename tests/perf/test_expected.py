@@ -74,6 +74,8 @@ SLOW = {
       for t in ("Pair", "Flush")),
     *(f"standard | 8 unknown: The House (all face-down), sorted both ways | {t} | No jokers"
       for t in ("Pair", "Straight Flush")),
+    *(f"standard | Keep {k}, The Hook takes 2, draw {8 - k + 2}, played | {t} | Four Fingers + Shortcut"
+      for k in (3, 6) for t in ("Straight Flush", "Full House + Straight Flush (any)")),
 }
 
 
