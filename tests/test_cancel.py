@@ -4,7 +4,8 @@ through the slow scenarios, that a new state never waits long on the job it repl
 Times are the job thread's CPU time (`time.thread_time`), not the clock's, and each run stops after a number of
 checks, not of seconds, so a busy machine does the same work and doesn't fail them. Each case runs once first to
 fill the caches built once per set of rules and target (patterns, `engine._split_by_suit`, Cerulean Bell's forced
-patterns...): those builds can't be cancelled (TODO.md, P8).
+patterns...): those builds can't be cancelled (TODO.md, P8). Both run with the garbage collector paused, as a job
+runs them (`worker.Job`): its passes don't check `cancel` either.
 """
 
 import threading
@@ -15,7 +16,7 @@ from collections.abc import Callable
 import pytest
 
 from calculatro.cards import parse_query
-from calculatro.engine import Cancelled, estimate_cards, estimate_discard, evaluate_cards
+from calculatro.engine import Cancelled, estimate_cards, estimate_discard, evaluate_cards, gc_paused
 from calculatro.search import Progress, best_card_discards, best_discards, estimated_best
 from calculatro.worker import Job
 from scenarios import SCENARIOS
@@ -148,12 +149,14 @@ CASES = {
 def test_cancel_is_checked_often(name):
     run = CASES[name]
     try:
-        run(Checks(WARM))
+        with gc_paused():
+            run(Checks(WARM))
     except Cancelled:
         pass
     checks = Checks(MEASURED)
     try:
-        run(checks)
+        with gc_paused():
+            run(checks)
     except Cancelled:
         assert checks.set_at is not None, "cancelled without being set"
         ended = time.thread_time() - checks.set_at

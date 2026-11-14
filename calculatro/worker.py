@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from .engine import Cancelled
+from .engine import Cancelled, gc_paused
 
 # What stopped a part of a job besides the job being cancelled (`Attempt.reason`).
 TIME = "time"
@@ -207,7 +207,8 @@ class Job[T]:
 
     def _run(self, fn: Callable[[Control], T]) -> None:
         try:
-            self._result = fn(self.control)
+            with gc_paused():  # its passes would land between two checks of `control` (engine.gc_paused)
+                self._result = fn(self.control)
         except Cancelled:
             pass
         except BaseException as e:  # re-raised to the caller by result()

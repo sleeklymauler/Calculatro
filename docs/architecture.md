@@ -139,10 +139,12 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   it's given up on, a second answers from estimates of what it had found, in about
   `Limits.search_estimate` (5 s; `__main__.search_within`, `search.estimated_best`). The engine needs
   nothing for any of this: it raises `Cancelled` as before.
-- **The garbage collector.** `engine._gc_paused` turns it off while any search runs, and with the
-  limits none runs for more than about 30 s. The worst case measured (the 9 GB face-down case, stopped
-  at 2 GB after 18 s) left 6 MB of cycles for the collector once it was back on, so pausing it doesn't
-  let memory grow.
+- **The garbage collector.** `engine.gc_paused` turns it off while any job runs (`worker.Job`): a pass
+  of the collector runs on the thread that triggers it, without checking `cancel`, and took up to 30 ms
+  (over 100 ms on CI's runners) in a posterior or a best-discard search. Each of a job's parts stops at
+  its limits. The worst case measured (the 9 GB face-down case, stopped at 2 GB after 18 s) left 6 MB of
+  cycles for the collector once it was back on, and `tests/test_cancel.py`'s cases leave a few hundred
+  objects each, so pausing it doesn't let memory grow.
 - **Odds already worked out.** `build_report` stores each value in `known` as soon as it's
   done, given up on (`TooSlow`), or found slow by the quick pass (`SLOW`: a repeat goes straight to the
   exact pass, showing its approximation at once), and its estimate (under `report.ESTIMATE`, or None if

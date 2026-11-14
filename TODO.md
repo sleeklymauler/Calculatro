@@ -217,7 +217,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Measured (2026-11-13), every combination of hands under every set of rules, nothing cached: at most about
     90 ms (Four Fingers + Shortcut: 10 ms for the hands' patterns, 80 ms to combine 7 or 8 of them). Left as is.
 - [ ] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
-- [ ] **P10** **[low] (carried)** `engine._gc_paused` turns the collector off for the whole process while any search runs (`engine.py:251`)
+- [ ] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
 - [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
   - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.
 - [ ] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)

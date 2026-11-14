@@ -71,6 +71,15 @@ def test_overlapping_searches_restore_gc():
     assert gc.isenabled()
 
 
+def test_job_pauses_gc():
+    """The whole job, not only its searches: a pass of the collector doesn't check `cancel` (engine.gc_paused)."""
+    assert gc.isenabled()
+    job = Job(lambda control: gc.isenabled())
+    assert job.wait(5)
+    assert job.result() is False
+    assert gc.isenabled()
+
+
 def test_job_result_error_and_cancel():
     ok = Job(lambda cancel: 42)
     assert ok.wait(5) and ok.result() == 42

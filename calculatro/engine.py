@@ -128,7 +128,7 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
         return _favourable(patterns, [1] * len(patterns), kept, pool, draws, rules, cancel,
                            faces=faces, face_weights=face_weights, reuse=reuse)
 
-    with _gc_paused():
+    with gc_paused():
         split_faces = _window_split(pool, draws, windows) if windows else _marks(
             _mark_split(pool, draws, marked, marked_kept))
         if split_faces is None:
@@ -267,13 +267,16 @@ _gc_was_enabled = False
 
 
 @contextmanager
-def _gc_paused() -> Iterator[None]:
-    """Pause Python's cyclic garbage collector while any search runs.
+def gc_paused() -> Iterator[None]:
+    """Pause Python's cyclic garbage collector while any search or job (worker.Job) runs.
 
     A big search creates millions of tuples and frozensets, and the collector
     keeps traversing them, which costs 5-8% of the time (docs/performance).
-    The searches make no garbage cycles that outlive them (_favourable breaks
-    its recursive closure's), so nothing piles up. The collector is process-wide and a
+    Each of its passes also runs on the thread that triggers it, without
+    checking `cancel`: up to 30 ms here, 100 ms on a slow machine, in the
+    middle of a posterior or a best-discard search.
+    The calculations make next to no garbage cycles (_favourable breaks its
+    recursive closure's), so nothing piles up. The collector is process-wide and a
     cancelled search can still be unwinding when the next one starts, so the
     searches are counted, and the last one to finish restores it.
     """
@@ -1122,7 +1125,7 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
     finally:
         # `ways` refers to itself through its closure, which would keep this whole
         # frame alive until the garbage collector runs (it's paused, see
-        # _gc_paused, so cycles pile up and are freed in one long pause later).
+        # gc_paused, so cycles pile up and are freed in one long pause later).
         # Breaking the cycle frees everything as soon as the search returns.
         del ways
 

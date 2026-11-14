@@ -258,7 +258,8 @@ where the second pass gained the most after the class order (about 2×).
 
 A big search creates millions of tuples and frozensets, and Python's cyclic
 garbage collector keeps traversing them. `probability()` pauses the
-collector while it runs (`_gc_paused`), which saves 5–8% on the largest
+collector while it runs (`gc_paused`), as does each of the app's jobs for the
+whole job (`worker.Job`, see [the architecture](../architecture.md)), which saves 5–8% on the largest
 searches (5–15% when it was added, before the Smeared Joker work) for a little more peak memory. The
 collector is process-wide, and a cancelled search can still be unwinding
 in the background worker when the next one starts. So running searches

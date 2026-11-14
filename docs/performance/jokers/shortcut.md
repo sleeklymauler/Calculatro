@@ -80,7 +80,7 @@ rank (see "Class order" in [../engine.md](../engine.md)).
 
 The deferred counts were first recomputed from the draw at every position.
 They're now running totals. Pausing Python's cyclic garbage collector during
-a search (`engine._gc_paused`) saves another 5–15% on the largest searches
+a search (`engine.gc_paused`) saves another 5–15% on the largest searches
 (13.1 s instead of 15.2 s for the wild deck with 7 unknown cards). See
 "Garbage collection" in [../engine.md](../engine.md).
 
