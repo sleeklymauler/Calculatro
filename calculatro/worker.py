@@ -21,6 +21,7 @@ class Limits:
     """How long the parts of the app's calculations may take, in seconds."""
     quick: float = 0.25  # each odds value's first try, just under the mod's patience (0.3 s)
     approx: float = 1.0  # an estimate of each value its first try found slow
+    quick_pass: float = 1.0  # first tries that ran out, in all, before each value found slow is estimated at once
     exact: float = 30.0  # each odds value's last try, after every other value's first
     search: float = 30.0  # a best-discard search
     search_estimate: float = 5.0  # a search given up on, answering from estimates

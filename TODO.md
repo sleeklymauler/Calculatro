@@ -85,9 +85,18 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [ ] **B5** **[low] (guess)** Time limits are wall-clock, but the odds job and a search share one interpreter lock (`worker.py`, `__main__.py:366`)
   - With a search running, a value's quick try (0.25 s) gets about half the work done, so which values show as slow depends on what else is running. The same goes for the 30 s limits.
   - See P1: a search in its own process would fix both.
-- [ ] **B6** **[low] (guess)** With many slow rows, the first approximation may be late (`report.py:281-290`)
+- [x] **B6** **[low] (guess)** With many slow rows, the first approximation may be late (`report.py:281-290`)
   - Every value gets its quick try (0.25 s each) before any estimate is made. A full panel has up to 36 values, so in the worst case that's about 9 s of "Calculating..." before the first asterisked value.
   - `unchecked` only shortens this for the hand's sorts. Consider estimating a value straight after its quick try fails, or a budget for the whole quick pass.
+  - Real (2026-11-13): The House after its first discard, sorted by rank before and after (`HOUSE_EARLIER`), with
+    one card selected, 8 hands, "Any target" and 6 card queries: 30 values, 21 of them slow. The first
+    approximation came after 8.1 s. Quick tries keep to their 0.25 s, so it was only the pass's order.
+  - Done: a budget, `Limits.quick_pass` (1 s), on the quick tries that ran out. Once it's spent, the quick pass
+    estimates the values it has found slow, and then each one straight after its try. First approximation
+    there: 1.8 s. The others are unchanged: no slow values, or `unchecked` skipping the tries. Tested in
+    `test_slow_values_estimated_during_the_quick_pass_once_it_has_taken_long_enough`.
+  - Still slow: the last approximation. Estimates run one at a time, 0.4 to 0.8 s each, so that panel has all of
+    them after 18 s, and The House's first hand sorted both ways (30 values) after 15 s. See I2.
 - [ ] **B7** **[low] (seen)** When every choice ties, a best-discard search returns every discard (`search.py:187`, `search.py:236`)
   - For a target that can't be made (0% whatever is thrown away), the options are every distinct discard: over 200 for 8 cards, about 1000 for 11. The panel then shows "1/219".
   - "Keep hand" is first, since options are ordered by size. Consider returning only that when the best odds equal Keep's, or capping the list.
@@ -272,8 +281,10 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Tooling, CI and releases
 
-- [ ] **C1** **[med] (carried)** CI doesn't build the release until a tag is pushed
+- [x] **C1** **[med] (carried)** CI doesn't build the release until a tag is pushed
   - A broken `build_release.ps1` is found on release day. Run it on pull requests that touch `scripts/`, `mod/` or `calculatro/`.
+  - Settled (2026-11-13), no change: releases come every week or two, so instead run `build_release.ps1` by
+    hand before pushing a tag. Add a build-only CI job if the script ever breaks on a release day.
 - [x] **C2** **[low] (carried)** `install_mod.ps1:30` uses `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 doesn't have
   - The mod is copied, then the script fails before `launch.txt` is written. Add `#Requires -Version 7`, or write the file as `build_release.ps1` does.
 - [x] **C3** **[low] (carried)** `dump_lua = true` ships in releases (`lovely.toml:3`)

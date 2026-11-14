@@ -307,6 +307,23 @@ def test_no_more_quick_tries_once_one_ran_out_checking_the_sorts(monkeypatch):
     assert calls[len(quick):len(quick) + 4] == [("estimate", t, n) for n in (0, 1) for t in ("Flush", "Straight")]
 
 
+def test_slow_values_estimated_during_the_quick_pass_once_it_has_taken_long_enough(monkeypatch):
+    """Once the quick tries that ran out have taken `Limits.quick_pass` in all, each value found slow is estimated
+    straight after its quick try, so a panel of many slow values isn't left without any for long. A quick try that
+    finishes doesn't count towards it."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
+    monkeypatch.setattr(report, "estimate_discard", estimating({"Flush": Estimate(0.25, 0.2, 0.3, 1000)}, calls))
+    targets = [get_target("Pair"), get_target("Flush"), get_target("Straight")]
+    partials: list = []
+    build_report(STATE, targets, cancel=Control(Watchdog(period=0.005)), progress=partials.append,
+                 limits=Limits(quick=0.05, approx=0.05, quick_pass=0.01, exact=0.05))
+    assert calls[:6] == [("Pair", 0), ("Flush", 0), ("estimate", "Flush", 0), ("Straight", 0),
+                         ("estimate", "Straight", 0), ("Pair / Flush / Straight", 0)]
+    # Flush's estimate shown while Straight was still to be tried.
+    assert any(isinstance(p.targets[2].keep, Approx) and p.targets[3].keep is PENDING for p in partials)
+
+
 def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
     """"Any target"'s estimate is shown rather than its bounds, but within them, which are certain."""
     calls: list[tuple] = []

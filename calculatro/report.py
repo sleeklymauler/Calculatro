@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from threading import Event
+from time import monotonic
 
 from .cards import CardQuery
 from .engine import (
@@ -153,6 +154,11 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     pass is the panel's: Keep, then Discard. `progress` is given a partial
     report as each value is found.
 
+    So that a panel of many slow values isn't left without any for long, once
+    the quick tries that ran out have taken `limits.quick_pass` seconds in all,
+    the quick pass estimates the values it has found slow, and from then on
+    each one straight after its quick try.
+
     A value that doesn't finish its quick try shows an approximation (Approx)
     meanwhile, if it has one, and keeps it if the exact odds are given up on:
 
@@ -259,33 +265,43 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     if todo:
         found_more()  # what's known already, as when the same cards are selected again
 
+    def estimate_slow() -> None:
+        """Estimates each value found slow that has no estimate yet."""
+        for k, (row, discard) in todo:
+            if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(value(row, discard), Fraction):
+                continue
+            # The estimate stops itself after `limits.approx`; the limit is for one that can't start.
+            found = limited(cancel, 2 * limits.approx,
+                            lambda c, row=row, discard=discard: estimate(row, discard, c, limits.approx))
+            known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
+            found_more()
+
     def attempt(seconds: float, before: Slow | None) -> None:
         # In the quick pass: a try ran out of time before the hand's sorts were checked, which every value
         # that uses them does first, so those would too (The House's first hand sorted both ways: 0.9 s).
         unchecked = False
+        wasted = 0.0  # in the quick pass, on tries that ran out
         for k, (row, discard) in todo:
             if known.get(k) is not before or isinstance(value(row, discard), Fraction):
                 continue  # done, or its bounds met
             if unchecked and evidence_unchecked(state, discard):
                 known[k] = SLOW
                 continue
+            start = monotonic()
             found = limited(cancel, seconds, lambda c, row=row, discard=discard: evaluate(row, discard, c))
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
-            if before is None and isinstance(found, TooSlow) and evidence_unchecked(state, discard):
-                unchecked = True
+            if before is None and isinstance(found, TooSlow):
+                unchecked = unchecked or evidence_unchecked(state, discard)
+                wasted += monotonic() - start
             found_more()
+            if before is None and wasted >= limits.quick_pass:
+                estimate_slow()
 
     # The quick pass tries what hasn't been tried (a value found slow before
     # goes straight to its estimate, or the exact pass), the exact pass what
-    # it found slow. Between them, each value found slow is estimated once.
+    # it found slow. Between them (or during the quick pass, once it has
+    # taken long enough), each value found slow is estimated once.
     attempt(limits.quick, None)
-    for k, (row, discard) in todo:
-        if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(value(row, discard), Fraction):
-            continue
-        # The estimate stops itself after `limits.approx`; the limit is for one that can't start.
-        found = limited(cancel, 2 * limits.approx,
-                        lambda c, row=row, discard=discard: estimate(row, discard, c, limits.approx))
-        known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
-        found_more()
+    estimate_slow()
     attempt(limits.exact, SLOW)
     return report()

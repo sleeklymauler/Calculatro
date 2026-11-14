@@ -102,7 +102,10 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   (`engine.evidence_unchecked`); then
   an estimate of each that didn't finish, if it has one, in about `Limits.approx` (1 s); then those,
   from the start, with `Limits.exact` (30 s) each. The order in each pass is
-  the panel's, Keep then Discard, but with "Any target" after the hands. The job reports each partial
+  the panel's, Keep then Discard, but with "Any target" after the hands. Once the quick tries that
+  ran out have taken `Limits.quick_pass` (1 s) in all, the quick pass estimates the values it has
+  found slow, and then each one straight after its quick try, so a panel of many slow values shows
+  its first approximation in about 2 s rather than after every value's quick try (8 s for 30 values). The job reports each partial
   `Report` that shows something new (`Control.progress`), and `run_watch` sends it to the panel as a
   `partial` payload, at most every `PARTIAL_INTERVAL` (0.1 s), none if every value is found sooner.
   The console prints only the finished report.
@@ -208,7 +211,7 @@ has `dump_lua = false`; the repository's keeps `true`, for development.
 
 The versions in `pyproject.toml`, `lovely.toml`, `Calculatro.json` and `calculatro/__init__.py` must
 match (and `-Tag`, if given). Pushing a `v*` tag runs `.github/workflows/release.yml`: tests, build, and a draft GitHub
-release with the zip.
+release with the zip. CI doesn't run the build script otherwise, so run it by hand before pushing the tag.
 
 ## The contract between the halves
 
