@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from calculatro import process
 from calculatro.paths import DATA_DIR, LOG_FILE, SETTINGS_FILE, data_dir
 from hand_driver import Game
 from panel_driver import TEXTS, answer, click, find, panel_texts
@@ -137,6 +138,27 @@ def test_memory_applies_the_largest_choice_up_to_the_saved_one(lua, saved, appli
     mod.settings.memory_gb = saved
     assert mod.memory_gb() == applies
     assert mod.settings.memory_gb == saved  # kept for a computer with more
+
+
+@pytest.mark.parametrize("installed", [2 * GB, 3 * GB, 4 * GB, 6 * GB, 8 * GB, 15 * GB, 16 * GB, 64 * GB])
+def test_mod_and_app_agree_on_the_memory_limit(lua, installed):
+    # memory.lua's copy of process.memory_limit: the app keeps every limit the panel
+    # offers, and cuts each one it doesn't. (Under 2 GB the panel still offers 1 GB,
+    # and the app keeps half the computer's.)
+    _, mod = with_memory(lua, installed)
+    offered = choices(mod)
+    for gb in (1, 2, 4, 8):  # memory.lua's CHOICES
+        assert (process.memory_limit(gb, installed) == gb * GB) == (gb in offered), gb
+    for saved in (1, 2, 3, 4, 8, 16):
+        mod.settings.memory_gb = saved
+        assert process.memory_limit(mod.memory_gb(), installed) == mod.memory_gb() * GB
+
+
+def test_mod_and_app_agree_on_the_default_memory_limit(lua):
+    # The setting's default, and the most offered when the computer's memory is unknown.
+    _, mod = with_memory(lua, None)
+    assert mod.settings.memory_gb * GB == process.MEMORY_LIMIT
+    assert max(choices(mod)) * GB == process.MEMORY_LIMIT
 
 
 def test_installed_memory_is_read_in_the_game(lua, request):

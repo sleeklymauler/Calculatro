@@ -270,9 +270,15 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     file, checked against `core.lua`.
 - [ ] **A7** **[low] (seen)** `report.build_report`'s closures call each other in a loop (`value` → `bounds` → `value`) and rebuild the whole report after each value (`report.py:205-254`)
   - It works, and the sizes are small. It's the hardest part of the file to follow; a small class holding `known` with `value()` and `bounds()` as methods would read better.
-- [ ] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules
+- [x] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules
   - The rank labels (`builder.lua` `ranks_label`, `cards._ranks_label`), the panel's capacity (`tracked.lua`, `overlay.columns_needed`), the sort order (`observe.lua` `sort_key`, `posterior.sort_value`), The Mark's face cards (`hint.lua`, `engine.flipped_by_mark`) and the memory limit (`memory.lua`, `process.memory_limit`).
   - Some have a test that they agree (`test_builder_queries_parse_as_labelled`). Check each pair has one.
+  - Done (2026-11-14): the capacity already had one (`test_mod_and_app_agree_on_columns_needed`). The rank
+    labels' test had no set named by the ranks left out ("not 5"), now added. New:
+    `test_the_hint_sorts_cards_as_the_engine_does` (every printed card and Stone, both modes, ties included),
+    `test_the_mark_leaves_the_face_cards_the_engine_does` (every rank and a Stone King), and
+    `test_mod_and_app_agree_on_the_memory_limit` and `..._on_the_default_memory_limit`. The sort and Mark tests
+    each failed against a mutated Lua copy.
 - [x] **A9** **[low] (carried)** Decide whether to keep the terminal output at all
   - Done (2026-11-14): `watch` no longer prints the state or odds, only its errors; nobody sees its console. The
     text moved to `calculatro/text.py`, for a new `calculatro odds [FILE] [--search ROW]` (I10) that prints one

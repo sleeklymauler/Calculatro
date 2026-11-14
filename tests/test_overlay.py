@@ -151,7 +151,9 @@ end
 PRESETS = [(), (11, 12, 13), (2, 3, 4, 5, 6, 7, 8, 9, 10, 14), (2, 4, 6, 8, 10), (3, 5, 7, 9, 14),
            (2, 3, 5, 8, 14), (2, 3, 4, 5), (4, 10)]
 RANK_SETS = [*PRESETS, *((r,) for r in range(2, 15)), (12, 13), (2, 3, 4, 5, 9), (2, 14), (10, 11, 12, 13),
-             tuple(range(2, 15))]
+             tuple(range(2, 15)),
+             # Named by the ranks left out: "not 5", "not 9/K".
+             tuple(r for r in range(2, 15) if r != 5), tuple(r for r in range(2, 15) if r not in (9, 13))]
 SUIT_SETS = [tuple(s for i, s in enumerate(SUITS) if mask >> i & 1) for mask in range(16)]
 
 
@@ -199,6 +201,8 @@ def test_builder_queries_parse_as_labelled(lua):
                 q = parse_query(query)
                 assert label_for(q) == label, query
                 assert all(ch.isascii() or ch in "♠♥♣♦" for ch in label)
+                if len(chosen_ranks) >= 11 and special == "Any" and not chosen_suits:
+                    assert label.startswith("not "), label  # so both halves' "not" is compared
                 # Plain cards are ruled out by a special, and by none negated.
                 expected = [c.rank_id in ranks and (not suits or c.suit in suits) and (special == "Any" or negate)
                             for c in plain]

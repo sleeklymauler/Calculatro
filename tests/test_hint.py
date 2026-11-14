@@ -10,9 +10,10 @@ from fractions import Fraction
 import pytest
 
 from calculatro.cards import parse_query
-from calculatro.engine import evaluate_cards, evaluate_discard, posterior
+from calculatro.engine import evaluate_cards, evaluate_discard, flipped_by_mark, posterior
 from calculatro.hands import get_target
-from calculatro.state import GameState
+from calculatro.posterior import sort_value
+from calculatro.state import Card, GameState
 from game_order import game_order
 from hand_driver import Game
 from rounds import played, random_round, round_discards
@@ -238,6 +239,32 @@ def test_pareidolia_gained_after_the_draw_changes_nothing(game):
     game.rt.execute("G.jokers.cards = {{config = {center_key = 'j_pareidolia'}}}")
     game.frame()
     assert game.possible(down) == {(11, "Clubs"), (13, "Diamonds")}
+
+
+def test_the_mark_leaves_the_face_cards_the_engine_does(game):
+    # The hint's copy of `engine.flipped_by_mark`: a marked card can be any unseen
+    # card the engine takes for a face card, and nothing else. A Stone King isn't one.
+    pool = [Card(rank=str(r), rank_id=r, suit="Clubs", enhancement="c_base") for r in range(2, 15)]
+    pool += [Card(rank="13", rank_id=13, suit="Diamonds", enhancement="m_stone")]
+    down, *deck = [game.make(c.rank_id, c.suit, "front", c.enhancement) for c in pool]
+    down.facing = "back"
+    game.rt.execute("G.GAME.blind = {name = 'The Mark'}")
+    # Between an Ace of Spades and a Stone, the sort rules out nothing in the pool.
+    game.deal([game.card("AS"), down, game.card("Stone")], deck)
+    assert game.possible(down) == {(c.rank_id, c.suit) for c in pool if flipped_by_mark(c)}
+
+
+def test_the_hint_sorts_cards_as_the_engine_does(lua):
+    # observe.lua's sort_key and posterior.sort_value order every printed card alike in
+    # both modes, ties included: Stones all tie, below everything.
+    sort_key = lua[0].eval("require('calculatro.observe')").sort_key
+    keys = [None] + [(r, s) for r in range(2, 15) for s in SUITS]
+    for mode in ("desc", "suit desc"):
+        lua_keys = [sort_key(mode, lua[0].table_from({"stone": True} if k is None else {"rank_id": k[0], "suit": k[1]}))
+                    for k in keys]
+        app_keys = [sort_value(k, mode) for k in keys]
+        for (a, x), (b, y) in itertools.product(zip(lua_keys, app_keys), repeat=2):
+            assert (a < b, a == b) == (x < y, x == y), mode
 
 
 def test_a_debuffed_pareidolia_when_drawn_does_nothing(game):
