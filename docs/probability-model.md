@@ -228,7 +228,8 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   rest from what's left), DNA's copies of a face-down card all one card, and Cerulean Bell's
   forced card a random card of the final hand (or the forced card kept). A hand is checked against the
   target's patterns as bit masks of the requirements it meets (`_holds_test`, about 20 µs with Four
-  Fingers + Shortcut's 1,856 Straight Flush patterns, against 1 ms for `_holds`), so 1 s draws about
+  Fingers + Shortcut's 1,856 Straight Flush patterns, against 1 ms to count the cards each pattern
+  needs), so 1 s draws about
   55,000 hands: about half a point either side. The same stopping rule and range as above, and seeded
   too. Card queries have none: without the sorts they're always quick. `test_estimates_from_draws_*`
   (in `test_report.py`) check it against the exact odds on random hands under every boss, DNA,

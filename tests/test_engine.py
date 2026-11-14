@@ -16,7 +16,6 @@ from calculatro.cards import parse_query
 from calculatro.engine import (
     _bell_after_draw,
     _favourable,
-    _holds,
     _holds_test,
     _split_by_suit,
     count_probability,
@@ -107,20 +106,23 @@ def test_matches_brute_force(name, rules):
 
 
 @pytest.mark.parametrize("rules", RULESETS.values(), ids=RULESETS.keys())
-def test_quick_holds_test_matches_holds(rules):
-    """_holds_test, for estimates from draws, says what _holds does: every target, and with a forced card."""
+def test_holds_test_matches_brute_force(rules):
+    """_holds_test, for estimates from draws, kept deals and can_miss, says what the game's hand
+    evaluation does: every target, and with a forced card (Cerulean Bell)."""
     rng = random.Random(str(rules))
     targets = [get_target(name) for name in TARGETS]
     targets.append(combine([get_target("Full House"), get_target("Straight Flush")]))
     for target in targets:
+        names = set(target.hands)
         test = _holds_test(target.patterns(rules))
         for _ in range(40):
             cards = [random_card(rng) for _ in range(rng.randint(0, 8))]
-            assert test(card_key(c, rules) for c in cards) == _holds(target.patterns(rules), cards, rules)
+            assert test(card_key(c, rules) for c in cards) == contains(cards, names, rules), (target.name, cards)
             forced, rest = cards[:1], cards[1:]
             if forced:
                 patterns = forced_patterns(target, rules, card_key(forced[0], rules))
-                assert _holds_test(patterns)(card_key(c, rules) for c in rest) == _holds(patterns, rest, rules)
+                assert (_holds_test(patterns)(card_key(c, rules) for c in rest)
+                        == contains_forced(rest, forced[0], names, rules)), (target.name, forced, rest)
 
 
 def test_combined_targets_match_brute_force():

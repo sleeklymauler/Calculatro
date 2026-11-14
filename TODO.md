@@ -198,8 +198,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [x] **P5** **[low] (seen)** `GameState.rules` is worked out on every access (`state.py:366`)
   - Measured (2026-11-13): at most 0.5% of a profile (The House sorted both ways, 138k calls). Not worth a change.
   - It's read in `_allowed`, `_evidence_key`, `_rule_classes`, `_final_hands` and elsewhere. `functools.cached_property` doesn't work on a frozen dataclass with these fields as is, so set it in `_parse` or cache `Rules.from_jokers` by the jokers' tuple.
-- [ ] **P6** **[low] (seen)** `_can_miss` tests each draw with a slow loop over every pattern (`engine.py:2076-2087`)
+- [x] **P6** **[low] (seen)** `_can_miss` tests each draw with a slow loop over every pattern (`engine.py:2076-2087`)
   - `_holds_test` (`engine.py:1918`) does the same much faster and is already cached by `_target_test`.
+  - Done with A4 (2026-11-14): best-discard searches up to 3× faster with Four Fingers + Shortcut (10 cards,
+    Straight: 0.27 s to 0.12 s; 11 cards holding a Full House, "Any target": 0.59 s to 0.27 s), and The House
+    sorted both ways, Straight Flush, 14.4 s to 10.4 s. Every result unchanged; nothing slower when old and new
+    are timed back to back.
 - [x] **P7** **[low] (seen)** Caches that are never emptied count towards the memory limit
   - `hands._patterns`, `_bell_parts`, `_forced_patterns` (one entry per forced class), `engine._memberships`, `_forced_group`, `_split_by_suit`, `_interchangeable` and `posterior.orders` are plain `@cache`. Each set of tracked hands and each set of joker rules adds entries, and "Any target"'s can be large.
   - The watchdog reads the process's private bytes, so what these hold comes out of every calculation's allowance. Measure a long session with the targets changed often, then use `lru_cache` with a size where it matters.
@@ -238,8 +242,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [ ] **A3** **[med] (seen)** The game's rules for a final hand are written twice (`engine.py:1832-1905` and `2019-2035`)
   - `_final_hands` "mirrors `_discard_odds` and what it calls": The Hook, The Mark, DNA, Cerulean Bell and Crimson Heart each have an exact version and a sampled one. A rule added to one and not the other gives estimates that disagree with the exact odds, without failing anything.
   - At least add a test that, for a small state under each boss and with DNA, `_final_hands`' share over many draws agrees with `_evaluate_discard` (T4).
-- [ ] **A4** **[low] (seen)** Three functions answer "do these cards make one of these patterns" (`_holds` at `engine.py:141`, `holds` inside `_can_miss` at `2076`, `_holds_test` at `1918`)
+- [x] **A4** **[low] (seen)** Three functions answer "do these cards make one of these patterns" (`_holds` at `engine.py:141`, `holds` inside `_can_miss` at `2076`, `_holds_test` at `1918`)
   - Keep `_holds_test` and build the others on it.
+  - Done (2026-11-14): `_holds` and `_can_miss`'s copy are gone; `probability`'s path with nothing to draw and
+    `_can_miss` both use `_target_test`'s cached `_holds_test`. Its test, which compared it with `_holds`, now
+    checks it against the brute-force port of the game's evaluation (`test_holds_test_matches_brute_force`).
 - [ ] **A5** **[low] (seen)** The engine keeps state in module globals (`_usable`, `_deals`, `_windows`, `_ignored`, `_gc_searches`; `engine.py:246-248`, `1205-1212`, `1545`)
   - Tests share them between cases, and nothing ties them to a session. An object passed down (as `Reuse` is) would hold them.
 - [x] **A6** **[low] (seen)** Dead or unused

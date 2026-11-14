@@ -54,7 +54,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cache, lru_cache
-from itertools import accumulate, combinations, product, repeat
+from itertools import accumulate, chain, combinations, product, repeat
 from math import comb, lcm, prod, sqrt
 from operator import gt
 from random import Random
@@ -108,12 +108,14 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
     Raises Cancelled soon after `cancel` is set.
     """
     draws = _drawable(pool, draws, marked, marked_kept)
-    patterns = target.patterns(rules) if forced is None else forced_patterns(target, rules, card_key(forced, rules))
+    forced_key = None if forced is None else card_key(forced, rules)
+    patterns = target.patterns(rules) if forced is None else forced_patterns(target, rules, forced_key)
     if not draws:
         # Nothing to draw (The Mark's split then weighs the one draw by 1): the
         # kept cards make the target or don't. Quick, for the many deals of
         # face-down cards that are kept (_averaged).
-        return Fraction(int(_holds(patterns, kept, rules)))
+        holds = _target_test(target.hands, rules, forced is not None, forced_key)
+        return Fraction(int(holds(card_key(c, rules) for c in kept)))
     _, by_suit = _split_by_suit(patterns)
     # An unseen Wild Card counts as every suit, which ties the suits back together.
     # With two suits (Smeared Joker's colours), one search only has to carry
@@ -137,13 +139,6 @@ def probability(target: Target, kept: list[Card], pool: list[Card], draws: int,
         faces, weights = split_faces
         scale = lcm(*(w.denominator for _, w in weights))
         return Fraction(favourable(faces, [(a, int(w * scale)) for a, w in weights]), scale)
-
-
-def _holds(patterns: Sequence[Pattern], cards: Sequence[Card], rules: Rules) -> bool:
-    """Whether `cards` satisfy one of `patterns`."""
-    have = Counter(k for c in cards if (k := card_key(c, rules)) is not None)
-    return any(all(sum(n for key, n in have.items() if key in req.keys) >= req.need for req in pattern)
-               for pattern in patterns)
 
 
 def flipped_by_mark(card: Card) -> bool:
@@ -1987,15 +1982,17 @@ def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callab
 def _target_test(hands: tuple[str, ...], rules: Rules, bell: bool,
                  forced_key: ClassKey | None) -> Callable[[Iterable[ClassKey | None]], bool]:
     """_holds_test of the patterns of `hands`, or with `bell`, those with a
-    forced card of class `forced_key` (Cerulean Bell): built once for every
-    deal an estimate draws hands for."""
+    forced card of class `forced_key` (Cerulean Bell): built once, for every
+    hand an estimate draws, every kept deal of the face-down cards, and every
+    draw can_miss tries."""
     target = Target("", hands)
     return _holds_test(forced_patterns(target, rules, forced_key) if bell else target.patterns(rules))
 
 
 def _holds_test(patterns: tuple[Pattern, ...]) -> Callable[[Iterable[ClassKey | None]], bool]:
-    """_holds for many hands, quicker: whether cards with these class keys
-    (None for a card of none) satisfy one of `patterns`. The requirements met
+    """Whether cards with these class keys (None for a card of none, as
+    `card_key` gives) satisfy one of `patterns`. Building it takes a while,
+    so build it once for many hands (_target_test). The requirements met
     are a bit mask: those needing one card are met by any key of theirs, so
     each key has a mask of them; the others are counted. A pattern is only
     looked at once the first requirement it needs a card for is met."""
@@ -2151,21 +2148,13 @@ def _can_miss(state: GameState, target: Target, discard: list[int], rng: Random,
     if d.marked or d.hooked or state.bell:
         return False
     rules = rules_after(state, discard)[0][0]
-    patterns = target.patterns(rules)
-
-    def holds(have: Counter) -> bool:
-        return any(all(sum(n for key, n in have.items() if key in req.keys) >= req.need for req in pattern)
-                   for pattern in patterns)
-
-    known = Counter(k for c in (*d.kept_known, *d.added) if (k := card_key(c, rules)) is not None)
+    holds = _target_test(target.hands, rules, False, None)
+    known = [card_key(c, rules) for c in (*d.kept_known, *d.added)]
     if holds(known):
         return False  # whatever is drawn
     draws = min(d.hidden_kept + d.added_hidden + d.draws, len(d.pool))
     keys = [card_key(c, rules) for c in d.pool]
-    for _ in range(tries if draws else 1):
-        if not holds(known + Counter(k for k in rng.sample(keys, draws) if k is not None)):
-            return True
-    return False
+    return any(not holds(chain(known, rng.sample(keys, draws))) for _ in range(tries if draws else 1))
 
 
 def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
