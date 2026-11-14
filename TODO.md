@@ -305,7 +305,12 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - ~~An odds file of another schema (B2).~~ Done with B2.
   - Done: `test_encode_numbers` and `test_encode_control_characters` in `test_state.py`, `test_decode_rejects`
     in `test_overlay.py` (each rejection checked for its reason). B1's was done with B1.
-- [ ] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
+- [x] **T8** **[low] (carried)** The normal `main(--game-pid)` path: the log opened, stdout to the null device, the loop ending when the game exits
+  - Done (2026-11-14): `test_log.py` already covered the log and the streams, with `run_watch` stubbed out.
+    `test_game_start_watches_until_the_game_exits` runs the real loop on a state file: the game exits once the
+    odds file has one row's odds and another's are still being worked out. The app has to end within the time
+    limit, print nothing to stdout, log only its header, and leave no job running. It catches a loop that ignores
+    the game's exit and one that leaves its jobs running.
 - [x] **T9** **[low] (carried)** Perf scenarios to add: The Serpent (none today), and a single odds row under The Hook without the sorts
   - Done: odds rows under The Serpent (keep 3 or 7, draw 3) and The Hook (played, keep 3 or 6, 2 of them taken),
     each with 6 targets, with no jokers and with Four Fingers + Shortcut; and a best-discard search under The

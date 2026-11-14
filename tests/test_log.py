@@ -4,6 +4,8 @@ import io
 import json
 import re
 import sys
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -11,7 +13,9 @@ import pytest
 
 import calculatro
 import calculatro.__main__ as cli
-from calculatro import log, process
+from calculatro import log, overlay, process, report
+from calculatro.state import SCHEMA
+from fakes import taking
 
 ROOT = Path(__file__).parent.parent
 
@@ -132,6 +136,50 @@ def test_game_start_runs_without_a_log(monkeypatch, tmp_path, stderr):
         sys.stdout.close()
     assert ran
     assert kept is None or "Game process 1" in kept.getvalue()
+
+
+def test_game_start_watches_until_the_game_exits(monkeypatch, tmp_path, capsys, no_estimates):
+    """The real loop, as the game starts it: odds for the panel, nothing on the console, and the app ends with the
+    game, stopping the calculation still running."""
+    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 30}))  # still calculating when the game exits
+    state = tmp_path / "state.json"
+    hearts = lambda *ranks: [{"rank_id": r, "suit": "Hearts"} for r in ranks]
+    state.write_text(json.dumps({
+        "schema": SCHEMA, "id": "s:1", "in_run": True, "state": "SELECTING_HAND", "hand_size": 5, "hands_left": 1,
+        "discards_left": 1, "hand": hearts(2, 3, 4, 5, 9), "unseen": hearts(6, 7, 8, 10),
+        "tracked": {"hands": ["Pair", "Flush"]}}), encoding="utf-8")
+    odds_file = overlay.odds_path(state)
+    reached = []
+
+    def exited(pid):
+        end = time.monotonic() + 10
+
+        def stop() -> bool:
+            # The game exits once the panel has Pair's odds, with Flush's still being worked out.
+            try:
+                rows = {row["key"]: row for row in json.loads(odds_file.read_text(encoding="utf-8"))["targets"]}
+            except (OSError, ValueError, KeyError):
+                rows = {}
+            if "keep" in rows.get("Pair", {}) and "keep" not in rows.get("Flush", {}):
+                reached.append(True)
+            return bool(reached) or time.monotonic() > end
+        return stop
+
+    started, ended = time.monotonic(), []
+    app = threading.Thread(target=lambda: ended.append(start_from_game(monkeypatch, tmp_path, cli.run_watch, state,
+                                                                       exited)), daemon=True)
+    app.start()
+    app.join(15)
+    assert ended, "the app outlived the game"
+    text = ended[0]
+    assert reached and time.monotonic() - started < 5
+    assert capsys.readouterr().out == ""  # to the null device
+    lines = text.splitlines()
+    assert len(lines) == 1 and lines[0].startswith("=== Calculatro ")  # the header, and no errors
+    for thread in threading.enumerate():  # the loop cancelled Flush's row as it ended
+        if thread.name == "job":
+            thread.join(2)
+            assert not thread.is_alive()
 
 
 def test_game_start_keeps_the_last_sessions_log(monkeypatch, tmp_path):
