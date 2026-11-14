@@ -13,7 +13,8 @@ import pytest
 
 import calculatro
 import calculatro.__main__ as cli
-from calculatro import log, overlay, process, report
+from calculatro import log, process, report
+from calculatro.paths import log_path, odds_path
 from calculatro.state import SCHEMA
 from fakes import taking
 
@@ -105,7 +106,7 @@ def start_from_game(monkeypatch, tmp_path, run_watch, state: Path | None = None,
         assert cli.main(["watch", "--file", str(state), "--game-pid", "1"]) == 0
         sys.stdout.close()
         sys.stderr.close()
-    return (state.parent / "calculatro.log").read_text(encoding="utf-8")
+    return log_path(state).read_text(encoding="utf-8")
 
 
 def test_game_start_says_when_the_game_is_missing(monkeypatch, tmp_path):
@@ -122,7 +123,7 @@ def test_game_start_says_nothing_of_a_running_game(monkeypatch, tmp_path):
 @pytest.mark.parametrize("stderr", [None, "kept"])
 def test_game_start_runs_without_a_log(monkeypatch, tmp_path, stderr):
     """The log is only there to diagnose problems: not being able to open it mustn't stop the odds."""
-    (tmp_path / "calculatro.log").mkdir()  # can't be opened as a file
+    log_path(tmp_path / "state.json").mkdir()  # can't be opened as a file
     ran = []
     with monkeypatch.context() as patch:
         patch.setattr(sys, "stdout", sys.stdout)
@@ -148,7 +149,7 @@ def test_game_start_watches_until_the_game_exits(monkeypatch, tmp_path, capsys, 
         "schema": SCHEMA, "id": "s:1", "in_run": True, "state": "SELECTING_HAND", "hand_size": 5, "hands_left": 1,
         "discards_left": 1, "hand": hearts(2, 3, 4, 5, 9), "unseen": hearts(6, 7, 8, 10),
         "tracked": {"hands": ["Pair", "Flush"]}}), encoding="utf-8")
-    odds_file = overlay.odds_path(state)
+    odds_file = odds_path(state)
     reached = []
 
     def exited(pid):

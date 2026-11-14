@@ -163,7 +163,7 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     range after the hand shrinks comes back into it on the next step. The count cells are as wide as the rank
     chips, to fit "10". Tested in `test_builder_counts_go_up_to_the_hand_size`.
 - [ ] **M3** **[low] (seen)** `Calculatro.visible` isn't saved
-  - There's a settings file now (`calculatro_settings.json`), so the panel's shown or hidden state could go in it.
+  - There's a settings file now (`calculatro_data/settings.json`), so the panel's shown or hidden state could go in it.
 - [x] **M4** **[low] (seen)** The hint's search runs on the game's thread, up to 20000 steps in one frame (`hint.lua:23`)
   - Worth timing in LuaJIT for the worst hand (eight face-down cards sorted both ways). If it's more than a few milliseconds, spread it over frames.
   - Measured (2026-11-13), in `lupa`'s LuaJIT: at most about 6 ms, so the frame was fine. The search wasn't: it

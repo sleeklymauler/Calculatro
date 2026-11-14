@@ -13,7 +13,7 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Event
 
-from . import overlay, process
+from . import overlay, paths, process
 from .cards import CardQuery, parse_query
 from .engine import clear_caches
 from .hands import Target, combine, get_target
@@ -483,7 +483,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="calculatro")
     sub = parser.add_subparsers(dest="cmd", required=True)
     watch = sub.add_parser("watch", help="print the game state whenever it changes")
-    watch.add_argument("--file", type=Path, help="state file (default: %%APPDATA%%/Balatro/calculatro_state.json)")
+    watch.add_argument("--file", type=Path,
+                       help=f"state file (default: %%APPDATA%%/Balatro/{paths.DATA_DIR}/{paths.STATE_FILE})")
     watch.add_argument("--game-pid", type=int,
                        help="run in the background for the game with this process id, as the mod "
                             "starts it: exit with the game, or at once if the app is already running")
@@ -494,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "watch":
         source = FileStateSource(args.file)
-        odds_file = overlay.odds_path(source.path)
+        odds_file = paths.odds_path(source.path)
         # Any instance claims its state file, so the game won't start a second one
         # beside it, and only one writes those odds: two would clash over the file.
         first = process.claim_instance(process.instance_name(source.path))
@@ -510,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             # Open for the life of the process.
             sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
             try:
-                sys.stderr = open_log(source.path.parent / "calculatro.log")
+                sys.stderr = open_log(paths.log_path(source.path))
                 print(header(source.path, args.game_pid), file=sys.stderr)
             except OSError:
                 pass  # the odds are still worth having; printing to no stderr (None) does nothing

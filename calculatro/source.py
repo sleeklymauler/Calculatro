@@ -6,11 +6,8 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
+from .paths import default_state_path
 from .state import SCHEMA, GameState, MalformedState, SchemaMismatch
-
-
-def default_state_path() -> Path:
-    return Path(os.environ["APPDATA"]) / "Balatro" / "calculatro_state.json"
 
 
 class StateSource(Protocol):

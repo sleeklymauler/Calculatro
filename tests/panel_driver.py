@@ -7,6 +7,7 @@ import calculatro.__main__ as cli
 from calculatro import overlay
 from calculatro.cards import CardQuery, parse_query
 from calculatro.hands import get_target
+from calculatro.paths import ODDS_FILE, STATE_FILE, data_dir
 from calculatro.state import SUIT_SHORT, GameState
 
 TEXTS = r"""
@@ -33,7 +34,7 @@ end
 
 
 def read_state(tmp_path) -> GameState:
-    return GameState.from_json(json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8")))
+    return GameState.from_json(json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8")))
 
 
 def panel_texts(rt) -> list[str] | None:
@@ -88,7 +89,7 @@ def reply(tmp_path):
     """The app's odds for the mod's latest state."""
     state = read_state(tmp_path)
     _, payload = cli.calculate(state, *cli.tracked(state))
-    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
 
 
 FIND = r"""

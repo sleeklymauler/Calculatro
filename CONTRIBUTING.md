@@ -5,11 +5,11 @@ fix, consider opening an issue first so we can talk about the approach.
 
 ## How it fits together
 
-Calculatro has two halves, connected by two JSON files in `%AppData%\Balatro`:
+Calculatro has two halves, connected by two JSON files in `%AppData%\Balatro\calculatro_data`:
 
 - **The mod** (`mod/Calculatro/`, Lua, loaded by [Lovely](https://github.com/ethangreen-dev/lovely-injector)):
-  writes the game state to `calculatro_state.json` (at most ~5×/sec, only when something changes), reads the odds
-  back from `calculatro_odds.json` and draws the panel. It also owns what's tracked, through the panel's target
+  writes the game state to `state.json` (at most ~5×/sec, only when something changes), reads the odds
+  back from `odds.json` and draws the panel. It also owns what's tracked, through the panel's target
   editor.
 - **The app** (`calculatro/`, Python, no runtime dependencies): reads the state, computes exact odds and the best
   discards, and writes the odds file.
@@ -45,7 +45,7 @@ Windows PowerShell 5.1 (built into Windows) or PowerShell 7.
    `-NoAutoStart` to start the app yourself instead (until you do, the panel says "App didn't start"), and `-GameDir <folder>` if Balatro isn't in Steam's default
    folder (it's only used to check that Lovely is installed).
 3. Launch Balatro. The app runs in the background and exits with the game; errors go to
-   `%AppData%\Balatro\calculatro.log`.
+   `%AppData%\Balatro\calculatro_data\calculatro.log`.
 
 Python changes take effect the next time the game starts the app (the install is editable). **Lua changes need
 `install_mod.ps1` again**, then a restart of the game.

@@ -1,11 +1,13 @@
 local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
 local worker = require('calculatro.worker')
-local report = require('calculatro.log').report
+local log = require('calculatro.log')
 require('calculatro.snapshot')
 require('calculatro.search')
 
 local encode, decode = json.encode, json.decode
+local report = log.report
+local DATA_DIR, STATE_FILE, ODDS_FILE = worker.DATA_DIR, worker.STATE_FILE, worker.ODDS_FILE
 
 ---------------------------------------------------------------------------
 -- Files
@@ -60,10 +62,15 @@ function Calculatro.replace_file(from, to)
 end
 
 local function write_state(json)
-    local path = 'calculatro_state.json'
-    local ok, err = love.filesystem.write(path .. '.tmp', json)
+    local ok, err = worker.write_file(STATE_FILE .. '.tmp', json)
     if not ok then return false, err end
-    return Calculatro.replace_file(path .. '.tmp', path)
+    return Calculatro.replace_file(STATE_FILE .. '.tmp', STATE_FILE)
+end
+
+-- Creates the data folder, run once as the mod starts: the app, started next,
+-- opens its log there at once. Writes create it again if it's gone since.
+function Calculatro.create_data_dir()
+    if not love.filesystem.createDirectory(DATA_DIR) then error('could not create the folder ' .. DATA_DIR) end
 end
 
 -- Snapshots in a row that couldn't be written (2 seconds' worth) before it's
@@ -168,7 +175,7 @@ local function receive_odds(raw)
     if not ok or type(odds) ~= 'table' or not own_id(odds.id) then return end
     if odds.schema ~= Calculatro.odds_schema then
         report('odds schema', string.format(
-            'ignoring calculatro_odds.json: it has schema %s, and this mod reads %d '
+            'ignoring ' .. ODDS_FILE .. ': it has schema %s, and this mod reads %d '
                 .. '(the app and the mod are from different versions: install both from the same release)',
             tostring(odds.schema), Calculatro.odds_schema))
         return
@@ -180,7 +187,7 @@ end
 
 function Calculatro.read_odds()
     if worker.start() then return end  -- `check_worker` gets them from the thread
-    receive_odds(love.filesystem.read('calculatro_odds.json'))
+    receive_odds(love.filesystem.read(ODDS_FILE))
 end
 
 -- What the worker's thread has done, each frame. Only the latest snapshot's failure

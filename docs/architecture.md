@@ -4,12 +4,20 @@ How the two halves of Calculatro are built, how they start and fail, and the con
 them. The panel has its own page, [panel.md](panel.md), and the odds theirs,
 [probability-model.md](probability-model.md).
 
-Two halves are connected by two JSON files in `%AppData%\Balatro`:
+Two halves are connected by two JSON files in `%AppData%\Balatro\calculatro_data`:
 
 ```
-Lovely mod (Lua)  -- calculatro_state.json -->  Python app
-                  <-- calculatro_odds.json ---
+Lovely mod (Lua)  -- state.json -->  Python app
+                  <-- odds.json ---
 ```
+
+That folder also holds the settings (`settings.json`) and the log (`calculatro.log`). Its name and the
+files' are declared once on each side, `data_dir` and `data_files` in `core.lua` and `calculatro/paths.py`
+in the app, which must match (`test_paths_match_the_mod`). The app's `--file` changes the state file,
+and the odds and log go beside it. It's not the mod's own folder, `Mods\Calculatro`, which is deleted
+to update the mod and would lose the settings with it. `Calculatro.create_data_dir` creates it as the
+mod starts, before starting the app, which opens its log there at once. Writes that fail create it
+again first (`worker.write_file`, `log_error`), in case the player deleted it while playing.
 
 ## The mod
 
@@ -54,7 +62,7 @@ have no cycles, and each loads on its own), and returns only what other modules 
 ### Snapshots
 
 `Calculatro.update` throttles itself to ~5 snapshots/sec, serializes Balatro's global `G` with its
-own JSON encoder, and writes `%AppData%\Balatro\calculatro_state.json` only when the output changes:
+own JSON encoder, and writes `%AppData%\Balatro\calculatro_data\state.json` only when the output changes:
 it writes to `.tmp`, then does `MoveFileExW` over it. A write that fails, as when the app has the file
 open, is tried again with the next snapshot, and reported after 10 in a row. Each written snapshot
 gets an `id` (`<session>:<seq>`).
@@ -73,7 +81,7 @@ number. A thread from before the restart sees the number change and ends, and it
 thread's requests in the meantime. Without `love.thread`, or once the thread has stopped, the mod uses the files
 itself (`Calculatro.replace_file`, `read_odds`).
 
-The player's settings ([panel.md](panel.md#settings)) are kept in `calculatro_settings.json`, which only
+The player's settings ([panel.md](panel.md#settings)) are kept in `settings.json`, which only
 the mod uses. It's read once as the mod starts, before the thread does, and written on the thread
 (its newest settings, in the same pass as the newest snapshot), or by the mod itself without one. The
 app learns the one it needs, "Memory limit", from the snapshot (`memory_gb`).
@@ -186,7 +194,7 @@ installed mod's `launch.txt` (skip with `-NoAutoStart`).
   (`process.instance_name`, `process.claim_instance`). Every `watch` claims its own, so a `--file`
   elsewhere doesn't get in the game's way. One started by hand beside another on the same file only
   prints, leaving the odds file to the first, since two writers would clash over it.
-- **App log.** With `--game-pid` errors go to `%AppData%\Balatro\calculatro.log` (`log.open_log`). It's
+- **App log.** With `--game-pid` errors go to `%AppData%\Balatro\calculatro_data\calculatro.log` (`log.open_log`). It's
   kept across restarts, each session starting with a `log.header` line, and over 256 KB at startup
   it moves to `calculatro.log.1`. The home folder is written as `~`, since players post the log
   publicly. A log that can't be opened doesn't stop the app, which runs without it.

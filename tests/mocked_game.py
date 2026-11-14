@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from calculatro.paths import data_dir
+
 MOD_DIR = Path(__file__).resolve().parents[1] / "mod" / "Calculatro"
 
 
@@ -183,14 +185,28 @@ def directory_items(rt, save_dir):
     return items
 
 
+# ... or create one.
+def create_directory(save_dir):
+    def create(name):
+        try:
+            (save_dir / name).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
+        return True
+    return create
+
+
 # The game runs LuaJIT (Lua 5.1) and lupa's default runtime is a newer Lua, so the
 # mod's tests run in both: a 5.2+ feature fails in the LuaJIT run.
 def new_lua(runtime: str, save_dir: Path):
-    """A Lua runtime of the module `runtime` with a mocked game and the mod loaded."""
+    """A Lua runtime of the module `runtime` with a mocked game and the mod loaded, and the
+    data folder the mod creates as it starts (Calculatro.create_data_dir) already there."""
     rt = pytest.importorskip(runtime).LuaRuntime()  # lupa is a dev dependency
+    data_dir(save_dir).mkdir(parents=True, exist_ok=True)
     rt.execute(MOCK_G)
     rt.execute(MOCK_FILESYSTEM, str(save_dir).replace("\\", "/"))
     rt.eval("love.filesystem").getDirectoryItems = directory_items(rt, save_dir)
+    rt.eval("love.filesystem").createDirectory = create_directory(save_dir)
     mod = load_mod(rt)
     if rt.eval("jit") is None:
         mod.replace_file = rt.execute(REPLACE_WITHOUT_FFI)

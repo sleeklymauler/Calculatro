@@ -13,6 +13,7 @@ import calculatro.__main__ as cli
 from calculatro import overlay
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
+from calculatro.paths import LOG_FILE, ODDS_FILE, STATE_FILE, data_dir
 from calculatro.report import PENDING, SAMPLE, Approx, CardOdds, Report, TargetOdds, build_report
 from calculatro.rules import Rules
 from calculatro.search import Estimated, Search
@@ -430,11 +431,11 @@ def test_watch_drops_missed_odds_for_a_newer_state(monkeypatch):
 
 
 def test_write_fails_softly_only_for_a_lock(tmp_path, monkeypatch):
-    path = tmp_path / "calculatro_odds.json"
+    path = tmp_path / "odds.json"
     payload = {"schema": overlay.SCHEMA, "id": "s:1", "pending": True}
-    (tmp_path / "calculatro_odds.json.tmp").mkdir()  # the temporary file can't be opened: access denied
+    (tmp_path / "odds.json.tmp").mkdir()  # the temporary file can't be opened: access denied
     assert overlay.write(path, payload) is False
-    (tmp_path / "calculatro_odds.json.tmp").rmdir()
+    (tmp_path / "odds.json.tmp").rmdir()
 
     monkeypatch.setattr(overlay.time, "sleep", lambda s: None)
 
@@ -450,7 +451,7 @@ def test_write_fails_softly_only_for_a_lock(tmp_path, monkeypatch):
         overlay.write(path, payload)
 
     with pytest.raises(FileNotFoundError):  # the folder is gone
-        overlay.write(tmp_path / "missing" / "calculatro_odds.json", payload)
+        overlay.write(tmp_path / "missing" / "odds.json", payload)
 
 
 def test_watch_reports_other_write_errors_and_retries_them_slowly(monkeypatch, capsys):
@@ -952,7 +953,7 @@ def test_panel_greys_out_old_odds(lua, tmp_path):
     mod.update(0.1)
     rt.execute("G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # new snapshot; the app acknowledges it
-    overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
+    overlay.write(data_dir(tmp_path) / ODDS_FILE, overlay.pending(read_state(tmp_path)))
     mod.update(0.1)
     texts = panel_texts(rt)
     assert "20.0%@light" in texts and "Discard@muted" in texts  # old odds, not yet greyed
@@ -972,7 +973,7 @@ def app_payload(tmp_path) -> dict:
 
 
 def write_payload(tmp_path, payload: dict) -> None:
-    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
 
 
 def rows_of(payload: dict) -> dict[str, dict]:
@@ -1207,16 +1208,16 @@ def test_new_round_drops_the_last_rounds_odds(lua, tmp_path):
     rt.execute("G.GAME.round = 1")
     mod.update(1.0)
     answer(lua, tmp_path, queries=())
-    late = (tmp_path / "calculatro_odds.json").read_text(encoding="utf-8")
+    late = (data_dir(tmp_path) / ODDS_FILE).read_text(encoding="utf-8")
     mod.update(0.1)
     assert "20.0%@light" in panel_texts(rt)
     rt.execute("G.GAME.round = 2; G.hand.cards[1].highlighted = true")
     mod.update(0.2)  # the next blind's snapshot; the app acknowledges it
-    overlay.write(tmp_path / "calculatro_odds.json", overlay.pending(read_state(tmp_path)))
+    overlay.write(data_dir(tmp_path) / ODDS_FILE, overlay.pending(read_state(tmp_path)))
     mod.update(0.1)
     texts = panel_texts(rt)
     assert not any("%" in t for t in texts) and texts.count("-@light") == 6
-    (tmp_path / "calculatro_odds.json").write_text(late, encoding="utf-8")  # the last round's, arriving late
+    (data_dir(tmp_path) / ODDS_FILE).write_text(late, encoding="utf-8")  # the last round's, arriving late
     mod.update(0.3)
     texts = panel_texts(rt)
     assert not any("%" in t for t in texts) and texts[3] == "Calculating...@muted"
@@ -1326,7 +1327,7 @@ return function() STARTS = STARTS + 1; return true end
 def test_panel_without_the_app(lua, tmp_path):
     rt, mod = lua
     mod.launch = rt.execute(COUNT_STARTS)
-    (tmp_path / "calculatro_odds.json").write_text(json.dumps(
+    (data_dir(tmp_path) / ODDS_FILE).write_text(json.dumps(
         {"schema": overlay.SCHEMA, "id": "an-earlier-session:4", "targets": [{"key": "Pair", "keep": "1%"}]}))
     track(lua, targets=("pair",))
     mod.update(0.5)
@@ -1359,13 +1360,13 @@ def test_silent_app_is_started_again_then_given_up_on(lua, tmp_path):
     mod.update(15.0)
     assert rt.eval("STARTS") == 3
     assert title_message(rt) == "App didn't start@muted"
-    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    log = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
     assert "not answering after 3 starts" in log
     mod.update(45.0)
     assert rt.eval("STARTS") == 4
     mod.update(1000.0)
     assert rt.eval("STARTS") == 4  # no more: each one stalls a frame
-    assert (tmp_path / "calculatro.log").read_text(encoding="utf-8") == log  # once
+    assert (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8") == log  # once
 
 
 def test_answer_clears_the_failure_and_starts_are_counted_afresh(lua, tmp_path):
@@ -1404,7 +1405,7 @@ def test_no_snapshot_written_is_not_called_calculating(lua, tmp_path):
     rt, mod = lua
     mod.launch = rt.eval("function() error('could not start it') end")
     track(lua, targets=("pair",))
-    (tmp_path / "calculatro_state.json.tmp").mkdir()
+    (data_dir(tmp_path) / (STATE_FILE + ".tmp")).mkdir()
     mod.update(0.5)
     mod.update(2.0)
     assert mod.state_id is None
@@ -1429,7 +1430,7 @@ def test_app_windows_refused_to_start_is_reported_and_not_retried(lua, tmp_path)
     assert title_message(rt) == "App didn't start@muted"  # at the first timeout, without waiting for restarts
     mod.update(1000.0)
     assert rt.eval("STARTS") == 1
-    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    log = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
     assert log.startswith("=== Calculatro mod, session ")
     assert r"could not start ~\venv\pythonw.exe (ShellExecuteW error 2)" in log
     assert "Some One" not in log
@@ -1455,16 +1456,16 @@ def test_mod_log_hides_the_home_folder(lua, tmp_path, text, logged):
     rt, mod = lua
     rt.execute("love.filesystem.getUserDirectory = function() return [[C:\\Users\\Some One]] end")
     mod.log_error(text)
-    assert (tmp_path / "calculatro.log").read_text(encoding="utf-8").splitlines()[1] == f"[mod] {logged}"
+    assert (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8").splitlines()[1] == f"[mod] {logged}"
 
 
 def test_mod_adds_to_the_log_the_app_has_open(lua, tmp_path):
     _, mod = lua
-    with cli.open_log(tmp_path / "calculatro.log") as log:
+    with cli.open_log(data_dir(tmp_path) / LOG_FILE) as log:
         print("from the app", file=log)
         mod.log_error("from the mod")
         print("from the app again", file=log)
-    lines = (tmp_path / "calculatro.log").read_text(encoding="utf-8").splitlines()
+    lines = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8").splitlines()
     assert lines[0] == "from the app" and lines[2] == "[mod] from the mod" and lines[3] == "from the app again"
 
 
@@ -1474,7 +1475,7 @@ def test_broken_step_is_logged_once(lua, tmp_path):
     mod.check_round = rt.eval("function() error('oops') end")
     for _ in range(3):
         mod.update(0.1)
-    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    log = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
     assert log.count("round failed") == 1 and "oops" in log
 
 
@@ -1960,7 +1961,7 @@ def reply_search(tmp_path, options=None):
     key, nonce = state.search
     found = Search(options, Fraction(1)) if options is not None else cli.find_best(state, cli.search_target(state, key))
     payload["search"] = overlay.search(key, nonce, found)
-    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
     return found
 
 
@@ -2132,7 +2133,7 @@ def test_search_options_dropped_when_worked_out_again(lua, tmp_path):
     state = read_state(tmp_path)
     _, payload = cli.calculate(state, *cli.tracked(state))
     payload["search"] = overlay.search("Pair", 1, Search([[1]], Fraction(1)))
-    assert overlay.write(tmp_path / "calculatro_odds.json", payload)
+    assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
     mod.update(0.1)
     assert mod.found is None
 

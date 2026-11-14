@@ -1,8 +1,8 @@
 ---------------------------------------------------------------------------
 -- Settings: the player's, not the run's, so they're kept in their own file in
--- the save directory rather than on G.GAME. The gear on the odds panel's title
--- row opens their page, which replaces the odds in the panel until Done, like
--- the target editor.
+-- the data folder (Calculatro.data_dir) rather than on G.GAME. The gear on the
+-- odds panel's title row opens their page, which replaces the odds in the panel
+-- until Done, like the target editor.
 ---------------------------------------------------------------------------
 local Calculatro = require('calculatro.core')
 local json = require('calculatro.json')
@@ -76,7 +76,7 @@ local function save()
         thread.requests:push({ settings = text })
         return
     end
-    local ok, err = love.filesystem.write(SETTINGS_FILE, text)
+    local ok, err = worker.write_file(SETTINGS_FILE, text)
     if not ok then report('saving settings', 'could not save the settings: ' .. tostring(err)) end
 end
 

@@ -43,9 +43,10 @@ You don't need to install Python: the release comes with its own.
 
 **Updating:** close Balatro, delete the `Mods\Calculatro` folder, and extract the new release as above.
 
-**Uninstalling:** delete the `Mods\Calculatro` folder. Calculatro also leaves `calculatro.log` (and perhaps
-`calculatro.log.1`), `calculatro_state.json` and `calculatro_odds.json` in `%AppData%\Balatro`; you can delete those
-too. Leave the other files there alone: they're Balatro's settings and saves.
+Calculatro keeps its settings and log in `%AppData%\Balatro\calculatro_data`, so updating doesn't lose them.
+
+**Uninstalling:** delete the `Mods\Calculatro` folder and the `calculatro_data` folder beside `Mods`. Leave the other
+files in `%AppData%\Balatro` alone: they're Balatro's settings and saves.
 
 ### Troubleshooting
 
@@ -54,7 +55,8 @@ too. Leave the other files there alone: they're Balatro's settings and saves.
 - **The panel says "Waiting for app":** the app isn't answering. If it stopped, the mod starts it again within a
   few seconds.
 - **The panel says "App didn't start":** the mod couldn't start the app, started it several times without an
-  answer, or can't write its files to `%AppData%\Balatro`. Errors go to `%AppData%\Balatro\calculatro.log`; please include it if you [open an
+  answer, or can't write its files to `%AppData%\Balatro\calculatro_data`. Errors go to `calculatro.log` in that
+  folder; please include it if you [open an
   issue](https://github.com/sleeklymauler/Calculatro/issues), along with your Balatro and Lovely versions and any
   other mods you have installed.
 

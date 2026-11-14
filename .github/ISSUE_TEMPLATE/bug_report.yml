@@ -15,9 +15,9 @@ body:
       label: Game situation
       description: >
         For wrong odds: your hand, what you had selected, your jokers and the blind. Attaching
-        `%AppData%\Balatro\calculatro_state.json`, taken while the odds are on screen, lets us reproduce it exactly.
+        `%AppData%\Balatro\calculatro_data\state.json`, taken while the odds are on screen, lets us reproduce it exactly.
         It contains only what you can see in game. If the panel looks wrong rather than the odds, attach
-        `%AppData%\Balatro\calculatro_odds.json` too, taken at the same time: it's what the app sent the panel.
+        `%AppData%\Balatro\calculatro_data\odds.json` too, taken at the same time: it's what the app sent the panel.
   - type: input
     id: calculatro-version
     attributes:
@@ -48,6 +48,6 @@ body:
     attributes:
       label: Log
       description: >-
-        `%AppData%\Balatro\calculatro.log`, if it exists, from the `=== Calculatro` line of the session that went wrong
+        `%AppData%\Balatro\calculatro_data\calculatro.log`, if it exists, from the `=== Calculatro` line of the session that went wrong
         (each game start adds one). Or attach the whole file to the issue.
       render: text

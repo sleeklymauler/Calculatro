@@ -284,7 +284,7 @@ BAD_STATES = {
 def test_bad_state_logged_and_the_next_one_answered(tmp_path, monkeypatch, capsys, bad):
     """A state the loop can't handle doesn't stop the app, and the panel still gets the next one's odds."""
     monkeypatch.setattr(cli, "calculate", lambda st, t, q, cancel, known, **_: (f"odds {st.blind}", {"odds": st.blind}))
-    odds_file = tmp_path / "calculatro_odds.json"
+    odds_file = tmp_path / "odds.json"
     source, writes = FakeSource(bad(), state("B")), []
     end = time.monotonic() + 5
     cli.run_watch(source, lambda text: writes.append(text.encode("utf-8")),  # encoded like the real stdout

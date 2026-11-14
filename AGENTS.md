@@ -39,10 +39,10 @@ the app or the process helpers can't be tested there, so say so when reporting b
 
 ## Architecture
 
-Two halves connected by two JSON files in `%AppData%\Balatro`:
+Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (with the settings and the log):
 
-1. **Lovely mod** (`mod/Calculatro/`, Lua): writes the game state to `calculatro_state.json`
-   (~5×/sec, only when it changes), reads the odds back from `calculatro_odds.json` and draws the
+1. **Lovely mod** (`mod/Calculatro/`, Lua): writes the game state to `state.json`
+   (~5×/sec, only when it changes), reads the odds back from `odds.json` and draws the
    panel. It owns what's tracked, set in game with the panel's target editor.
 2. **Python app** (`calculatro/`): `source.py` polls the state file → `state.py` parses it →
    `engine.py` computes exact odds → `report.py` collects them → `__main__.py` formats them for the
@@ -67,7 +67,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro`:
   cards by hand index only, or as discarded face down without saying which. See
   [the contract](docs/architecture.md#information-hiding).
 - **Schemas.** `SCHEMA` in `state.py` must match `schema` in `core.lua`, and `overlay.SCHEMA` must match
-  `odds_schema`. Bump both sides when changing either JSON shape. The odds file never contains `null`
+  `odds_schema`. Bump both sides when changing either JSON shape. The files' folder and names are in
+  `calculatro/paths.py` and `core.lua` (`data_dir`, `data_files`), which must match too. The odds file never contains `null`
   (the Lua decoder doesn't support it).
 - **Cancellable.** Slow code paths must check the `cancel` Event and raise `engine.Cancelled`, at most 0.1 s
   of CPU apart (`tests/test_cancel.py`; add a case for a new slow path).

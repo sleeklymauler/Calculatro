@@ -6,7 +6,7 @@ the app work is in [architecture.md](architecture.md).
 
 ## Talking to the app
 
-The app answers each snapshot in `calculatro_odds.json` (same directory, atomic `os.replace`): first
+The app answers each snapshot in `odds.json` (beside `state.json`, atomic `os.replace`): first
 `{id, pending: true}`, then the odds as they're found (`partial` until the last; see
 [the shapes](architecture.md#shapes)), echoing the snapshot's `id`. `overlay.write` returns False
 if the file stays locked, and raises any other `OSError` (a missing folder, a full disk); `run_watch`
@@ -241,8 +241,8 @@ through its `choices`, wrapping around, inert while there's only one. Hovering t
 saying what it does (its `about`: lines of ASCII broken by hand, since the game's text doesn't wrap,
 passed to `popup_definition` as `text`; a function where they depend on the computer).
 
-Settings are the player's, not the run's, so they're kept in `calculatro_settings.json` in the save
-directory rather than on `G.GAME` (see [architecture.md](architecture.md#snapshots) for when it's read
+Settings are the player's, not the run's, so they're kept in `settings.json` in the data folder
+([architecture.md](architecture.md)) rather than on `G.GAME` (see [architecture.md](architecture.md#snapshots) for when it's read
 and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
 type, keeps the default. There are two:
 

@@ -12,15 +12,26 @@ local REQUESTS, RESULTS = 'calculatro_state_requests', 'calculatro_state_results
 -- channels by that number: an older thread finds the number changed and ends, and
 -- whatever it was still doing goes to channels nobody reads.
 local GENERATIONS = 'calculatro_file_thread'
-local SETTINGS_FILE = 'calculatro_settings.json'
+-- The files, relative to the save directory (see Calculatro.data_dir).
+local DATA_DIR, FILES = Calculatro.data_dir, Calculatro.data_files
+local STATE_FILE = DATA_DIR .. '/' .. FILES.state
+local ODDS_FILE = DATA_DIR .. '/' .. FILES.odds
+local SETTINGS_FILE = DATA_DIR .. '/' .. FILES.settings
 
 -- A thread has a Lua state of its own, so none of the mod's modules. An error
 -- escaping a thread would stop the game (love.threaderror), so nothing may: this
 -- reports it, and ends, and the mod goes back to writing the file itself.
 -- With a newline in it, love.thread.newThread takes this for code, not a file name.
 local CODE = [[
-local REQUESTS, RESULTS, INTERVAL, SETTINGS_FILE, GENERATIONS, GENERATION = ...
+local REQUESTS, RESULTS, INTERVAL, GENERATIONS, GENERATION, DATA_DIR, STATE_FILE, ODDS_FILE, SETTINGS_FILE = ...
 local results
+
+-- Writes a file in the data folder, creating the folder again if the player deleted it.
+local function write_file(name, text)
+    local ok, err = love.filesystem.write(name, text)
+    if ok or not love.filesystem.createDirectory(DATA_DIR) then return ok, err end
+    return love.filesystem.write(name, text)
+end
 
 local function setup()
     require('love.filesystem')
@@ -38,11 +49,11 @@ local function setup()
         return out
     end
     local dir = love.filesystem.getSaveDirectory() .. '/'
-    local path = 'calculatro_state.json'
+    local tmp = STATE_FILE .. '.tmp'
     return function(json)
-        local ok, err = love.filesystem.write(path .. '.tmp', json)
+        local ok, err = write_file(tmp, json)
         if not ok then return false, tostring(err) end
-        if ffi.C.MoveFileExW(wide(dir .. path .. '.tmp'), wide(dir .. path), 1) ~= 0 then return true end
+        if ffi.C.MoveFileExW(wide(dir .. tmp), wide(dir .. STATE_FILE), 1) ~= 0 then return true end
         return false, string.format('MoveFileExW error %d', tonumber(ffi.C.GetLastError()))
     end
 end
@@ -64,14 +75,14 @@ local function run()
             job = requests:pop()
         end
         if settings then
-            local done, ok, err = pcall(love.filesystem.write, SETTINGS_FILE, settings)
+            local done, ok, err = pcall(write_file, SETTINGS_FILE, settings)
             if not (done and ok) then results:push({ settings_failed = tostring(done and err or ok) }) end
         end
         if snapshot then
             local done, ok, err = pcall(write, snapshot.json)
             results:push({ id = snapshot.id, ok = done and ok or false, err = tostring(done and err or ok) })
         end
-        local done, odds = pcall(love.filesystem.read, 'calculatro_odds.json')
+        local done, odds = pcall(love.filesystem.read, ODDS_FILE)
         if done and odds and odds ~= last_odds then
             last_odds = odds
             results:push({ odds = odds })
@@ -96,8 +107,8 @@ local function start()
             generations:push(generation)
             local requests, results = REQUESTS .. generation, RESULTS .. generation
             local ok, thread = pcall(threads.newThread, CODE)
-            if ok and pcall(thread.start, thread, requests, results, Calculatro.odds_interval, SETTINGS_FILE,
-                            GENERATIONS, generation) then
+            if ok and pcall(thread.start, thread, requests, results, Calculatro.odds_interval, GENERATIONS,
+                            generation, DATA_DIR, STATE_FILE, ODDS_FILE, SETTINGS_FILE) then
                 Calculatro.worker = { thread = thread, requests = threads.getChannel(requests),
                                       results = threads.getChannel(results) }
             end
@@ -106,4 +117,12 @@ local function start()
     return Calculatro.worker or nil
 end
 
-return { start = start, SETTINGS_FILE = SETTINGS_FILE }
+-- The same, on the game's thread, for when the file thread isn't running.
+local function write_file(name, text)
+    local ok, err = love.filesystem.write(name, text)
+    if ok or not love.filesystem.createDirectory(DATA_DIR) then return ok, err end
+    return love.filesystem.write(name, text)
+end
+
+return { start = start, write_file = write_file, DATA_DIR = DATA_DIR, STATE_FILE = STATE_FILE, ODDS_FILE = ODDS_FILE,
+         SETTINGS_FILE = SETTINGS_FILE }

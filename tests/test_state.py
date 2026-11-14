@@ -10,10 +10,20 @@ import pytest
 from calculatro.__main__ import calculate, summarize
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
+from calculatro.paths import (
+    DATA_DIR,
+    LOG_FILE,
+    ODDS_FILE,
+    SETTINGS_FILE,
+    STATE_FILE,
+    data_dir,
+    default_state_path,
+    odds_path,
+)
 from calculatro.rules import Rules
 from calculatro.source import FileStateSource
 from calculatro.state import SCHEMA, GameState, Joker, MalformedState, SchemaMismatch
-from mocked_game import MOD_DIR, directory_items, load_mod, mod_sources, snapshot_json
+from mocked_game import MOD_DIR, create_directory, directory_items, load_mod, mod_sources, snapshot_json
 
 
 def test_snapshot_parses(lua):
@@ -329,7 +339,7 @@ def pool_problem(lua, tmp_path):
     rt, mod = lua
     mod.seq = (mod.seq or 0) + 1
     mod.check_unseen()
-    log = tmp_path / "calculatro.log"
+    log = data_dir(tmp_path) / LOG_FILE
     return log.read_text(encoding="utf-8") if log.exists() else None
 
 
@@ -377,7 +387,7 @@ def test_unseen_pool_check_waits_for_a_settled_hand(lua, tmp_path):
     # And it only looks again at a new snapshot.
     rt.execute("G.STATE = G.STATES.SELECTING_HAND")
     mod.check_unseen()
-    assert not (tmp_path / "calculatro.log").exists()
+    assert not (data_dir(tmp_path) / LOG_FILE).exists()
     assert pool_problem(lua, tmp_path) is not None
 
 
@@ -386,7 +396,7 @@ def test_unseen_pool_check_runs_with_the_snapshots(lua, tmp_path):
     rt.execute(PLAYING_CARDS)
     rt.execute("table.remove(G.playing_cards, 1)")
     mod.update(1)
-    assert "mod 5, game 4" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert "mod 5, game 4" in (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
 
 
 def test_not_in_run(lua):
@@ -399,7 +409,7 @@ def test_not_in_run(lua):
 
 def test_update_writes_file_only_on_change(lua, tmp_path):
     rt, mod = lua
-    path = tmp_path / "calculatro_state.json"
+    path = data_dir(tmp_path) / STATE_FILE
     mod.update(1.0)
     state = FileStateSource(path).read()
     assert state is not None and len(state.hand) == 5
@@ -415,7 +425,7 @@ def test_update_writes_file_only_on_change(lua, tmp_path):
 
 
 def test_missing_file_returns_none(tmp_path):
-    assert FileStateSource(tmp_path / "calculatro_state.json").read() is None
+    assert FileStateSource(tmp_path / "state.json").read() is None
 
 
 @pytest.mark.parametrize("content", [
@@ -425,7 +435,7 @@ def test_missing_file_returns_none(tmp_path):
     b"[" * 200_000,  # nested too deep to parse
 ], ids=["truncated", "bom", "invalid-utf8", "deep-nesting"])
 def test_undecodable_file_reported_once_until_it_changes(tmp_path, capsys, monkeypatch, content):
-    path = tmp_path / "calculatro_state.json"
+    path = tmp_path / "state.json"
     path.write_bytes(content)
     source = FileStateSource(path)
     with pytest.raises(MalformedState):
@@ -448,7 +458,7 @@ def test_old_schema_waits_for_a_current_snapshot(lua, tmp_path, capsys):
     """A file from another version of the mod (the last session's, or a mod not
     reinstalled after an update) is skipped with one message, not fatal."""
     _, mod = lua
-    path = tmp_path / "calculatro_state.json"
+    path = data_dir(tmp_path) / STATE_FILE
     source = FileStateSource(path)
     path.write_text(json.dumps({"schema": SCHEMA - 1, "id": "old:1", "in_run": False}))
     with pytest.raises(SchemaMismatch):
@@ -468,7 +478,7 @@ def test_old_schema_waits_for_a_current_snapshot(lua, tmp_path, capsys):
 
 
 def test_newer_schema_suggests_updating_the_app(tmp_path, capsys):
-    path = tmp_path / "calculatro_state.json"
+    path = tmp_path / "state.json"
     path.write_text(json.dumps({"schema": SCHEMA + 1, "in_run": False}))
     assert FileStateSource(path).poll() is None
     assert "update the app" in capsys.readouterr().err
@@ -548,7 +558,7 @@ def test_snapshot_sends_the_memory_setting_as_it_applies(lua):
 def test_malformed_snapshot_skipped_until_a_valid_one(lua, tmp_path, capsys):
     """Valid JSON of the wrong shape is skipped with one message, not fatal."""
     _, mod = lua
-    path = tmp_path / "calculatro_state.json"
+    path = data_dir(tmp_path) / STATE_FILE
     source = FileStateSource(path)
     path.write_text(json.dumps({"schema": SCHEMA, "id": "x:1", "in_run": True, "hand": [None]}))
     assert source.poll() is None
@@ -569,7 +579,7 @@ def test_select_limit_zero_kept():
 
 
 def test_poll_tolerates_a_locked_file(tmp_path, monkeypatch):
-    path = tmp_path / "calculatro_state.json"
+    path = tmp_path / "state.json"
     path.write_text(json.dumps({"schema": SCHEMA, "in_run": False}))
     source = FileStateSource(path)
 
@@ -585,7 +595,7 @@ def test_poll_tolerates_a_locked_file(tmp_path, monkeypatch):
 def test_poll_keys_a_file_replaced_after_its_stat_by_what_was_read(tmp_path, monkeypatch):
     """R2: the mod replacing the file between poll's stat and its read delivers the newer
     snapshot once, not again on the next poll as if the file had changed since."""
-    path = tmp_path / "calculatro_state.json"
+    path = tmp_path / "state.json"
     path.write_text(json.dumps({"schema": SCHEMA, "id": "x:1", "in_run": False}))
     source = FileStateSource(path)
     assert source.poll().id == "x:1"
@@ -642,7 +652,7 @@ def test_mod_folder_is_the_one_holding_the_mods_lovely_toml(lua, tmp_path):
     assert mod.mod_folder() is None
     install(tmp_path, "Renamed")
     assert mod.mod_folder() == "Mods/Renamed"
-    assert not (tmp_path / "calculatro.log").exists()
+    assert not (data_dir(tmp_path) / LOG_FILE).exists()
 
 
 def test_mod_folder_skips_one_lovely_ignores(lua, tmp_path):
@@ -660,7 +670,7 @@ def test_mod_folder_with_several_copies_is_reported_once(lua, tmp_path):
     assert mod.mod_folder() == "Mods/A copy"
     install(tmp_path)
     assert mod.mod_folder() == "Mods/Calculatro"
-    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    log = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
     assert log.count("more than one copy of the mod") == 1
     assert "A copy, Z copy" in log
 
@@ -685,6 +695,7 @@ def unicode_filesystem(rt, save_dir):
     fs.read, fs.write, fs.append = read, write, append
     fs.getInfo = lambda name: True if (save_dir / name).exists() else None
     fs.getDirectoryItems = directory_items(rt, save_dir)
+    fs.createDirectory = create_directory(save_dir)
 
 
 @pytest.mark.parametrize("name", ["Luké", "Łukasz", "光"])
@@ -693,7 +704,9 @@ def test_non_ascii_save_directory(luajit, tmp_path, name):
     save_dir = tmp_path / name
     mod_dir = install(save_dir, f"Calculatro {name}")  # the folder's name can be non-ASCII too
     unicode_filesystem(rt, save_dir)
-    state_file = save_dir / "calculatro_state.json"
+    state_file = data_dir(save_dir) / STATE_FILE
+    mod.create_data_dir()
+    assert data_dir(save_dir).is_dir()
 
     mod.write_snapshot()  # the first creates the file, the next replaces it
     first = mod.state_id
@@ -704,7 +717,7 @@ def test_non_ascii_save_directory(luajit, tmp_path, name):
     assert json.loads(state_file.read_text(encoding="utf-8"))["id"] == mod.state_id
     assert not state_file.with_suffix(".json.tmp").exists()
 
-    (save_dir / "calculatro_odds.json").write_text(
+    (data_dir(save_dir) / ODDS_FILE).write_text(
         json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
     mod.read_odds()
     assert mod.ack_id == mod.state_id
@@ -715,7 +728,7 @@ def test_non_ascii_save_directory(luajit, tmp_path, name):
     assert command == exe
 
     mod.log_error("something broke")
-    assert "[mod] something broke" in (save_dir / "calculatro.log").read_text(encoding="utf-8")
+    assert "[mod] something broke" in (data_dir(save_dir) / LOG_FILE).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("call", ["io.open", "io.lines", "os.rename", "os.remove", "loadfile", "dofile"])
@@ -725,35 +738,80 @@ def test_mod_never_uses_a_function_taking_an_ansi_path(call):
     assert not used
 
 
+def test_data_folder_is_created_as_the_mod_starts(lua, tmp_path):
+    _, mod = lua
+    data_dir(tmp_path).rmdir()  # the fixture's
+    mod.update(0.1)
+    assert data_dir(tmp_path).is_dir()
+
+
+def test_data_folder_deleted_while_playing_is_created_again(lua, tmp_path):
+    _, mod = lua
+    shutil.rmtree(data_dir(tmp_path))
+    mod.write_snapshot()
+    assert json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8"))["id"] == mod.state_id is not None
+    shutil.rmtree(data_dir(tmp_path))
+    mod.log_error("something broke")
+    assert "[mod] something broke" in (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
+    shutil.rmtree(data_dir(tmp_path))
+    mod.set_setting("face_down", True)
+    assert json.loads((data_dir(tmp_path) / SETTINGS_FILE).read_text(encoding="utf-8"))["face_down"] is True
+
+
+def test_data_folder_deleted_while_playing_is_created_again_by_the_thread(threaded, tmp_path):
+    rt, mod = threaded
+    shutil.rmtree(data_dir(tmp_path))
+    mod.write_snapshot()
+    mod.set_setting("face_down", True)
+    rt.eval("RUN_THREAD")()
+    mod.check_worker()
+    assert json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8"))["id"] == mod.state_id is not None
+    assert json.loads((data_dir(tmp_path) / SETTINGS_FILE).read_text(encoding="utf-8"))["face_down"] is True
+
+
+def test_paths_match_the_mod(lua):
+    """The app's names for the files (calculatro/paths.py) are the mod's (core.lua)."""
+    _, mod = lua
+    assert mod.data_dir == DATA_DIR
+    assert dict(mod.data_files) == {"state": STATE_FILE, "odds": ODDS_FILE, "log": LOG_FILE, "settings": SETTINGS_FILE}
+
+
+def test_app_looks_in_the_games_save_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    state = default_state_path()
+    assert state == data_dir(tmp_path / "Balatro") / STATE_FILE
+    assert odds_path(state) == data_dir(tmp_path / "Balatro") / ODDS_FILE
+
+
 def test_snapshot_that_cannot_be_written_is_tried_again(lua, tmp_path):
     rt, mod = lua
     mod.write_snapshot()
     written = mod.state_id
-    (tmp_path / "calculatro_state.json.tmp").mkdir()  # in the new one's way
+    (data_dir(tmp_path) / (STATE_FILE + ".tmp")).mkdir()  # in the new one's way
     rt.execute("G.GAME.current_round.hands_left = 1")
     mod.write_snapshot()
     assert mod.state_id == written
-    (tmp_path / "calculatro_state.json.tmp").rmdir()
+    (data_dir(tmp_path) / (STATE_FILE + ".tmp")).rmdir()
     mod.write_snapshot()
     assert mod.state_id != written
-    assert json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))["id"] == mod.state_id
+    assert json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8"))["id"] == mod.state_id
 
 
 def test_snapshots_that_keep_failing_are_reported_once(lua, tmp_path):
     rt, mod = lua
-    (tmp_path / "calculatro_state.json.tmp").mkdir()
+    (data_dir(tmp_path) / (STATE_FILE + ".tmp")).mkdir()
     for _ in range(9):  # now and then is normal, while the app reads the file
         mod.update(mod.interval)
-    assert not (tmp_path / "calculatro.log").exists()
+    assert not (data_dir(tmp_path) / LOG_FILE).exists()
     for _ in range(10):
         mod.update(mod.interval)
-    log = (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    log = (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
     assert log.count("could not write the state file") == 1
 
 
 def test_thread_writes_the_state_file_away_from_the_game(threaded, tmp_path):
     rt, mod = threaded
-    path = tmp_path / "calculatro_state.json"
+    path = data_dir(tmp_path) / STATE_FILE
     mod.write_snapshot()
     assert not path.exists() and mod.state_id is None  # only handed over
 
@@ -770,7 +828,7 @@ def test_thread_skips_to_the_newest_snapshot(threaded, tmp_path):
     mod.write_snapshot()
     rt.eval("RUN_THREAD")()
     mod.check_worker()
-    written = json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))
+    written = json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8"))
     assert written["hands_left"] == 1 and written["id"] == mod.state_id
 
 
@@ -790,7 +848,7 @@ def test_failed_write_on_the_thread_is_sent_again_and_reported(threaded, tmp_pat
         rt.eval("RUN_THREAD")()
         rt.eval("require('calculatro.log').guard")("state file", mod.check_worker)
     assert mod.state_id is None
-    assert "could not write the state file: locked" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert "could not write the state file: locked" in (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
 
     rt.eval("love.filesystem").write = real
     mod.write_snapshot()
@@ -815,13 +873,13 @@ def test_thread_from_before_a_restart_ends(threaded, tmp_path):
 
     rt.eval("RUN_THREAD")(2)
     new.check_worker()
-    written = json.loads((tmp_path / "calculatro_state.json").read_text(encoding="utf-8"))
+    written = json.loads((data_dir(tmp_path) / STATE_FILE).read_text(encoding="utf-8"))
     assert written["hands_left"] == 1 and written["id"] == new.state_id is not None
 
 
 def test_mod_writes_the_file_itself_once_the_thread_stops(threaded, tmp_path):
     rt, mod = threaded
-    path = tmp_path / "calculatro_state.json"
+    path = data_dir(tmp_path) / STATE_FILE
     mod.write_snapshot()  # handed to the thread, which never gets to it
     rt.execute("THREAD_RUNNING = false")
     mod.check_worker()
@@ -834,7 +892,7 @@ def test_thread_reads_the_odds_file_away_from_the_game(threaded, tmp_path):
     mod.write_snapshot()
     rt.eval("RUN_THREAD")()
     mod.check_worker()
-    (tmp_path / "calculatro_odds.json").write_text(
+    (data_dir(tmp_path) / ODDS_FILE).write_text(
         json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
 
     filesystem = rt.eval("love.filesystem")
@@ -856,7 +914,7 @@ def test_mod_reads_the_odds_file_itself_once_the_thread_stops(threaded, tmp_path
     mod.check_worker()
     rt.execute("THREAD_RUNNING = false")
     mod.check_worker()
-    (tmp_path / "calculatro_odds.json").write_text(
+    (data_dir(tmp_path) / ODDS_FILE).write_text(
         json.dumps({"schema": mod.odds_schema, "id": mod.state_id, "pending": True}), encoding="utf-8")
     mod.read_odds()
     assert mod.ack_id == mod.state_id
@@ -865,8 +923,8 @@ def test_mod_reads_the_odds_file_itself_once_the_thread_stops(threaded, tmp_path
 def test_odds_of_another_schema_are_reported_once(lua, tmp_path):
     _, mod = lua
     mod.write_snapshot()
-    path = tmp_path / "calculatro_odds.json"
-    log = tmp_path / "calculatro.log"
+    path = data_dir(tmp_path) / ODDS_FILE
+    log = data_dir(tmp_path) / LOG_FILE
     # The last session's file, of an older version: the app replaces it once it answers.
     path.write_text(json.dumps({"schema": mod.odds_schema - 1, "id": "an-earlier-session:4"}), encoding="utf-8")
     mod.read_odds()
@@ -887,7 +945,7 @@ def test_thread_that_cannot_start_is_reported_without_stopping(threaded, tmp_pat
     mod.write_snapshot()
     rt.eval("RUN_THREAD")()  # raises nothing: an error escaping a thread would stop the game
     mod.check_worker()
-    assert "no filesystem" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert "no filesystem" in (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")
 
 
 def test_launch_with_nothing_to_start(lua, request):

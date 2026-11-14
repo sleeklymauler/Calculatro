@@ -4,12 +4,19 @@ import json
 
 import pytest
 
+from calculatro.paths import DATA_DIR, LOG_FILE, SETTINGS_FILE, data_dir
 from hand_driver import Game
 from panel_driver import TEXTS, answer, click, find, panel_texts
 
 pytest.importorskip("lupa")
 
-SETTINGS_FILE = "calculatro_settings.json"
+
+def settings_file(save_dir):
+    return data_dir(save_dir) / SETTINGS_FILE
+
+
+def saved(save_dir) -> dict:
+    return json.loads(settings_file(save_dir).read_text(encoding="utf-8"))
 
 
 def open_settings(lua, tmp_path):
@@ -59,16 +66,16 @@ def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     toggle = "calculatro_setting_face_down"
     assert not mod.settings.face_down and find(rt, toggle).config.colour == "l_black"
-    assert not (tmp_path / SETTINGS_FILE).exists()  # nothing saved until something changes
+    assert not (settings_file(tmp_path)).exists()  # nothing saved until something changes
 
     assert click(lua, toggle)
     assert mod.settings.face_down
     assert panel_texts(rt)[4] == "On@light" and find(rt, toggle).config.colour == "blue"
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
+    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
 
     assert click(lua, toggle)
     assert not mod.settings.face_down and panel_texts(rt)[4] == "Off@light"
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 2}
+    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 2}
 
 
 def test_setting_name_explains_it_when_hovered(lua, tmp_path):
@@ -85,7 +92,7 @@ def test_setting_name_explains_it_when_hovered(lua, tmp_path):
 
 def test_settings_are_read_as_the_mod_starts(lua, tmp_path):
     rt, mod = lua
-    (tmp_path / SETTINGS_FILE).write_text('{"face_down": true}', encoding="utf-8")
+    (settings_file(tmp_path)).write_text('{"face_down": true}', encoding="utf-8")
     mod.update(1.0)
     assert mod.settings.face_down
 
@@ -93,10 +100,10 @@ def test_settings_are_read_as_the_mod_starts(lua, tmp_path):
 @pytest.mark.parametrize("content", ["", "not json", "[1, 2]", '{"face_down": "yes"}', '{"other": true}'])
 def test_unreadable_or_unknown_settings_keep_the_defaults(lua, tmp_path, content):
     rt, mod = lua
-    (tmp_path / SETTINGS_FILE).write_text(content, encoding="utf-8")
+    (settings_file(tmp_path)).write_text(content, encoding="utf-8")
     mod.update(1.0)
     assert mod.settings.face_down is False
-    assert not (tmp_path / "calculatro.log").exists()  # not an error
+    assert not (data_dir(tmp_path) / LOG_FILE).exists()  # not an error
 
 
 # --- Memory -------------------------------------------------------------------
@@ -149,7 +156,7 @@ def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):
     assert shown() == "2 GB"
     assert click(lua, "calculatro_setting_memory_gb_next")
     assert mod.settings.memory_gb == 4 and shown() == "4 GB"
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 4}
+    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 4}
     assert click(lua, "calculatro_setting_memory_gb_next")
     assert click(lua, "calculatro_setting_memory_gb_next")  # wraps around
     assert mod.settings.memory_gb == 1 and shown() == "1 GB"
@@ -188,7 +195,7 @@ def test_memory_explains_its_limit_when_hovered(lua, tmp_path):
 
 def test_memory_setting_is_read_as_the_mod_starts(lua, tmp_path):
     rt, mod = lua
-    (tmp_path / SETTINGS_FILE).write_text('{"memory_gb": 8}', encoding="utf-8")
+    (settings_file(tmp_path)).write_text('{"memory_gb": 8}', encoding="utf-8")
     mod.update(1.0)
     assert mod.settings.memory_gb == 8
 
@@ -219,11 +226,11 @@ def test_settings_are_saved_on_the_file_thread(threaded, tmp_path):
     filesystem.write = rt.eval("function() error('write on the game thread') end")
     mod.set_setting("face_down", True)
     filesystem.write = real
-    assert not (tmp_path / SETTINGS_FILE).exists()  # only handed over
+    assert not (settings_file(tmp_path)).exists()  # only handed over
 
     rt.eval("RUN_THREAD")()
     mod.check_worker()
-    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
+    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
     # The snapshot handed over with them was written too.
     assert mod.state_id is not None
 
@@ -235,10 +242,10 @@ def test_settings_that_cannot_be_saved_are_reported(threaded, tmp_path):
     mod.check_worker()
     real = rt.eval("love.filesystem").write
     rt.eval("love.filesystem").write = rt.eval(
-        "function(name, ...) if name == 'calculatro_settings.json' then return false, 'locked' end end")
+        f"function(name, ...) if name == '{DATA_DIR}/{SETTINGS_FILE}' then return false, 'locked' end end")
     mod.set_setting("face_down", True)
     rt.eval("RUN_THREAD")()
     mod.check_worker()
     rt.eval("love.filesystem").write = real
     assert mod.settings.face_down  # still on for this session
-    assert "could not save the settings: locked" in (tmp_path / "calculatro.log").read_text(encoding="utf-8")
+    assert "could not save the settings: locked" in (data_dir(tmp_path) / LOG_FILE).read_text(encoding="utf-8")

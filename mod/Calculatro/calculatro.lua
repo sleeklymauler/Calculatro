@@ -1,6 +1,6 @@
--- Calculatro: exports live Balatro game state to calculatro_state.json in the
--- save directory (%AppData%\Balatro) for the Python companion app, and shows
--- the odds it writes back to calculatro_odds.json in a panel above the deck.
+-- Calculatro: exports live Balatro game state to a file in the save directory
+-- (%AppData%\Balatro, in the folder core.lua's data_dir names) for the Python
+-- companion app, and shows the odds it writes back in a panel above the deck.
 
 -- This module is what the game's hooks call (see lovely.toml). The rest are its
 -- parts, each requiring the ones it needs: core (shared table), json, tracked,
@@ -22,6 +22,7 @@ function Calculatro.update(dt)
     dt = dt or 0
     if not Calculatro.launched then
         Calculatro.launched = true
+        guard('data folder', Calculatro.create_data_dir)  -- before the app starts
         guard('settings', Calculatro.load_settings)  -- before the file thread starts
         Calculatro.start_app()
     end

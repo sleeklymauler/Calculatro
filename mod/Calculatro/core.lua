@@ -32,7 +32,18 @@ local Calculatro = {
     round_seq = 0,
     odds_raw = nil,
     visible = true,
-    -- The player's settings (settings.lua), saved in calculatro_settings.json:
+    -- The folder in the save directory holding the files the mod shares with the app
+    -- and the settings, and their names in it; the app's are in calculatro/paths.py,
+    -- which must match. It's not the mod's own folder, which is deleted to update
+    -- the mod. files.lua creates it.
+    data_dir = 'calculatro_data',
+    data_files = {
+        state = 'state.json',      -- written by the mod
+        odds = 'odds.json',        -- written by the app
+        log = 'calculatro.log',    -- both add to it
+        settings = 'settings.json', -- only the mod's
+    },
+    -- The player's settings (settings.lua), saved in the data folder's settings.json:
     -- these are the defaults, until it's read as the app starts.
     settings = {
         face_down = false,  -- the hint over a face-down card: what the hand's sorts say it can be

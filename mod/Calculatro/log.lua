@@ -4,6 +4,8 @@ local Calculatro = require('calculatro.core')
 
 Calculatro.reported = {}
 
+local LOG_FILE = Calculatro.data_dir .. '/' .. Calculatro.data_files.log
+
 -- Writes the home folder as `~`, as the app's log does (log.py): players post
 -- the log publicly, and the folder's path holds their Windows username. The
 -- game's name for it, since it's UTF-8 like launch.txt and the save directory.
@@ -34,7 +36,9 @@ function Calculatro.log_error(text)
     if not Calculatro.log_started then
         header = '=== Calculatro mod, session ' .. Calculatro.session .. ', ' .. os.date('%Y-%m-%d %H:%M:%S') .. '\n'
     end
-    if love.filesystem.append('calculatro.log', header .. '[mod] ' .. hide_home(text) .. '\n') then
+    local fs, line = love.filesystem, header .. '[mod] ' .. hide_home(text) .. '\n'
+    -- Before the data folder's created (Calculatro.create_data_dir), or once the player's deleted it.
+    if fs.append(LOG_FILE, line) or (fs.createDirectory(Calculatro.data_dir) and fs.append(LOG_FILE, line)) then
         Calculatro.log_started = true
     end
 end

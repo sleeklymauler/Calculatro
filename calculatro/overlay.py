@@ -1,4 +1,4 @@
-"""The odds file read by the mod's in-game panel (calculatro_odds.json).
+"""The odds file read by the mod's in-game panel (paths.ODDS_FILE).
 
 Each payload echoes the id of the snapshot it answers, so the mod can tell
 current odds from ones for an older state. A snapshot is answered first with
@@ -47,11 +47,6 @@ def columns_needed(targets: int, queries: int) -> int:
     """Columns the panel needs for this many targets and card queries."""
     hand_rows = targets + (targets > 1)  # with "Any target" above several
     return -(-hand_rows // ROWS_PER_COLUMN) - (-queries // ROWS_PER_COLUMN)
-
-
-def odds_path(state_path: Path) -> Path:
-    """The odds file sits next to the state file."""
-    return state_path.with_name("calculatro_odds.json")
 
 
 def percent(p: Fraction) -> str:

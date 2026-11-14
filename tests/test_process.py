@@ -6,6 +6,7 @@ from pathlib import Path
 import calculatro.__main__ as cli
 from calculatro import process
 from calculatro.__main__ import main
+from calculatro.paths import log_path, odds_path
 
 
 def test_exited_follows_the_process():
@@ -86,18 +87,18 @@ def run_main(monkeypatch, tmp_path, first: bool):
 def test_manual_start_writes_the_panel(monkeypatch, tmp_path):
     panel = run_main(monkeypatch, tmp_path, first=True)
     assert panel({"schema": 1, "id": "s:1", "pending": True})
-    assert (tmp_path / "calculatro_odds.json").exists()
+    assert odds_path(tmp_path / "state.json").exists()
 
 
 def test_manual_start_beside_another_leaves_the_panel_alone(monkeypatch, tmp_path, capsys):
     """Two instances writing the odds file would clash, so a second one only prints."""
     panel = run_main(monkeypatch, tmp_path, first=False)
     panel({"schema": 1, "id": "s:1", "pending": True})
-    assert not (tmp_path / "calculatro_odds.json").exists()
+    assert not odds_path(tmp_path / "state.json").exists()
     assert cli.ALREADY_RUNNING in capsys.readouterr().out
 
 
 def test_game_launch_exits_when_already_running(monkeypatch, tmp_path):
     monkeypatch.setattr(process, "claim_instance", lambda name: False)
     assert main(["watch", "--file", str(tmp_path / "state.json"), "--game-pid", "1"]) == 0
-    assert not (tmp_path / "calculatro.log").exists()
+    assert not log_path(tmp_path / "state.json").exists()
