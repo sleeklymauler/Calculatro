@@ -67,7 +67,6 @@ local function build_options()
     }
 end
 local OPTIONS = build_options()
-Calculatro.OPTIONS = OPTIONS
 
 -- The largest count the builder offers: the hand size, or the cards held if
 -- more (DNA's copy), and at least the usual 8, so a smaller hand for a while

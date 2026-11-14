@@ -8,18 +8,20 @@ Heart. See docs/probability-model.md#face-down-cards-in-the-hands-sorts.
 
 import itertools
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
-from math import factorial, prod
+from itertools import pairwise, permutations
+from math import comb, factorial, prod
 
 from calculatro import engine
 from calculatro.cards import CardQuery
 from calculatro.engine import evaluate_cards, evaluate_discard, flipped_by_mark, posterior
 from calculatro.hands import Target
-from calculatro.posterior import reference
+from calculatro.posterior import Posterior, _branch, latent_ids, sort_value, sortable, tie_factor
+from calculatro.posterior import printed as printed_key
 from calculatro.rules import Rules
-from calculatro.state import SCHEMA, Card, GameState
+from calculatro.state import SCHEMA, Card, GameState, Observation, ObservedCard
 from game_order import nominal
 from poker import contains, contains_forced
 
@@ -249,6 +251,51 @@ def ours_by_cards(post) -> dict[tuple, Fraction]:
     return {k: v / post.total for k, v in found.items()}
 
 
+def reference(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
+              allowed: Callable[[Card], bool], extra: Sequence[ObservedCard] = (),
+              marked_rest: int = 0) -> Posterior:
+    """`posterior.summed` without merging anything or pruning early: every
+    injective assignment of the unseen cards, one by one, weighed straight from
+    the definition. Only for a few cards."""
+    ids = latent_ids(observed)
+    slots = [observed[card_id] for card_id in ids] + list(extra)
+    hand_of: list[int | None] = [slot.hand for slot in slots]
+    places = [j for j, card in enumerate(unseen) if sortable(card)]
+    faces = sum(map(allowed, unseen)) - sum(slot.marked for slot in slots)
+    found = []
+    for picked in permutations(places, len(hand_of)):
+        if any(slot.marked and not allowed(unseen[j]) for slot, j in zip(slots, picked)):
+            continue
+        key_of = {card_id: printed_key(card) for card_id, card in enumerate(observed) if not card.latent}
+        key_of.update((card_id, printed_key(unseen[j])) for card_id, j in zip(ids, picked))
+        if any(sort_value(key_of[a], o.mode) < sort_value(key_of[b], o.mode)
+               for o in observations for a, b in pairwise(o.cards)):
+            continue
+        groups: dict[object, list[int]] = {}
+        for card_id, key in key_of.items():
+            groups.setdefault(key, []).append(card_id)
+        weight = Fraction(1)
+        for members in groups.values():
+            weight *= tie_factor(members, observations)
+        if marked_rest and not all(slot.marked for slot in slots):
+            taken = sum(not slot.marked and allowed(unseen[j]) for slot, j in zip(slots, picked))
+            weight *= comb(max(0, faces - taken), marked_rest)
+        if weight:
+            found.append(_branch(hand_of, [unseen[j] for j in picked], weight))
+    return Posterior(tuple(found), sum((b.weight for b in found), Fraction(0)))
+
+
+def over_branches(state: GameState, post: Posterior, odds: Callable[[GameState], Fraction]) -> Fraction:
+    """The odds averaged over the posterior's branches, by weight: `odds` of
+    each branch's resolved state, every face-down card turned up. With one
+    branch for each deal (`reference`), it's what `engine._averaged` is checked against."""
+    total = Fraction(0)
+    resolve = engine._resolver(state)
+    for branch in post.branches:
+        total += branch.weight * odds(resolve(branch))
+    return total / post.total
+
+
 def check(case: Case, discards, targets=(), queries=()) -> None:
     """The posterior, and the odds of each discard, against the oracle; and the
     engine's merged branches against the reference that evaluates each deal.
@@ -273,9 +320,9 @@ def check(case: Case, discards, targets=(), queries=()) -> None:
                 ref_here = ref if dna is None or dna in in_sorts else reference(
                     state.observations, state.observed, state.unseen, flipped_by_mark,
                     *engine._slots(state, state.observed, (dna,)))
-                one_by_one = engine._over_branches(
+                one_by_one = over_branches(
                     state, ref_here,
-                    lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability, None)
+                    lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability)
                 assert one_by_one == found.probability
             assert found.discarded == [state.hand[i] for i in sorted(discard)]  # as the player sees them
         for query in queries:

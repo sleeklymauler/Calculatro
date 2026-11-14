@@ -7,7 +7,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 16
+SCHEMA = 17
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -265,9 +265,7 @@ class GameState:
     blind: str | None = None
     blind_disabled: bool = False  # by Chicot or Luchador
     hands_played: int = 0  # this round
-    discards_used: int = 0  # this round
     hand: list[Card] = field(default_factory=list)
-    played: list[Card] = field(default_factory=list)
     # Cards the player hasn't seen: the undrawn deck and the face-down cards in
     # hand or discarded together, since which are which isn't public (see `deck_size`).
     unseen: list[Card] = field(default_factory=list)
@@ -335,9 +333,7 @@ class GameState:
             blind=_text(d, "blind") or None,
             blind_disabled=bool(d.get("blind_disabled")),
             hands_played=_number(d, "hands_played"),
-            discards_used=_number(d, "discards_used"),
             hand=hand,
-            played=_cards(d.get("played")),
             unseen=_cards(d.get("unseen")),
             discard=discard,
             jokers=[Joker(_text(j, "key"), bool(j.get("debuff", False)), bool(j.get("perished", False)))

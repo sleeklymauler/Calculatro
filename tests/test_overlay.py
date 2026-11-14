@@ -127,7 +127,7 @@ def test_card_labels_are_short_and_ascii_but_for_suits():
 BUILDER_QUERIES = r"""
 return function(mod, counts, rank_sets, suit_sets)  -- every query the builder makes, with its label
   local out = {}
-  local O = mod.OPTIONS
+  local O = require('calculatro.builder').OPTIONS
   for _, cc in ipairs(counts) do
     for _, ranks in ipairs(rank_sets) do for _, suits in ipairs(suit_sets) do
       for special = 1, #O.special do for _, negate in ipairs({false, true}) do
@@ -181,7 +181,8 @@ def test_builder_queries_parse_as_labelled(lua):
     # any, since Stone Cards have none.
     plain = [Card(rank=str(r), rank_id=r, suit=s, enhancement="c_base") for r in range(2, 15) for s in SUITS]
     stone = Card(enhancement="m_stone")
-    per_set = 2 * len(lua[1].OPTIONS.special) - 1  # each special, and each but Any negated
+    specials = lua[0].eval("require('calculatro.builder')").OPTIONS.special
+    per_set = 2 * len(specials) - 1  # each special, and each but Any negated
     rows = iter(builder_queries(lua, [(1, 2)]))
     for chosen_ranks in RANK_SETS:
         for chosen_suits in SUIT_SETS:
@@ -1044,7 +1045,7 @@ TOO_SLOW_POPUP = r"""
 return function(mod, popup)  -- the texts of the popup shown while hovering a cell with this one
   UIElement = {hover = function(self) end}
   local e = {config = {calculatro_popup = popup}}
-  mod.hover_popups(e)
+  require('calculatro.uibox').hover_popups(e)
   e:hover()
   return e.config.h_popup
 end
@@ -1303,7 +1304,7 @@ def test_strike_runs_through_the_lowercase_letters(lua):
                  config = {calculatro_strike = true, scale = 0.32, colour = {1, 1, 1, 1}, text_drawable = {},
                            lang = {font = font}},
                  draw_self = function() drawn[#drawn + 1] = 'text' end}
-      Calculatro.strike_through(e)
+      require('calculatro.uibox').strike_through(e)
       e:draw_self()
       return drawn
     """, mod)
@@ -1889,7 +1890,7 @@ def test_card_names_show_their_popup_when_hovered(lua, tmp_path):
     rt.execute("UIElement = {hover = function(self) HOVERED = self end}")
     hover_with = rt.execute("""return function(mod, about)
         local e = {config = {calculatro_popup = {name = 'Plain not 5/9/K \\226\\153\\165: 1-3', about = about}}}
-        mod.hover_popups(e)
+        require('calculatro.uibox').hover_popups(e)
         e:hover()
         assert(HOVERED == e)
         return e

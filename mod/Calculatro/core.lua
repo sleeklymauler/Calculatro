@@ -13,7 +13,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 16,
+    schema = 17,
     odds_schema = 9,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),

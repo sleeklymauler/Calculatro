@@ -124,8 +124,8 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
   latent cards one at a time, between their face-up neighbours, and sums the partial deals that the rest
   can't tell apart as it goes (the cards bounding the latent cards still to come, the cards they've used
   that those could be, open tie groups, and what the caller sees of them so far: its `label`). So a run of
-  8 face-down cards, 10^8 deals, takes a fraction of a second. `reference` lists every deal one unseen
-  card at a time, for the tests.
+  8 face-down cards, 10^8 deals, takes a fraction of a second. The tests' `reference` (`tests/state_oracle.py`)
+  lists every deal one unseen card at a time.
 - **The odds** (`engine.evaluate_discard`, `evaluate_cards`). They're the average of today's odds over
   the branches, each with its latent cards turned up (`_resolved`: the card takes its place in hand, or
   one of the discard pile's `{hidden: true}` cards for one discarded before, and leaves `unseen`, so the

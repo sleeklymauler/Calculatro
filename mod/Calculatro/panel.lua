@@ -111,7 +111,6 @@ local function layout_key(model)
     return encode({ targets = rows(model.targets), cards = rows(model.cards), can_add = model.can_add,
                     message = empty and model.message or nil, message_popup = model.message_popup })
 end
-Calculatro.layout_key = layout_key
 
 -- The value nodes' configs in a definition, by id (config.calculatro_value),
 -- and in `cells` those of their cells with a popup (config.calculatro_popup_of),

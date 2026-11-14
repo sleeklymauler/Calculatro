@@ -13,7 +13,7 @@ from calculatro import engine
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard, flipped_by_mark, posterior
 from calculatro.hands import combine, get_target
-from calculatro.posterior import deals, reference
+from calculatro.posterior import deals
 from calculatro.search import best_card_discards, best_discards
 from calculatro.state import SUITS, Card, GameState
 from game_order import nominal
@@ -30,6 +30,7 @@ from state_oracle import (
     posterior_by_cards,
     printed,
     query_holds,
+    reference,
     target_holds,
 )
 

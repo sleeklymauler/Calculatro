@@ -77,7 +77,6 @@ local function strike_through(e)
         if type(child) == 'table' and child.UIT then strike_through(child) end
     end
 end
-Calculatro.strike_through = strike_through
 
 -- The game's floating text (DynaText's `float`, as on the blind's name and
 -- the hand being scored): the letters bob in a wave that runs left to right,
@@ -178,7 +177,6 @@ local function steady_buttons(e)
     end
     for _, child in ipairs(ui_children(e)) do steady_buttons(child) end
 end
-Calculatro.steady_buttons = steady_buttons
 
 -- Card query and setting names show their popup (config.calculatro_popup, see
 -- popup_definition) above them while hovered, through the game's own hover
@@ -211,7 +209,6 @@ local function register_once()
         end
     end
 end
-Calculatro.register_once = register_once
 
 local function hover_popups(e)
     if e.config and e.config.calculatro_popup then
@@ -230,7 +227,6 @@ local function hover_popups(e)
     end
     for _, child in ipairs(ui_children(e)) do hover_popups(child) end
 end
-Calculatro.hover_popups = hover_popups
 
 -- Removes a box built by the mod. The game unregisters each of its
 -- elements with a search of G.MOVEABLES and G.STAGE_OBJECTS, about 600

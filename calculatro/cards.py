@@ -52,10 +52,6 @@ _SUIT_WORDS = {
 }
 
 
-def _has_rank(card: Card, rank: int, rules: Rules) -> bool:
-    return not card.is_stone and card.rank_id == rank
-
-
 _COLOUR = {"Spades": "Black", "Clubs": "Black", "Hearts": "Red", "Diamonds": "Red"}
 
 

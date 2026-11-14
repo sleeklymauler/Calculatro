@@ -242,10 +242,21 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Keep `_holds_test` and build the others on it.
 - [ ] **A5** **[low] (seen)** The engine keeps state in module globals (`_usable`, `_deals`, `_windows`, `_ignored`, `_gc_searches`; `engine.py:246-248`, `1205-1212`, `1545`)
   - Tests share them between cases, and nothing ties them to a session. An object passed down (as `Reuse` is) would hold them.
-- [ ] **A6** **[low] (seen)** Dead or unused
+- [x] **A6** **[low] (seen)** Dead or unused
   - `cards._has_rank` (`cards.py:57`) is never called.
   - `GameState.played` and `discards_used` are exported, parsed and never read. Drop them from the contract (a schema bump), or note in `docs/architecture.md` what they're kept for.
   - `json.lua:93`: `list(open, close, item)` never uses `open`. (carried)
+  - Done (2026-11-14): all three removed, `played` and `discards_used` from the snapshot (state schema 17).
+    `snapshot.lua`'s `area_cards` lost its `hide_face_down`, true for every area left. A sweep of both halves
+    (every definition's uses, ruff's unused-argument rules, each Lua module's exports and parameters) found
+    more: `engine._nothing` was `posterior._none` again (now one `posterior.no_label`); `memory.lua` exported
+    `CHOICES` to nobody; and six functions were still copied onto the `Calculatro` table from before the
+    modules were split (`OPTIONS`, `layout_key`, `strike_through`, `steady_buttons`, `register_once`,
+    `hover_popups`), read only by tests, which now `require` the module.
+  - Code only the tests used moved out of the app: `posterior.reference` and `engine._over_branches` are now
+    `reference` and `over_branches` in `tests/state_oracle.py`.
+  - Kept: `Estimate.samples` is read by the tests and the benchmark; `paths.SETTINGS_FILE` is the mod's
+    file, checked against `core.lua`.
 - [ ] **A7** **[low] (seen)** `report.build_report`'s closures call each other in a loop (`value` → `bounds` → `value`) and rebuild the whole report after each value (`report.py:205-254`)
   - It works, and the sizes are small. It's the hardest part of the file to follow; a small class holding `known` with `value()` and `bounds()` as methods would read better.
 - [ ] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules

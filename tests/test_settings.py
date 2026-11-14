@@ -83,7 +83,7 @@ def test_setting_name_explains_it_when_hovered(lua, tmp_path):
     cell = find(rt, "calculatro_setting_name_face_down")
     assert cell.config.collideable
     rt.execute("UIElement = {hover = function(self) end}")
-    mod.hover_popups(cell)
+    rt.eval("require('calculatro.uibox')").hover_popups(cell)
     cell.hover(cell)
     lines = [t.split("@")[0] for t in rt.execute(TEXTS)(cell.config.h_popup).values()]
     assert lines[0] == "Face-down hints" and len(lines) > 2
@@ -186,7 +186,7 @@ def test_memory_explains_its_limit_when_hovered(lua, tmp_path):
     rt, mod = open_settings(lua, tmp_path)
     cell = find(rt, "calculatro_setting_name_memory_gb")
     rt.execute("UIElement = {hover = function(self) end}")
-    mod.hover_popups(cell)
+    rt.eval("require('calculatro.uibox')").hover_popups(cell)
     cell.hover(cell)
     lines = [t.split("@")[0] for t in rt.execute(TEXTS)(cell.config.h_popup).values()]
     assert lines[0] == "Memory limit" and "Up to half your memory (16 GB here)." in lines

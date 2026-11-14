@@ -55,13 +55,12 @@ def test_snapshot_sends_what_is_tracked(lua):
 def test_snapshot_sends_the_serpents_state(lua):
     rt, _ = lua
     state = GameState.from_json(snapshot_json(lua))
-    assert (state.blind_disabled, state.hands_played, state.discards_used) == (False, 0, 0)
+    assert (state.blind_disabled, state.hands_played) == (False, 0)
     assert not state.serpent
     rt.execute("""G.GAME.blind = {name = 'The Serpent'}
-                  G.GAME.current_round.hands_played = 1
-                  G.GAME.current_round.discards_used = 2""")
+                  G.GAME.current_round.hands_played = 1""")
     state = GameState.from_json(snapshot_json(lua))
-    assert (state.blind, state.hands_played, state.discards_used) == ("The Serpent", 1, 2)
+    assert (state.blind, state.hands_played) == ("The Serpent", 1)
     assert state.serpent
     rt.execute("G.GAME.blind.disabled = true")  # by Chicot or Luchador
     state = GameState.from_json(snapshot_json(lua))
@@ -204,9 +203,9 @@ def test_stone_base_card_not_leaked(lua):
 
 def test_empty_areas_encode_as_arrays(lua):
     rt, mod = lua
-    rt.execute("G.hand.cards = {}")
+    rt.execute("G.hand.cards = {}; G.discard.cards = {}")
     data = snapshot_json(lua)
-    assert data["hand"] == [] and data["played"] == []
+    assert data["hand"] == [] and data["discard"] == []
 
 
 def test_encode_numbers(lua):
@@ -511,7 +510,7 @@ def test_malformed_snapshot_raises(raw):
 ])
 def test_snapshot_numbers_made_whole(raw, parsed):
     """B9: a number the mod wrote as a float or null doesn't fail every calculation later on."""
-    fields = ["hand_size", "hands_left", "discards_left", "hands_played", "discards_used", "dna_copies"]
+    fields = ["hand_size", "hands_left", "discards_left", "hands_played", "dna_copies"]
     state = GameState.from_json({"schema": SCHEMA, "in_run": True, "select_limit": raw,
                                  **{name: raw for name in fields}})
     assert state.select_limit == parsed and type(state.select_limit) is int

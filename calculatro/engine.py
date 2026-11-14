@@ -75,7 +75,7 @@ from .hands import (
     forced_patterns,
     suit_keys,
 )
-from .posterior import Branch, Deals, Label, Posterior, Window, deals, printed, sort_value, summed, windows
+from .posterior import Branch, Deals, Label, Posterior, Window, deals, no_label, printed, sort_value, summed, windows
 from .rules import Rules
 from .state import SUITS, Card, GameState, ObservedCard
 
@@ -1317,7 +1317,7 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
             return _usable[key]
     # Telling no deals apart, the sum is one branch: quick even for The House's first hand.
     _, rest = _slots(state, state.observed, ())
-    found = summed(state.observations, state.observed, state.unseen, flipped_by_mark, (), _nothing,
+    found = summed(state.observations, state.observed, state.unseen, flipped_by_mark, (), no_label,
                    _checker(cancel), marked_rest=rest).total > 0
     if not found:
         failure = state.observations, state.observed
@@ -1335,10 +1335,6 @@ def usable(state: GameState, cancel: Event | None = None) -> bool:
         while len(_usable) > _USABLE_KEPT:
             _usable.popitem(last=False)
     return found
-
-
-def _nothing(hand: int | None, card: Card) -> None:
-    return None
 
 
 def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], None]) -> Deals | None:
@@ -1579,21 +1575,6 @@ def _memberships(hands: tuple[str, ...], rules: Rules) -> dict[ClassKey, frozens
             for key in req.keys:
                 found[key].add((p, q))
     return {key: frozenset(pq) for key, pq in found.items()}
-
-
-def _over_branches(state: GameState, post: Posterior, odds: Callable[[GameState], Fraction],
-                   cancel: Event | None) -> Fraction:
-    """The odds averaged over the posterior's branches, by weight: `odds` of
-    each branch's resolved state, every face-down card turned up. With one
-    branch for each deal (posterior.reference), it's the tests' reference for
-    _averaged."""
-    total = Fraction(0)
-    resolve = _resolver(state)
-    for branch in post.branches:
-        if cancel is not None and cancel.is_set():
-            raise Cancelled
-        total += branch.weight * odds(resolve(branch))
-    return total / post.total
 
 
 def _averaged(state: GameState, discard: list[int], classes: Callable[[Card], object],

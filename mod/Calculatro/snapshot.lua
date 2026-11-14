@@ -89,11 +89,11 @@ local function card_info(card, hide, in_hand)
     }
 end
 
-local function area_cards(area, hide_face_down, in_hand)
+local function area_cards(area, in_hand)
     local out = array()
     if area and area.cards then
         for i, card in ipairs(area.cards) do
-            out[i] = card_info(card, hide_face_down and face_down(card, area), in_hand)
+            out[i] = card_info(card, face_down(card, area), in_hand)
         end
     end
     return out
@@ -217,11 +217,9 @@ function Calculatro.snapshot()
         blind = G.GAME.blind and G.GAME.blind.name or nil,
         blind_disabled = G.GAME.blind and G.GAME.blind.disabled and true or false,
         hands_played = round.hands_played or 0,
-        discards_used = round.discards_used or 0,
-        hand = area_cards(G.hand, true, true),
-        played = area_cards(G.play, true),
+        hand = area_cards(G.hand, true),
         unseen = unseen_pool(),
-        discard = area_cards(G.discard, true),
+        discard = area_cards(G.discard),
         jokers = jokers,
         dna_copies = dna_copies(),
         tracked = tracked,

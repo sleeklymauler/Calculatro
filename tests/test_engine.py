@@ -506,7 +506,7 @@ def test_keeping_a_short_hand_draws_nothing(serpent):
     hand = [card(2, "Spades"), card(5, "Hearts"), card(9, "Clubs")]
     unseen = [card(r, s) for r in range(2, 15) for s in ("Hearts", "Diamonds") if (r, s) != (5, "Hearts")]
     state = GameState(in_run=True, hand_size=8, hand=hand, unseen=unseen,
-                      blind="The Serpent" if serpent else None, discards_used=int(serpent))
+                      blind="The Serpent" if serpent else None)
     keep = evaluate_discard(state, get_target("pair"), [])
     assert keep.draws == 0 and keep.probability == 0
     assert evaluate_cards(state, parse_query("heart"), []).probability == 1
@@ -518,8 +518,7 @@ def serpent_state(hand_cards: int, deck_cards: int = 10, **kw) -> GameState:
     """A Serpent round after a discard: 8-card hand size, a Queen of Spades among `deck_cards`."""
     hand = [card(r, "Hearts") for r in range(2, 2 + hand_cards)]
     deck = [card(12, "Spades")] + [card(r, "Clubs") for r in range(2, 1 + deck_cards)]
-    return GameState(in_run=True, hand_size=8, hand=hand, unseen=deck, blind="The Serpent",
-                     discards_used=1, **kw)
+    return GameState(in_run=True, hand_size=8, hand=hand, unseen=deck, blind="The Serpent", **kw)
 
 
 @pytest.mark.parametrize("discarded", [1, 3, 5])
@@ -546,9 +545,8 @@ def test_serpent_draws_at_most_the_deck():
 
 def test_serpent_keeping_a_short_hand_draws_nothing():
     # After a play or discard, its 3 cards were the round's draw until the next one.
-    for counters in ({"hands_played": 1, "discards_used": 0}, {"hands_played": 0, "discards_used": 1},
-                     {"hands_played": 0, "discards_used": 0}):
-        state = replace(serpent_state(5), **counters)
+    for hands_played in (0, 1):
+        state = replace(serpent_state(5), hands_played=hands_played)
         assert evaluate_discard(state, get_target("pair"), []).draws == 0
 
 

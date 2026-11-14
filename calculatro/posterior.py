@@ -39,8 +39,8 @@ instead of going through them.
 Where that's too slow, `deals` draws deals at random by their weight, for
 an estimate shown, marked, until the exact odds come (engine._estimate).
 
-`reference` merges nothing, enumerating the unseen cards one by one, and is
-what the tests check `summed` against.
+The tests check `summed` against `reference` (tests/state_oracle.py), which
+merges nothing, enumerating the unseen cards one by one.
 
 This module only does the counting; it doesn't import the engine, so the
 engine can import it. Cancelling is the caller's `check`, which raises.
@@ -51,7 +51,7 @@ from collections.abc import Callable, Collection, Hashable, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cache
-from itertools import combinations_with_replacement, pairwise, permutations
+from itertools import combinations_with_replacement, pairwise
 from math import comb, factorial, prod
 from random import Random
 
@@ -444,7 +444,8 @@ def _sortable_key(key: Printed) -> tuple:
     return (0, 0, "") if key is None else (1, *key)
 
 
-def _none(hand: int | None, card: Card) -> None:
+def no_label(hand: int | None, card: Card) -> None:
+    """A `summed` label that tells no deals apart."""
     return None
 
 
@@ -505,7 +506,7 @@ def deals(observations: Sequence[Observation], observed: Sequence[ObservedCard],
     exactly, as the merged partial deals have the same completions.
     """
     trace: list[_Trace] = []
-    if not summed(observations, observed, unseen, allowed, extra, _none, check, trace=trace,
+    if not summed(observations, observed, unseen, allowed, extra, no_label, check, trace=trace,
                   marked_rest=marked_rest).total:
         return None
     return Deals(trace[0], check)
@@ -632,37 +633,3 @@ def _uniform(s: _Setup, slots: Sequence[int], values: Sequence[int], ids: frozen
 
 def _card_of(hand: int | None, card: Card) -> Card:
     return card
-
-
-def reference(observations: Sequence[Observation], observed: Sequence[ObservedCard], unseen: Sequence[Card],
-              allowed: Callable[[Card], bool], extra: Sequence[ObservedCard] = (),
-              marked_rest: int = 0) -> Posterior:
-    """`summed` without merging anything or pruning early, for the tests: every
-    injective assignment of the unseen cards, one by one, weighed straight from
-    the definition. Only for a few cards."""
-    ids = latent_ids(observed)
-    slots = [observed[card_id] for card_id in ids] + list(extra)
-    hand_of: list[int | None] = [slot.hand for slot in slots]
-    places = [j for j, card in enumerate(unseen) if sortable(card)]
-    faces = sum(map(allowed, unseen)) - sum(slot.marked for slot in slots)
-    found = []
-    for picked in permutations(places, len(hand_of)):
-        if any(slot.marked and not allowed(unseen[j]) for slot, j in zip(slots, picked)):
-            continue
-        key_of = {card_id: printed(card) for card_id, card in enumerate(observed) if not card.latent}
-        key_of.update((card_id, printed(unseen[j])) for card_id, j in zip(ids, picked))
-        if any(sort_value(key_of[a], o.mode) < sort_value(key_of[b], o.mode)
-               for o in observations for a, b in pairwise(o.cards)):
-            continue
-        groups: dict[Printed, list[int]] = {}
-        for card_id, key in key_of.items():
-            groups.setdefault(key, []).append(card_id)
-        weight = Fraction(1)
-        for members in groups.values():
-            weight *= tie_factor(members, observations)
-        if marked_rest and not all(slot.marked for slot in slots):
-            taken = sum(not slot.marked and allowed(unseen[j]) for slot, j in zip(slots, picked))
-            weight *= comb(max(0, faces - taken), marked_rest)
-        if weight:
-            found.append(_branch(hand_of, [unseen[j] for j in picked], weight))
-    return Posterior(tuple(found), sum((b.weight for b in found), Fraction(0)))

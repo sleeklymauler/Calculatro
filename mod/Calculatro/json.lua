@@ -90,7 +90,7 @@ local function decode(s)
         end
     end
 
-    local function list(open, close, item)
+    local function list(close, item)
         pos = pos + 1
         skip()
         if s:sub(pos, pos) == close then pos = pos + 1; return end
@@ -109,7 +109,7 @@ local function decode(s)
         local c = s:sub(pos, pos)
         if c == '{' then
             local t = {}
-            list('{', '}', function()
+            list('}', function()
                 skip()
                 if s:sub(pos, pos) ~= '"' then fail('expected key') end
                 local k = string_value()
@@ -121,7 +121,7 @@ local function decode(s)
             return t
         elseif c == '[' then
             local t = array()
-            list('[', ']', function() t[#t + 1] = value() end)
+            list(']', function() t[#t + 1] = value() end)
             return t
         elseif c == '"' then
             return string_value()

@@ -263,7 +263,7 @@ def test_panel_buttons_do_not_shake_the_screen(anim):
     plus, other = p.UIRoot.children[1], p.UIRoot.children[2]
     plus.config.button = "calculatro_button"
     other.config.button = "some_game_button"
-    mod.steady_buttons(p.UIRoot)
+    rt.eval("require('calculatro.uibox')").steady_buttons(p.UIRoot)
     plus.click(plus)
     assert rt.eval("CLICKED") == 1 and rt.eval("G.ROOM.jiggle") == 0.2
     assert other.click is None  # only the panel's own buttons

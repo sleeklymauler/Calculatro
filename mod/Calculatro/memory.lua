@@ -65,5 +65,3 @@ function Calculatro.memory_gb()
     end
     return gb
 end
-
-return { CHOICES = CHOICES }
