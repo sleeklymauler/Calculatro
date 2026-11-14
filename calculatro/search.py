@@ -372,7 +372,8 @@ def _relabelled(state: GameState, target: Target, rules: Rules,
 
     The Mark's marked cards are drawn from the face cards apart, so with any
     of them a face card's rank is only swapped for another face card's. With Cerulean Bell the forced card's
-    class matters too (see _groups), and with face-down cards the hand's sorts
+    class matters too if it can change whether the target is played (`bell_matters`, see _groups); if it
+    can't, the engine leaves it out, as it does the force. With face-down cards the hand's sorts
     tell about which of them is discarded does, so discards aren't relabelled.
     Nor are they when the sorts tell about cards discarded face down before:
     what's left to draw then isn't the same for a rank and the one it'd be
@@ -384,7 +385,7 @@ def _relabelled(state: GameState, target: Target, rules: Rules,
     def counts(discard: list[int]) -> tuple[int, int]:
         return len(discard), sum(hand[i].hidden for i in discard), sum(hand[i].marked for i in discard)
 
-    if state.bell or any(o.latent for o in state.observed):
+    if (state.bell and bell_matters(target, rules)) or any(o.latent for o in state.observed):
         return lambda discard: (counts(discard), tuple(sorted(discard)))
     patterns = target.patterns(rules)
     reqs = {req for pattern in patterns for req in pattern}

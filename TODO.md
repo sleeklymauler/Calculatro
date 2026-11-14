@@ -223,7 +223,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Cerulean Bell's forced patterns (`hands.forced_patterns`), measured 2026-11-14: at most 7 ms a forced card,
     but `engine._bell_after_draw` built them for every pool card in a row, 120 ms in all with Four Fingers +
     Shortcut on Full House + Straight Flush. It now checks `cancel` between cards; each build is left as is.
-- [ ] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
+- [x] **P9** **[low] (carried)** `_relabelled` turns relabelling off whenever `state.bell` is set, even when `bell_matters(target, rules)` is false (`search.py:387`)
+  - Done (2026-11-14): it checks `bell_matters` as `_groups` and the engine do. That only helps targets the
+    forced card can't change (Pair to Four of a Kind, and "Any target"'s bounds from those hands), which were
+    already quick, so no benchmark scenario moved; every result unchanged. Tested in
+    `test_cerulean_bell_relabels_only_where_its_card_can_matter`.
 - [ ] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
 - [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
   - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.

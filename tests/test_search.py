@@ -11,7 +11,7 @@ import pytest
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, Reuse, can_miss, evaluate_discard
 from calculatro.hands import combine, get_target
-from calculatro.search import Progress, best_card_discards, best_discards, estimated_best
+from calculatro.search import Progress, _relabelled, best_card_discards, best_discards, estimated_best
 from calculatro.state import SUITS, Card, GameState, Joker
 from poker import card
 from search_oracle import cards_of, check
@@ -105,6 +105,20 @@ def test_cerulean_bell_discards_its_forced_card():
     for name in ("Pair", "Flush", "Straight"):
         for option in check(state, get_target(name)):
             assert option == [] or 2 in option
+
+
+def test_cerulean_bell_relabels_only_where_its_card_can_matter():
+    # Throwing the 7 or the 8 away (with the forced King) is alike for Three of a
+    # Kind, which the forced card can't change. Full House needs all 5 played, so
+    # there the forced card's class matters, and discards aren't relabelled.
+    hand = [card(7, "Hearts"), card(8, "Spades"), card(2, "Clubs"), card(2, "Diamonds"),
+            card(13, "Hearts", forced=True)]
+    deck = [card(7, "Clubs"), card(8, "Clubs"), card(2, "Hearts"), card(4, "Spades"), card(10, "Diamonds")]
+    state = GameState(in_run=True, hand_size=5, discards_left=1, hand=hand, unseen=deck, blind="Cerulean Bell")
+    for name, alike in (("Three of a Kind", True), ("Full House", False)):
+        key = _relabelled(state, get_target(name), state.rules)
+        assert (key([0, 4]) == key([1, 4])) == alike, name
+        check(state, get_target(name))
 
 
 def test_ties_go_to_fewest_cards_then_lowest_ranks():

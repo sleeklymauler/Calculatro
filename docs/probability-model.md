@@ -254,8 +254,9 @@ the last hand with no discards left (`search.can_redraw` false): nothing is draw
 discard and draw only, using `evaluate_discard`.
 
 - It enumerates counts per group of hand cards the target can't tell apart (`_groups`: by which
-  requirements a card's key counts towards, face-down cards together; by class under Cerulean Bell,
-  whose random forced card makes the class matter). A face-down card in the hand's sorts is a group of
+  requirements a card's key counts towards, face-down cards together; by class under Cerulean Bell
+  when its random forced card can change whether the target is played, `bell_matters`, and then
+  discards aren't relabelled either). A face-down card in the hand's sorts is a group of
   its own (`_hidden_group`), since where it is says what it can be, and then discards aren't
   relabelled (`_relabelled`), nor are they when only cards discarded face down are in the sorts: what's
   left to draw then isn't the same for a rank and the one it would be swapped with. Options are hand indices, so it says which face-down card to throw away.

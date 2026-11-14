@@ -42,8 +42,11 @@ equal:
 Ranks are used if they're symmetric, else suits, never both, since sorting
 by one breaks the other. The Mark draws face cards apart, so there face and
 other ranks are only swapped among themselves, and ranks are never dropped.
-Cerulean Bell's forced card makes the exact class matter, so it gets no
-relabelling (it already groups by class).
+Cerulean Bell's forced card makes the exact class matter when it can change
+whether the target is played (`hands.bell_matters`: some pattern needs all 5
+cards), so then it gets no relabelling (it already groups by class). For
+smaller hands (Pair to Four of a Kind) the engine ignores the force, and the
+search relabels as without it.
 
 On the 8-card benchmark hand this takes the "of a kind" hands from 219
 calculations to 6 (one per number of cards discarded), and Flush from 58 to
