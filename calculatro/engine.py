@@ -452,7 +452,7 @@ def _favourable(patterns: Sequence[Pattern], masks: list[int], kept: list[Card],
     if not patterns:
         return 0
     lay = _layout(tuple(patterns), tuple(masks), pool, rules, constraint,
-                  None if faces is None else tuple(faces), reuse)
+                  None if faces is None else tuple(faces), reuse, cancel)
     have = [[0] * len(pattern) for pattern in lay.patterns]
     for card in kept:
         for p, q in lay.members.get(card_key(card, rules), ()):
@@ -525,8 +525,12 @@ class _Layout:
 
 
 def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Card], rules: Rules,
-            constraint: Pattern | None, faces: tuple[int, ...] | None, reuse: Reuse | None) -> _Layout:
-    """The layout of a search for _favourable; from `reuse` if it has one for these."""
+            constraint: Pattern | None, faces: tuple[int, ...] | None, reuse: Reuse | None,
+            cancel: Event | None = None) -> _Layout:
+    """The layout of a search for _favourable; from `reuse` if it has one for these.
+
+    It loops over the patterns several times, thousands of them for an "any" target with Four Fingers and
+    Shortcut, so each loop checks `cancel` once a pattern."""
     layout_key = None
     if reuse is not None:
         layout_key = patterns, masks, constraint, tuple(card_key(card, rules) for card in pool), faces
@@ -534,6 +538,7 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
         if lay is not None:
             return lay
 
+    check = _checker(cancel)
     every = 0
     for mask in masks:
         every |= mask
@@ -548,11 +553,16 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     # Requirements of a pattern split into groups that no card still to be
     # drawn counts twice towards; None when the whole pattern is one such group.
     drawable = {k for card in pool if (k := card_key(card, rules)) is not None}
-    groups = [g if len(g) > 1 else None for g in (_disjoint_groups(p, drawable) for p in patterns)]
+    groups: list[list[tuple[int, ...]] | None] = []
+    for pattern in patterns:
+        check()
+        g = _disjoint_groups(pattern, drawable)
+        groups.append(g if len(g) > 1 else None)
 
     # Which (pattern, requirement) slots each class key counts towards.
     members: dict[object, list[tuple[int, int]]] = defaultdict(list)
     for p, pattern in enumerate(patterns):
+        check()
         for q, req in enumerate(pattern):
             for key in req.keys:
                 members[key].append((p, q))
@@ -626,6 +636,7 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     supply_at: list[list[tuple[int, ...]]] = []
     future_at: list[list[tuple[int, ...]]] = []
     for p, pattern in enumerate(patterns):
+        check()
         sup, fut = [0] * len(pattern), [0] * len(pattern)
         sups, futs = [tuple(sup)], [tuple(fut)]
         for i in reversed(steps[p]):
@@ -720,6 +731,7 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     # suit's first card with its own copy of that requirement.
     start = []
     for p, ps in enumerate(steps):
+        check()
         start.append(next((i for i in ps if any(local[p][q] for q in slots[i][p])), ps[0] if ps else n))
     # deferred[p] = (q, d) for each requirement q of pattern p that classes
     # before it joins count towards; d identifies the set of those classes,
@@ -728,6 +740,7 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     deferred: list[list[tuple[int, int]]] = [[] for _ in patterns]
     deferred_ids: dict[tuple[int, ...], int] = {}
     for p, ps in enumerate(steps):
+        check()
         before: dict[int, list[int]] = defaultdict(list)
         for i in ps[:bisect_left(ps, start[p])]:
             for q in slots[i][p]:
@@ -767,17 +780,21 @@ def _layout(patterns: tuple[Pattern, ...], masks: tuple[int, ...], pool: list[Ca
     return lay
 
 
-def _initial_parts(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int,
-                   shared: bool) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
+def _initial_parts(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, shared: bool,
+                   check: Callable[[], None]) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
     """The patterns that can still be satisfied, each with the cards it needs at
     least, and, if `shared`, the deficits of those not yet satisfied."""
     status, part_need = lay.status, lay.part_need
-    if not shared:
-        return {p: part_need[v] for p in range(len(lay.patterns))
-                if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws}, {}
     initial: dict[int, int] = {}
     deficits_of: dict[int, tuple[int, ...]] = {}
+    if not shared:
+        for p in range(len(lay.patterns)):
+            check()
+            if (v := status(p, kept_have[p], 0)) != DEAD and part_need[v] <= draws:
+                initial[p] = part_need[v]
+        return initial, deficits_of
     for p, (have, parts) in enumerate(zip(kept_have, lay.first)):
+        check()
         found = parts.get(have)
         if found is None:
             found = parts[have] = (status(p, have, 0),
@@ -791,7 +808,7 @@ def _initial_parts(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int,
 
 
 def _join_tables(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, masks: list[int], c: int | None,
-                 initial: dict[int, int]) -> tuple[list[list[int]], list[int], list, list]:
+                 initial: dict[int, int], check: Callable[[], None]) -> tuple[list[list[int]], list[int], list, list]:
     """What ways needs to know of the patterns still to join the search:
     activate[i], those that join at class i; join_need[p], the fewest draws
     pattern p can need by then; pending; and tracked."""
@@ -807,6 +824,7 @@ def _join_tables(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, mas
     defer_caps: dict[tuple[int, int, int], int] = {}
     join_need = [0] * len(lay.patterns)
     for p, need in initial.items():
+        check()
         if need and (masks[p] or p == c):  # unsatisfied but possible, so some class counts towards it
             if p != c:
                 activate[start[p]].append(p)
@@ -928,7 +946,8 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
                     and draws - sum(a) <= remaining[0] - faces_left[0]):
                 coded.append((sum(x * b for x, b in zip(a, bases)), a, w))
     drawn_from = [0] * len(deferred_sets)
-    initial, deficits_of = _initial_parts(lay, kept_have, draws, shared)
+    check = _checker(cancel)
+    initial, deficits_of = _initial_parts(lay, kept_have, draws, shared, check)
     if c is not None:
         if c not in initial:  # only patterns of every group can be satisfied
             masks = [m if m == every else 0 for m in masks]
@@ -944,7 +963,7 @@ def _search(lay: _Layout, kept_have: list[tuple[int, ...]], draws: int, cancel: 
             return sum(w * prod(comb(total, x) for total, x in zip(marks_left[0], a))
                        * comb(remaining[0] - faces_left[0], draws - sum(a)) for _, a, w in coded)
         return comb(remaining[0], draws)
-    activate, join_need, pending, tracked = _join_tables(lay, kept_have, draws, masks, c, initial)
+    activate, join_need, pending, tracked = _join_tables(lay, kept_have, draws, masks, c, initial, check)
     c_start = start[c] if c is not None else n
     c_initial = initial[c] if c is not None else 0
     joined: dict[tuple[int, ...], int] = {}

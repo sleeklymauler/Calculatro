@@ -23,8 +23,9 @@ from scenarios import SCENARIOS
 # The longest the job's thread may go between two checks of `cancel`. The mod waits 0.3 s for the odds of a new
 # state (core.lua), and a cancelled job still running shares the interpreter with the new one.
 LONGEST = 0.1
-WARM = 20_000  # checks the first run makes, filling the caches
 MEASURED = 60_000  # checks the measured run makes before it sets itself (about a second of the slowest cases)
+# Checks the first run makes, filling the caches: as many, so the measured run never gets further and builds one.
+WARM = MEASURED
 
 
 class Checks:
