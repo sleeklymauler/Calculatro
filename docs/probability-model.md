@@ -91,7 +91,7 @@ these:
 - **Cerulean Bell:** its forced card (`GameState.bell`/`forced`, from the hand cards' exported `forced`
   flag; `hands.forced_patterns`, `engine._bell_after_draw`).
 - **The Hook:** its 2 random cards thrown away after a play, which applies when the selection has to be
-  played for want of discards (`GameState.hook`, `engine._hooked`/`_after_hook`).
+  played for want of discards (`GameState.hook`, `engine._hooked`/`_hook_taken`).
 - **Crimson Heart:** its joker swap after such a play, which changes the rules the final hand is judged
   under (`GameState.crimson`, `engine.rules_after`, `search._rule_sets`; run-out Perishables, which it
   can't swap, are exported as `perished`).
@@ -221,23 +221,25 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   and `test_estimates_share_one_sampler_of_deals` checks the sampler is built once.
 - **Any other target value** (`how: "draws"`): an estimate from final hands drawn at random, the share
   of them that make the target (`engine._estimate_draws`), for what's slow however few the face-down
-  cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as
-  `_discard_odds` models the game dealing it: the rules it's judged under drawn by their weight
-  (`rules_after`), The Hook's kept cards taken at random, the face-down kept cards and the draw a
-  uniform sample of the pool (the marked face-down cards a sample of the pool's face cards, and the
-  rest from what's left), DNA's copies of a face-down card all one card, and Cerulean Bell's
-  forced card a random card of the final hand (or the forced card kept). A hand is checked against the
+  cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as the exact
+  odds model the game dealing it. Both start from `engine._finals`, the ways the final hand can be made,
+  weighted: the rules it's judged under (`rules_after`), the kept cards The Hook leaves (`_hook_taken`),
+  DNA's copies, how many marked face-down cards it holds, and Cerulean Bell's forced card, kept or a
+  random card of the hand. **A new rule about what the final hand holds goes there**, so the two can't
+  disagree about it. Only the draw itself is written twice: counted (`probability`, `count_probability`,
+  `_bell_after_draw`) and sampled (`_drawer`, `_FinalHands`): the face-down kept cards and the draw a
+  uniform sample of the pool, the marked face-down cards a sample of the pool's face cards and the rest
+  from what's left, DNA's copies of a face-down card all one card. A hand is checked against the
   target's patterns as bit masks of the requirements it meets (`_holds_test`, about 20 µs with Four
   Fingers + Shortcut's 1,856 Straight Flush patterns, against 1 ms to count the cards each pattern
-  needs), so 1 s draws about
-  55,000 hands: about half a point either side. The same stopping rule and range as above, and seeded
-  too. Card queries have none: without the sorts they're always quick. `test_estimates_from_draws_*`
-  (in `test_report.py`) check it against the exact odds on random hands under every boss, DNA,
-  The Serpent and the joker rules. Since `_final_hands` repeats the exact model's rules,
-  `tests/test_sampled_model.py` checks the two agree under each rule, alone and together (DNA under
-  The Hook, The Mark and Cerulean Bell; marked cards discarded face down; fewer face cards unseen than
-  marked ones), and that each case's rule changes the odds by more than its tolerance. A rule added
-  to one model belongs in a case there.
+  needs), so 1 s draws about 55,000 hands: about half a point either side. The same stopping rule and
+  range as above, and seeded too. Card queries have none: without the sorts they're always quick.
+  `test_estimates_from_draws_*` (in `test_report.py`) check it against the exact odds on random hands
+  under every boss, DNA, The Serpent and the joker rules. `tests/test_sampled_model.py` checks the two
+  agree under each rule, alone and together (DNA under The Hook, The Mark and Cerulean Bell; marked
+  cards discarded face down; fewer face cards unseen than marked ones), and that each case's rule
+  changes the odds by more than its tolerance. A rule that changes how the cards are drawn, not only
+  which, belongs in a case there.
 
 A best-discard search given up on answers from estimates too: see [Best discard](#best-discard).
 

@@ -213,7 +213,7 @@ def test_certain_only_with_several_hands_together():
     ("Crimson Heart", 0, {"jokers": [Joker("j_four_fingers", debuff=True), Joker("j_shortcut")]}),
 ])
 def test_a_miss_means_odds_below_1(blind, discards, kw):
-    misses = 0
+    misses = played = 0
     for seed in range(8):
         rng = random.Random(seed)
         state = replace(random_state(rng, deck=10, blind=blind, **kw), discards_left=discards, hands_left=3)
@@ -225,11 +225,11 @@ def test_a_miss_means_odds_below_1(blind, discards, kw):
             for discard in ([], [0], [1, 2], [0, 3, 5], [0, 1, 2, 3, 4]):
                 if can_miss(state, target, discard, rng):
                     misses += 1
+                    played += bool(discard)
                     assert evaluate_discard(state, target, discard).probability < 1, (seed, target, discard)
-                    # The Hook only takes cards after a play, not when keeping the hand.
-                    assert blind != "The Hook" or not discard
-    # It gives up on the bosses that don't draw uniformly, and finds misses otherwise.
-    assert (misses == 0) == (blind in ("The Mark", "Cerulean Bell"))
+    # It gives up under Cerulean Bell, and finds misses otherwise: under The Hook after a play too.
+    assert (misses == 0) == (blind == "Cerulean Bell")
+    assert blind != "The Hook" or played
 
 
 def test_no_miss_when_the_kept_cards_hold_the_target():

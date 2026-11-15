@@ -85,10 +85,12 @@ each time. It also covers single hands, where it takes Straight from 120 ms to
 36 ms on 10 cards.
 
 A miss only proves the odds are below 1 if the draw could really happen, so
-`can_miss` gives up (and the exact odds are worked out) where the draw isn't
-uniform or the kept cards are random: The Mark's split, Cerulean Bell and The
-Hook. It tests a kept hand first, since a choice that already holds the target
-can't miss, and sampling for it would be wasted.
+`can_miss` draws final hands as estimates do (`engine._final_hands`, which
+models The Mark's split, The Hook, DNA and Crimson Heart as the exact odds do).
+It gives up (and the exact odds are worked out) under Cerulean Bell, where each
+forced card's patterns take a while to build. It tests the kept hands first,
+since a choice that already holds the target can't miss, and sampling for it
+would be wasted.
 
 The check costs a little where it can't help: choices whose odds were already
 known through relabelling now pay for it too. "10 cards, Flush" with Smeared

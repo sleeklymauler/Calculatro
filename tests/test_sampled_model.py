@@ -1,8 +1,11 @@
 """The sampled model of a final hand (engine._final_hands, which estimates draw from) against the exact odds
-(evaluate_discard), under every rule the two each have a version of: The Hook, The Mark, Cerulean Bell, Crimson
-Heart, The Serpent and DNA, alone and together (docs/probability-model.md#approximations).
+(evaluate_discard), under every rule: The Hook, The Mark, Cerulean Bell, Crimson Heart, The Serpent and DNA,
+alone and together (docs/probability-model.md#approximations).
 
-A rule added to one model and not the other would make the estimates disagree with the exact odds. Here each
+Both models start from the same ways the final hand can be made (engine._finals); what each has its own version
+of is how the unseen cards are drawn: counted, or sampled (engine._drawer), with The Mark's split, DNA's copies
+of one face-down card and Cerulean Bell's forced card. A mistake in either would make the estimates disagree
+with the exact odds. Here each
 model's share of final hands that make a target agrees with the other's, within 4 standard errors. Seeded, so
 stable. Each case also checks that its rule changes the exact odds by more than that, so a sampled model that
 left the rule out would fail.

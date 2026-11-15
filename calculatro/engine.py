@@ -53,8 +53,8 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from functools import cache, lru_cache
-from itertools import accumulate, chain, combinations, product, repeat
+from functools import cache, cached_property, lru_cache
+from itertools import accumulate, combinations, product, repeat
 from math import comb, lcm, prod, sqrt
 from operator import gt
 from random import Random
@@ -1166,10 +1166,6 @@ class _Discard:
     added_hidden: int = 0  # DNA's copies of a face-down card
     added_marked: bool = False  # and it's marked
 
-    def marked_held(self, marked_kept: int) -> int:
-        """The marked cards in the final hand: `marked_kept` kept, and a marked card DNA copies."""
-        return marked_kept + (self.added_hidden if self.added_marked else 0)
-
 
 def _hooked(state: GameState, discard: list[int]) -> int:
     """How many kept cards The Hook throws away before the draw: 2 (or all there
@@ -1256,6 +1252,109 @@ def _merged(outcomes: list[tuple[Rules, int]], same: Callable[[Rules], object]) 
         first, m = merged.get(key, (rules, 0))
         merged[key] = first, m + n
     return list(merged.values())
+
+
+@dataclass(frozen=True)
+class _Final:
+    """One way the final hand after a discard can be made (_finals), which
+    `weight` of the equally likely ways lead to, judged under `rules`.
+
+    It holds the `known` cards, `unseen` cards of the pool (the face-down kept
+    cards, a face-down card DNA copies, and the draw) and `copies` more of that
+    copied card. The unseen ones are a uniform sample of the pool, but for
+    `marked_held` of them, the marked face-down cards (The Mark): a uniform
+    sample of the pool's face cards, with the other marked ones gone from it
+    (_mark_split). `copy_marked` if the copied card is one of those.
+
+    With `bell`, Cerulean Bell forces a card of the hand: `forced`, kept and
+    not among the `known`, or else one of the hand at random (_bell_after_draw).
+    """
+    weight: int
+    rules: Rules
+    known: tuple[Card, ...]
+    unseen: int
+    marked_held: int = 0
+    copies: int = 0
+    copy_marked: bool = False
+    bell: bool = False
+    forced: Card | None = None
+
+
+def _finals(state: GameState, discard: list[int], d: _Discard, bell: Callable[[Rules], bool],
+            same_rules: Callable[[Rules], object], same_card: Callable[[Card, Rules], object]) -> list[_Final]:
+    """Every way the final hand after discarding `discard` (`d`, _discard's) can
+    be made, as the engine models the game dealing it: under each set of rules
+    it may be judged by (`rules_after`, those alike in `same_rules` merged), and
+    with The Hook, after each way it takes kept cards (_hook_taken).
+
+    The exact odds (_discard_odds, _card_odds) and the sampled ones
+    (_FinalHands) both start from these, so a rule about what the final hand
+    holds belongs here, written once, and only how the unseen cards are drawn
+    has an exact version (`probability`, `count_probability`) and a sampled one
+    (_drawer).
+
+    `bell(rules)` says whether Cerulean Bell's forced card matters to the odds;
+    `same_card`, which kept cards are alike to them (for The Hook).
+    """
+    outcomes = rules_after(state, discard)
+    if len(outcomes) > 1:
+        outcomes = _merged(outcomes, same_rules)
+    copied = min(1, d.added_hidden)  # DNA's copies of a face-down card are one unseen card, repeated
+    copy_marked = bool(copied) and d.added_marked
+    forced = state.forced
+    found = []
+    for rules, n in outcomes:
+        forcing = bell(rules)
+        if forcing and not discard and forced is not None and not state.hand[forced].hidden:
+            # Keeping the hand keeps its forced card.
+            known = tuple(c for i, c in enumerate(state.hand) if i != forced and not c.hidden)
+            found.append(_Final(n, rules, known, d.hidden_kept + d.draws, bell=True, forced=state.hand[forced]))
+            continue
+        for w, known, hidden, marked in _hook_taken(d, rules, same_card):
+            found.append(_Final(n * w, rules, (*known, *d.added), hidden + copied + d.draws, marked + copy_marked,
+                                d.added_hidden - copied, copy_marked, forcing))
+    return found
+
+
+def _hook_taken(d: _Discard, rules: Rules,
+                same_card: Callable[[Card, Rules], object]) -> list[tuple[int, list[Card], int, int]]:
+    """The kept cards left once The Hook has thrown `d.hooked` of them away,
+    uniformly at random, before the draw (`Blind:press_play`), each way with
+    its weight: (weight, known cards, face-down cards, marked ones of those).
+    Without The Hook, the kept cards. Kept cards alike in `same_card` leave
+    alike hands, so it goes by how many of each kind it takes (face-down cards
+    being two kinds: marked or not)."""
+    if not d.hooked:
+        return [(1, d.kept_known, d.hidden_kept, d.marked_kept)]
+    groups: dict[object, list[Card]] = {}
+    for c in d.kept_known:
+        groups.setdefault(same_card(c, rules), []).append(c)
+    sizes = [len(g) for g in groups.values()] + [d.marked_kept, d.hidden_kept - d.marked_kept]
+
+    def taken(i: int, left: int) -> Iterator[tuple[int, ...]]:
+        if i == len(sizes):
+            if not left:
+                yield ()
+            return
+        for k in range(min(sizes[i], left) + 1):
+            for rest in taken(i + 1, left - k):
+                yield (k, *rest)
+
+    return [(prod(comb(size, k) for size, k in zip(sizes, counts)),
+             [c for g, k in zip(groups.values(), counts) for c in g[k:]],
+             d.hidden_kept - counts[-2] - counts[-1], d.marked_kept - counts[-2])
+            for counts in taken(0, d.hooked)]
+
+
+def _bell_for(target: Target, state: GameState) -> Callable[[Rules], bool]:
+    """Whether Cerulean Bell's forced card matters to `target` under some rules."""
+    return lambda rules: state.bell and bell_matters(target, rules)
+
+
+def _same_for(target: Target) -> Callable[[Rules], object]:
+    """What decides `target`'s odds of the rules: its patterns, and with Smeared the cards' classes too.
+    (Crimson Heart is the boss, so The Mark's split and Cerulean Bell don't apply.)"""
+    return lambda rules: (target.patterns(rules), rules.smeared)
 
 
 # --- What the hand's sorts say about face-down cards (docs/probability-model.md) ---
@@ -1896,86 +1995,108 @@ def _estimate_draws(state: GameState, target: Target, discard: list[int], cancel
     return _sampled(lambda: float(final(rng)), _checker(cancel), seconds, most, draws=True)
 
 
-def _final_hands(state: GameState, target: Target, discard: list[int]) -> Callable[[Random], bool]:
+# The latest pool's class keys (_pool_keys): (pool, rules, keys). A search's can_miss draws from the same
+# pool (`state.unseen`) for every discard, and working out its keys was most of each call.
+_last_pool: tuple[list[Card], Rules, list[ClassKey | None]] | None = None
+
+
+def _pool_keys(pool: list[Card], rules: Rules) -> list[ClassKey | None]:
+    """[card_key(c, rules) for c in pool], kept for the same list (by identity, which holding it keeps)
+    and rules as last time. Nothing changes a pool once made."""
+    global _last_pool
+    last = _last_pool
+    if last is not None and last[0] is pool and last[1] == rules:
+        return last[2]
+    keys = [card_key(c, rules) for c in pool]
+    _last_pool = pool, rules, keys
+    return keys
+
+
+def _final_hands(state: GameState, target: Target, discard: list[int]) -> _FinalHands:
     """Draws a final hand after discarding `discard` at random, as the engine
     models the game dealing it, and says whether it makes `target`: so the
     chance it says yes is `_evaluate_discard`'s odds. Every face-down card is
-    unknown (the hand's sorts aren't used).
+    unknown (the hand's sorts aren't used)."""
+    return _FinalHands(state, target, discard)
 
-    It mirrors _discard_odds and what it calls: the rules the final hand is
-    judged under (`rules_after`), drawn by their weight; The Hook's kept cards
-    taken at random (_after_hook); the face-down kept cards and the draw a
-    uniform sample of the pool, but the marked face-down cards a uniform
-    sample of the pool's face cards and the rest from what's left
-    (_mark_split); DNA's copies of a face-down card, all of one unknown card;
-    and Cerulean Bell's forced card, a random one of the final hand
-    (_bell_after_draw), or the forced card kept.
-    """
-    d = _discard(state, discard)
-    outcomes = rules_after(state, discard)
-    rule_sets = [rules for rules, _ in outcomes]
-    weights = list(accumulate(n for _, n in outcomes))
-    pool = d.pool
-    known = list(d.kept_known)
-    bell = state.bell and bell_matters(target, state.rules)
-    forced: Card | None = None
-    if bell and not discard and state.forced is not None and not state.hand[state.forced].hidden:
-        forced = state.hand[state.forced]  # keeping the hand keeps its forced card
-        known = [c for i, c in enumerate(state.hand) if i != state.forced and not c.hidden]
-    copied = 1 if d.added_hidden else 0  # DNA's copies of a face-down card are one unknown card
-    copied_marked = copied and d.added_marked
-    faces: list[int] = []
-    if d.marked:
-        faces = [j for j, c in enumerate(pool) if flipped_by_mark(c)]
-        if len(faces) < d.marked:
-            faces = []  # as _mark_split: only a rank changed while face down does that
-    keys = [([card_key(c, rules) for c in pool], [card_key(c, rules) for c in known],
-             [card_key(c, rules) for c in d.added], None if forced is None else card_key(forced, rules))
-            for rules in rule_sets]
-    tests: dict[tuple[int, ClassKey | None], Callable[[Iterable[ClassKey | None]], bool]] = {}
 
-    def test(r: int, forced_key: ClassKey | None) -> Callable[[Iterable[ClassKey | None]], bool]:
-        found = tests.get((r, forced_key))
+def _drawer(pool: list[Card], marked: int) -> Callable[[Random, int, int], tuple[list[int], list[int]]]:
+    """The sampled version of how `probability` and `count_probability` draw:
+    `draw(rng, n, held)` picks `n` cards of `pool`, by index, of which `held`
+    are marked face-down cards (The Mark), and gives (those, the others). The
+    pool's `marked` face-down cards are a uniform sample of its face cards,
+    and the others come from what's left (_mark_split); without them, all `n`
+    are a uniform sample of the pool."""
+    everything = range(len(pool))
+    faces = [j for j, c in enumerate(pool) if flipped_by_mark(c)] if marked else []
+    if len(faces) < marked:
+        faces = []  # as _mark_split: only a rank changed while face down does that
+
+    def uniform(rng: Random, n: int, held: int) -> tuple[list[int], list[int]]:
+        picks = rng.sample(everything, min(n, len(pool)))
+        return picks[:held], picks[held:]
+
+    def split(rng: Random, n: int, held: int) -> tuple[list[int], list[int]]:
+        down = rng.sample(faces, marked)  # every marked face-down card: those held, then those gone
+        gone = set(down)
+        rest = [j for j in everything if j not in gone]
+        return down[:held], rng.sample(rest, min(n - held, len(rest)))
+    return split if faces else uniform
+
+
+class _FinalHands:
+    """_final_hands's sampler: a final hand is one of the ways it can be made
+    (_finals), drawn by their weight, with its unseen cards drawn (_drawer),
+    DNA's copies of a face-down card all that one card, and Cerulean Bell's
+    forced card, if not kept, a random one of the hand (as _bell_after_draw).
+    A call draws one and says whether it makes the target."""
+
+    def __init__(self, state: GameState, target: Target, discard: list[int]):
+        self.d = d = _discard(state, discard)
+        self.hands = target.hands
+        self.finals = _finals(state, discard, d, _bell_for(target, state), _same_for(target), card_key)
+        self.weights = list(accumulate(f.weight for f in self.finals))
+        self.known = [[card_key(c, f.rules) for c in f.known] for f in self.finals]
+        self.tests: dict[tuple[Rules, bool, ClassKey | None], Callable[[Iterable[ClassKey | None]], bool]] = {}
+
+    def test(self, rules: Rules, bell: bool,
+             forced_key: ClassKey | None) -> Callable[[Iterable[ClassKey | None]], bool]:
+        found = self.tests.get((rules, bell, forced_key))
         if found is None:
-            found = tests[(r, forced_key)] = _target_test(target.hands, rule_sets[r], bell, forced_key)
+            found = self.tests[(rules, bell, forced_key)] = _target_test(self.hands, rules, bell, forced_key)
         return found
 
-    everything = range(len(pool))
+    @cached_property
+    def sure(self) -> bool:
+        """Whether every final hand makes the target whatever is drawn, without Cerulean Bell."""
+        return all(not f.bell and self.test(f.rules, False, None)(known) for f, known in zip(self.finals, self.known))
 
-    def final(rng: Random) -> bool:
-        r = rng.choices(range(len(rule_sets)), cum_weights=weights)[0] if len(rule_sets) > 1 else 0
-        pool_keys, hand, added, forced_key = keys[r]
-        hidden, marked = d.hidden_kept, d.marked_kept
-        if d.hooked:
-            # The kept cards in order: known, then face down, the marked ones first.
-            known = len(hand)
-            taken = set(rng.sample(range(known + hidden), d.hooked))
-            hand = [k for i, k in enumerate(hand) if i not in taken]
-            hidden -= sum(1 for i in taken if i >= known)
-            marked -= sum(1 for i in taken if known <= i < known + marked)
-        if faces:
-            down = rng.sample(faces, d.marked)  # the marked face-down cards: kept, copied, then gone
-            gone = set(down)
-            rest = [j for j in everything if j not in gone]
-            others = hidden - marked  # the kept face-down cards that aren't marked, from the rest
-            drawn = rng.sample(rest, min(others + (copied - copied_marked) + d.draws, len(rest)))
-            copy = down[marked:marked + 1] if copied_marked else drawn[others:others + copied]
-            picks = down[:marked] + drawn[:others] + copy + drawn[others + copied - copied_marked:]
-        else:
-            picks = rng.sample(everything, min(hidden + copied + d.draws, len(pool)))
-        cards = hand + added + [pool_keys[j] for j in picks]
-        if copied and len(picks) > hidden:
-            cards += [pool_keys[picks[hidden]]] * (d.added_hidden - 1)
-        if not bell:
-            return test(r, None)(cards)
-        if forced is None:
+    @cached_property
+    def pools(self) -> dict[Rules, list[ClassKey | None]]:
+        """The pool's class keys under each set of rules: only worked out to draw, which `sure` saves."""
+        return {f.rules: _pool_keys(self.d.pool, f.rules) for f in self.finals}
+
+    @cached_property
+    def draw(self) -> Callable[[Random, int, int], tuple[list[int], list[int]]]:
+        return _drawer(self.d.pool, self.d.marked)
+
+    def __call__(self, rng: Random) -> bool:
+        i = rng.choices(range(len(self.finals)), cum_weights=self.weights)[0] if len(self.finals) > 1 else 0
+        f = self.finals[i]
+        pool_keys = self.pools[f.rules]
+        forced_key = None if f.forced is None else card_key(f.forced, f.rules)
+        marked, others = self.draw(rng, f.unseen, f.marked_held)
+        cards = self.known[i] + [pool_keys[j] for j in marked] + [pool_keys[j] for j in others]
+        copy = marked if f.copy_marked else others
+        if f.copies and copy:
+            cards += [pool_keys[copy[0]]] * f.copies
+        if f.bell and f.forced is None:
             if not cards:
                 return False
             i = rng.randrange(len(cards))
             forced_key = cards[i]
             cards = cards[:i] + cards[i + 1:]
-        return test(r, forced_key)(cards)
-    return final
+        return self.test(f.rules, f.bell, forced_key)(cards)
 
 
 @lru_cache(maxsize=256)
@@ -2054,7 +2175,7 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
     """Probability of reaching `target` after discarding hand cards at indices `discard`.
 
     Without discards left they'd have to be played instead, which under The
-    Hook also throws away 2 random kept cards (`_after_hook`), and under
+    Hook also throws away 2 random kept cards (`_hook_taken`), and under
     Crimson Heart changes which joker is debuffed (`rules_after`): the odds
     are then the average over the rules the final hand may be judged under.
     A lone card played as the round's first hand comes back with DNA
@@ -2079,36 +2200,27 @@ def _evaluate_discard(state: GameState, target: Target, discard: list[int],
     """evaluate_discard with every face-down card unknown, or resolved by a
     branch, but for those in the `windows`."""
     d = _discard(state, discard)
-    outcomes = rules_after(state, discard)
-    total = sum(n for _, n in outcomes)
-    if len(outcomes) > 1:
-        # Rules the target's patterns don't see give the same odds: Shortcut for a
-        # Flush, or any of them for a Pair. Smeared also changes the cards' classes.
-        # (Crimson Heart is the boss, so The Mark's split and Cerulean Bell don't apply.)
-        outcomes = _merged(outcomes, lambda rules: (target.patterns(rules), rules.smeared))
-    p = sum((n * _discard_odds(state, target, discard, d, rules, cancel, reuse, windows) for rules, n in outcomes),
-            Fraction(0)) / total
+    # Rules the target's patterns don't see give the same odds (_same_for): Shortcut for a Flush, or any of
+    # them for a Pair.
+    finals = _finals(state, discard, d, _bell_for(target, state), _same_for(target), card_key)
+    p = sum((f.weight * _discard_odds(target, d, f, cancel, reuse, windows) for f in finals),
+            Fraction(0)) / sum(f.weight for f in finals)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def _discard_odds(state: GameState, target: Target, discard: list[int], d: _Discard, rules: Rules,
-                  cancel: Event | None, reuse: Reuse | None, windows: Sequence[Marked] = ()) -> Fraction:
-    """evaluate_discard's odds with the final hand judged under `rules`.
+def _discard_odds(target: Target, d: _Discard, f: _Final, cancel: Event | None, reuse: Reuse | None,
+                  windows: Sequence[Marked] = ()) -> Fraction:
+    """evaluate_discard's odds of the final hand made as `f` is.
     `windows` only come without The Hook, Cerulean Bell or The Mark (_windows_for)."""
-    if d.hooked:
-        return _after_hook(target, d, rules, cancel, reuse)
-    hidden = d.hidden_kept + d.added_hidden
-    marked_kept = d.marked_held(d.marked_kept)
-    known = d.kept_known + list(d.added)
-    unseen = hidden + d.draws
-    if state.bell and bell_matters(target, rules):
-        forced = state.forced
-        if not discard and forced is not None and not state.hand[forced].hidden:
-            # Keeping the hand keeps its forced card.
-            kept = [c for i, c in enumerate(state.hand) if i != forced and not c.hidden]
-            return probability(target, kept, d.pool, unseen, rules, cancel, forced=state.hand[forced], reuse=reuse)
-        return _bell_after_draw(target, known, d.pool, unseen, rules, cancel, reuse)
-    return probability(target, known, d.pool, unseen, rules, cancel, d.marked, marked_kept, reuse=reuse,
+    # DNA's copies of a face-down card, if more than one, are branched on (_dna_branch), so they only come
+    # here where no card can be the one copied: then they're counted as that many unseen cards.
+    unseen, marked_held = f.unseen + f.copies, f.marked_held + f.copies * f.copy_marked
+    known = list(f.known)
+    if f.forced is not None:
+        return probability(target, known, d.pool, unseen, f.rules, cancel, forced=f.forced, reuse=reuse)
+    if f.bell:
+        return _bell_after_draw(target, known, d.pool, unseen, f.rules, cancel, reuse)
+    return probability(target, known, d.pool, unseen, f.rules, cancel, d.marked, marked_held, reuse=reuse,
                        windows=windows)
 
 
@@ -2118,11 +2230,9 @@ def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, 
     odds after discarding `discard` are certainly below 1. False proves nothing.
 
     Much quicker than the odds, so a search that has already found odds of 1
-    can rule a discard out. It only tries uniform draws, so it gives up (False)
-    where the draw isn't uniform or the kept cards are random: The Mark's split,
-    Cerulean Bell's forced card and The Hook. Otherwise it mirrors _discard_odds.
-    With several rules the final hand may be judged under (`rules_after`), a
-    miss under one is enough, since each has some chance.
+    can rule a discard out. It tries final hands drawn as estimates draw them
+    (_final_hands), each of which has some chance. It gives up (False) under
+    Cerulean Bell, where each forced card's patterns would take a while to build.
 
     Where the hand's sorts tell about face-down cards, a uniform draw could be
     one they rule out, so each try first picks what those cards are: any branch
@@ -2130,63 +2240,20 @@ def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, 
     The branches are summed by what the target sees, so they're all it can
     tell apart.
     """
+    if state.bell:
+        return False
     post = _posterior_for(state, discard, cancel, _rule_classes(state, discard, _counts_towards(target, state)))
     if post is None:
-        return _can_miss(state, target, discard, rng, tries)
-    resolved: dict[int, GameState] = {}
+        final = _final_hands(state, target, discard)
+        return not final.sure and any(not final(rng) for _ in range(tries))
+    branches: dict[int, _FinalHands] = {}
     for _ in range(tries):
         b = rng.randrange(len(post.branches))
-        if b not in resolved:
-            resolved[b] = _resolved(state, post.branches[b])
-        if _can_miss(resolved[b], target, discard, rng, 1):
+        if b not in branches:
+            branches[b] = _final_hands(_resolved(state, post.branches[b]), target, discard)
+        if not branches[b].sure and not branches[b](rng):
             return True
     return False
-
-
-def _can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int) -> bool:
-    d = _discard(state, discard)
-    if d.marked or d.hooked or state.bell:
-        return False
-    rules = rules_after(state, discard)[0][0]
-    holds = _target_test(target.hands, rules, False, None)
-    known = [card_key(c, rules) for c in (*d.kept_known, *d.added)]
-    if holds(known):
-        return False  # whatever is drawn
-    draws = min(d.hidden_kept + d.added_hidden + d.draws, len(d.pool))
-    keys = [card_key(c, rules) for c in d.pool]
-    return any(not holds(chain(known, rng.sample(keys, draws))) for _ in range(tries if draws else 1))
-
-
-def _after_hook(target: Target, d: _Discard, rules: Rules, cancel: Event | None,
-                reuse: Reuse | None = None) -> Fraction:
-    """P(`target`) when The Hook throws away `d.hooked` of the kept cards, uniformly
-    at random, before the draw (`Blind:press_play`): the average over which ones.
-    Kept cards of the same class give the same odds, so it goes by how many of
-    each class (face-down cards being two: marked or not) it takes."""
-    groups: dict[object, list[Card]] = {}
-    for c in d.kept_known:
-        groups.setdefault(card_key(c, rules), []).append(c)
-    sizes = [len(g) for g in groups.values()] + [d.marked_kept, d.hidden_kept - d.marked_kept]
-    total = Fraction(0)
-
-    def taken(i: int, left: int) -> Iterator[tuple[int, ...]]:
-        if i == len(sizes):
-            if not left:
-                yield ()
-            return
-        for k in range(min(sizes[i], left) + 1):
-            for rest in taken(i + 1, left - k):
-                yield (k, *rest)
-
-    for counts in taken(0, d.hooked):
-        weight = 1
-        for size, k in zip(sizes, counts):
-            weight *= comb(size, k)
-        kept = [c for g, k in zip(groups.values(), counts) for c in g[k:]] + list(d.added)
-        hidden = d.hidden_kept - counts[-2] - counts[-1] + d.added_hidden
-        total += weight * probability(target, kept, d.pool, hidden + d.draws, rules, cancel, d.marked,
-                                      d.marked_held(d.marked_kept - counts[-2]), reuse=reuse)
-    return total / comb(sum(sizes), d.hooked)
 
 
 def _bell_after_draw(target: Target, kept: list[Card], pool: list[Card], draws: int,
@@ -2317,33 +2384,19 @@ def _evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
     over the rules.
     """
     d = _discard(state, discard)
-    outcomes = rules_after(state, discard)
-    total = sum(n for _, n in outcomes)
-    if len(outcomes) > 1:
-        # The odds only see which cards match: Four Fingers and Shortcut never
-        # change that, and Smeared and Pareidolia only for some queries.
-        cards = (*d.kept_known, *d.added, *d.pool)
-        outcomes = _merged(outcomes, lambda rules: tuple(query.filter.test(c, rules) for c in cards))
-    p = sum((n * _card_odds(query, d, rules, windows) for rules, n in outcomes), Fraction(0)) / total
+    # The odds only see which cards match: Four Fingers and Shortcut never change that, and Smeared and
+    # Pareidolia only for some queries. Cerulean Bell's forced card is in the hand like any other.
+    cards = (*d.kept_known, *d.added, *d.pool)
+    finals = _finals(state, discard, d, lambda rules: False,
+                     lambda rules: tuple(query.filter.test(c, rules) for c in cards), query.filter.test)
+    p = sum((f.weight * _card_odds(query, d, f, windows) for f in finals), Fraction(0)) / sum(f.weight for f in finals)
     return DiscardOutcome(d.discarded, d.draws, p)
 
 
-def _card_odds(query: CardQuery, d: _Discard, rules: Rules, windows: Sequence[Marked] = ()) -> Fraction:
-    """evaluate_cards's odds with the final hand judged under `rules`. `windows`
-    only come without The Hook or The Mark (_windows_for)."""
-    have = sum(query.filter.test(c, rules) for c in d.kept_known)
-    added = sum(query.filter.test(c, rules) for c in d.added)
-    if not d.hooked:
-        hidden = d.hidden_kept + d.added_hidden
-        return count_probability(query, d.pool, hidden + d.draws, rules, d.marked, d.marked_held(d.marked_kept),
-                                 have + added, windows)
-    # Of the kept cards, only whether each matches matters, or that it's face down, marked or not.
-    sizes = (have, len(d.kept_known) - have, d.marked_kept, d.hidden_kept - d.marked_kept)
-    total = Fraction(0)
-    for taken in product(*(range(min(n, d.hooked) + 1) for n in sizes)):
-        if sum(taken) == d.hooked:
-            hidden = d.hidden_kept - taken[2] - taken[3] + d.added_hidden
-            weight = prod(comb(n, k) for n, k in zip(sizes, taken))
-            total += weight * count_probability(query, d.pool, hidden + d.draws, rules, d.marked,
-                                                d.marked_held(d.marked_kept - taken[2]), have - taken[0] + added)
-    return total / comb(sum(sizes), d.hooked)
+def _card_odds(query: CardQuery, d: _Discard, f: _Final, windows: Sequence[Marked] = ()) -> Fraction:
+    """evaluate_cards's odds of the final hand made as `f` is. `windows` only
+    come without The Hook or The Mark (_windows_for). DNA's copies of a
+    face-down card are counted as _discard_odds counts them."""
+    have = sum(query.filter.test(c, f.rules) for c in f.known)
+    return count_probability(query, d.pool, f.unseen + f.copies, f.rules, d.marked,
+                             f.marked_held + f.copies * f.copy_marked, have, windows)

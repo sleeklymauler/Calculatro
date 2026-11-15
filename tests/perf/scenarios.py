@@ -243,7 +243,7 @@ CRIMSON_KEEP_3 = Situation("Keep 3, draw 5, Crimson Heart, played", kept=3, hidd
 SERPENT_KEEP_3 = Situation("Keep 3, draw 3, The Serpent", kept=3, hidden=0, blind="The Serpent")
 SERPENT_KEEP_7 = Situation("Keep 7, draw 3, The Serpent", kept=7, hidden=0, blind="The Serpent")
 # The Hook with the selection played, and no face-down cards (unlike SORTED_2_HOOK): one search per way of
-# splitting its 2 cards between the kinds of kept card (engine._after_hook).
+# splitting its 2 cards between the kinds of kept card (engine._hook_taken).
 HOOK_KEEP_3 = Situation("Keep 3, The Hook takes 2, draw 7, played", kept=3, hidden=0, blind="The Hook", discards=0)
 HOOK_KEEP_6 = Situation("Keep 6, The Hook takes 2, draw 4, played", kept=6, hidden=0, blind="The Hook", discards=0)
 

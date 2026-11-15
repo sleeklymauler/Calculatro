@@ -243,9 +243,21 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - The odds job, the search job, resending and failure logging are each a small state machine. A class for the odds side and one for the search side would make each testable on its own, and the loop a dozen lines.
 - [ ] **A2** **[med] (seen)** `engine.py` is 2276 lines doing four jobs
   - The counting search (`probability` to `_bound`, about 1000 lines), the discard model (`_discard`, `rules_after`, The Hook, Cerulean Bell, card queries), what the hand's sorts say (`usable` to `_split`), and the estimates (`_sampled` to `_holds_test`). They'd split along those lines with few imports between them.
-- [ ] **A3** **[med] (seen)** The game's rules for a final hand are written twice (`engine.py:1832-1905` and `2019-2035`)
+- [x] **A3** **[med] (seen)** The game's rules for a final hand are written twice (`engine.py:1832-1905` and `2019-2035`)
   - `_final_hands` "mirrors `_discard_odds` and what it calls": The Hook, The Mark, DNA, Cerulean Bell and Crimson Heart each have an exact version and a sampled one. A rule added to one and not the other gives estimates that disagree with the exact odds, without failing anything.
   - At least add a test that, for a small state under each boss and with DNA, `_final_hands`' share over many draws agrees with `_evaluate_discard` (T4).
+  - Done (2026-11-14), since the game's coming update is likely to add bosses and jokers: `engine._finals` lists the
+    ways the final hand can be made, weighted (Crimson Heart's rules, the kept cards The Hook leaves via
+    `_hook_taken`, DNA's copies, the marked cards held, Cerulean Bell's forced card kept or random). The exact odds
+    (`_discard_odds`, `_card_odds`) and the sampler (`_FinalHands`) both read from it, so a rule about what the
+    final hand holds is written once. `_after_hook` and `_card_odds`' own Hook loop are gone. Only how the unseen
+    cards are drawn has two versions, counted and sampled (`_drawer`); `test_sampled_model` still catches each of 4
+    mutations of the sampler tried.
+  - `can_miss` now draws with the same sampler, so it no longer gives up under The Mark or The Hook (only Cerulean
+    Bell, for the cost of each forced card's patterns). To keep it as quick, the pool's class keys are kept for the
+    last pool seen (`_pool_keys`), since a search draws from one pool for every discard.
+  - Every benchmark result unchanged, 2% faster in all; the slowest searches with Four Fingers + Shortcut 13 to 15%
+    faster, nothing reliably slower when old and new are timed back to back. 15,000 fuzz seeds pass.
 - [x] **A4** **[low] (seen)** Three functions answer "do these cards make one of these patterns" (`_holds` at `engine.py:141`, `holds` inside `_can_miss` at `2076`, `_holds_test` at `1918`)
   - Keep `_holds_test` and build the others on it.
   - Done (2026-11-14): `_holds` and `_can_miss`'s copy are gone; `probability`'s path with nothing to draw and
