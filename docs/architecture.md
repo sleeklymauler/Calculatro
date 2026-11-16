@@ -116,7 +116,10 @@ imports from `engine` itself, which re-exports what it uses (`engine/__init__.py
 - **Jobs.** `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread). Each new state
   cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`).
   Keep new slow code paths cancellable. Best-discard searches run in a second job, cancelled only
-  when `search_basis` changes ([panel.md](panel.md#best-discard-button)).
+  when `search_basis` changes ([panel.md](panel.md#best-discard-button)). The loop itself is short:
+  each side is a class of its own in `__main__`, `OddsJobs` for the odds and `SearchJobs` for the
+  searches, with `Outbox` delivering their payloads to the panel (and resending them) and `Failures`
+  logging what failed.
 - **Values as they're found.** `build_report` works out each value (a row's Keep or Discard) in three
   passes, so a quick one is never held up by a slow one: each first with `Limits.quick` (0.25 s), unless
   a try before it ran out of time still checking the hand's sorts, which it would check first too

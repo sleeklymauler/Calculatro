@@ -239,8 +239,14 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Architecture and cleanup
 
-- [ ] **A1** **[med] (seen)** `run_watch` is one 215-line function with about 18 variables shared by its closures (`__main__.py:239-453`)
+- [x] **A1** **[med] (seen)** `run_watch` is one 215-line function with about 18 variables shared by its closures (`__main__.py:239-453`)
   - The odds job, the search job, resending and failure logging are each a small state machine. A class for the odds side and one for the search side would make each testable on its own, and the loop a dozen lines.
+  - Done (2026-11-15): four classes in `__main__`, each holding its own state: `OddsJobs` (the job, `known`,
+    partial payloads), `SearchJobs` (the search asked for, what was given up on, `found`), `Outbox` (the latest
+    odds with the search's result on them, resending what the panel didn't get) and `Failures` (each logged
+    once). `run_watch`'s loop is now about 20 lines, the rule jokers and the memory limit beside them. They stay
+    in `__main__` so the tests' patches (`cli.calculate`, `cli.best_discards`, `cli.RETRY`) still apply, and
+    every existing test passed unchanged. New tests drive each class without the loop.
 - [x] **A2** **[med] (seen)** `engine.py` is 2276 lines doing four jobs
   - The counting search (`probability` to `_bound`, about 1000 lines), the discard model (`_discard`, `rules_after`, The Hook, Cerulean Bell, card queries), what the hand's sorts say (`usable` to `_split`), and the estimates (`_sampled` to `_holds_test`). They'd split along those lines with few imports between them.
   - Done (2026-11-15): `engine.py` (2427 lines by then) is the package `calculatro/engine/`, each module importing

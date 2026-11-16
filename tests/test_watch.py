@@ -881,3 +881,98 @@ def test_search_given_up_at_its_limit_and_answered_at_once_after(monkeypatch):
     finally:
         stopped.set()
         t.join(5)
+
+
+# Each of run_watch's parts on its own.
+
+from calculatro import overlay  # noqa: E402
+
+
+def test_outbox_puts_the_search_on_the_latest_odds_and_retries_what_didnt_arrive(monkeypatch):
+    monkeypatch.setattr(cli, "RETRY", 0.0)
+    sent, locked = [], [False]
+    outbox = cli.Outbox(lambda payload: False if locked[0] else sent.append(payload))
+    outbox.show(None, {"nonce": 1})
+    assert sent == []  # nothing to put a search on before the first odds
+    outbox.show({"id": "a"}, None)
+    outbox.show(None, {"nonce": 1})  # a search finished: the same odds again, with it
+    assert sent == [{"id": "a"}, {"id": "a", "search": {"nonce": 1}}]
+    locked[0] = True
+    outbox.show({"id": "b"}, {"nonce": 1})
+    outbox.show({"id": "c"}, None)  # a newer payload replaces the one waiting
+    locked[0] = False
+    outbox.retry()
+    outbox.retry()  # delivered once
+    assert sent[2:] == [{"id": "c"}]
+
+
+def test_failures_logged_once_for_each_kind_and_place(capsys):
+    failures = cli.Failures()
+    for value in (1, 2):
+        try:
+            raise ValueError(value)
+        except ValueError as e:
+            failures("Something", e)
+    err = capsys.readouterr().err
+    assert err.count("Something failed") == 1 and "ValueError: 1" in err
+
+
+def test_odds_jobs_answer_each_state_and_keep_finished_rows(monkeypatch):
+    knowns: list[dict] = []
+
+    def calculate(state, targets, queries, cancel, known, **_):
+        knowns.append(known)
+        return {"id": state.id, "rows": [t.name for t in targets]}
+
+    monkeypatch.setattr(cli, "calculate", calculate)
+    odds = cli.OddsJobs(cli.LIMITS, Watchdog(), cli.Session(), cli.Failures())
+    first = hand_state(1, search=None)
+    assert odds.update(first) == overlay.pending(first)
+    assert odds.poll(5) == {"id": "s:1", "rows": ["Pair"]}
+    assert odds.job is None and odds.poll(0) is None  # delivered once
+    # Selecting cards keeps the finished rows; a new hand starts afresh.
+    odds.update(hand_state(2, selected=(0,), search=None))
+    odds.poll(5)
+    odds.update(hand_state(3, ranks=(9, 9, 5), search=None))
+    odds.poll(5)
+    assert knowns[0] is knowns[1] and knowns[2] is not knowns[0]
+    # Nothing tracked, or a hand still being dealt: answered at once, no job.
+    untracked = replace(first, tracked_hands=[])
+    assert odds.update(untracked) == overlay.odds(untracked, None) and odds.job is None
+    dealing = replace(first, state="DRAW_TO_HAND")
+    assert odds.update(dealing) == overlay.pending(dealing) and odds.job is None
+    assert len(knowns) == 3
+
+
+def test_odds_jobs_answer_a_failed_job_without_values(monkeypatch, capsys):
+    def calculate(state, *_, **__):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(cli, "calculate", calculate)
+    odds = cli.OddsJobs(cli.LIMITS, Watchdog(), cli.Session(), cli.Failures())
+    state = hand_state(1, search=None)
+    odds.update(state)
+    assert odds.poll(5) == overlay.odds(state, None)
+    assert "Odds for snapshot s:1 failed" in capsys.readouterr().err
+
+
+def test_search_jobs_search_each_request_once_and_answer_one_given_up_on_at_once(monkeypatch):
+    calls: list[str] = []
+
+    def search_within(state, *_):
+        calls.append(state.id)
+        return TooSlow(TIME)
+
+    monkeypatch.setattr(cli, "search_within", search_within)
+    searches = cli.SearchJobs(cli.LIMITS, Watchdog(), cli.Session(), cli.Failures())
+    assert not searches.poll()
+    searches.update(hand_state(1))
+    wait_for(searches.poll)
+    gave_up = {"nonce": 1, "key": "Pair", "options": [], "mark": {"state": "final", "limit": "time"}}
+    assert searches.found == gave_up and not searches.poll()
+    searches.update(hand_state(2, selected=(0,)))  # the same request: kept
+    assert searches.found == gave_up and searches.job is None
+    searches.update(hand_state(3, selected=(0,), search=("Pair", 2)))  # asked again: answered at once
+    assert searches.found == {**gave_up, "nonce": 2} and searches.job is None and calls == ["s:1"]
+    searches.update(hand_state(4, ranks=(9, 9, 5), search=None))  # a new hand drops it
+    assert searches.found is None

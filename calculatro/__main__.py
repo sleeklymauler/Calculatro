@@ -141,145 +141,240 @@ ALREADY_RUNNING = ("Calculatro is already running for this state file (the game 
 NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro panel in game."
 
 
-def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_interval: float = 0.05,
-              stop: Callable[[], bool] = lambda: False,
-              limits: Limits = LIMITS, watchdog: Watchdog | None = None,
-              memory_limit: Callable[[int | None], int] | None = None) -> None:
-    """Work out the odds of what each new state tracks (`tracked`) in the
-    background, for the mod's panel.
+class Failures:
+    """Logs what failed (a bug, not a cancellation) on stderr, once per run for each kind of error and place it's
+    raised: a message's values may change, and the same failure would otherwise fill the log."""
 
-    A new state cancels the running calculation, so the panel keeps up with the
-    game however slow the odds are. Each row's finished odds are kept until
-    `odds_basis` changes, so selecting the same cards again doesn't calculate
-    them again.
+    def __init__(self):
+        self.logged: set[tuple] = set()
 
-    `panel` receives the payloads for the mod's odds panel: a `pending` one as
-    soon as a state arrives, then its odds (only the pending one while the
-    hand isn't `settled`): `partial` ones as values are found, at most one
-    every PARTIAL_INTERVAL seconds (none if they're all found sooner), then
-    all of them. It returns False if it couldn't
-    deliver one for a lock; that payload is then sent again every RETRY seconds until it
-    is, or a newer one replaces it. It raises an `OSError` for any other failure,
-    which is logged and retried the same way but only every RETRY_ERROR seconds
-    (a newer payload is still tried at once). Each problem is logged when it
-    starts, and once more when the file is written again.
-
-    Each odds value, and each search, stops at its `limits` (`build_report`),
-    or once `watchdog` finds the app using too much memory, and is given up on
-    (`worker.TooSlow`). A search given up on answers from estimates if it can
-    (`search_within`), and is answered the same at once when asked for again,
-    until what it depends on changes. With `memory_limit`, each state sets the
-    watchdog's limit to `memory_limit(state.memory_gb)`, the player's "Memory limit"
-    setting. The setting is part of `odds_basis` and `search_basis`, so changing
-    it starts afresh: what was given up on under the old limit is tried again.
-
-    A state asking for a best-discard search (`GameState.search`, with a number
-    not seen before) starts one in a job of its own. Only a change to what it
-    depends on (`search_basis`, or the row's target) cancels it, not selecting
-    cards; if the state still asks for it, it starts again. Its result goes on
-    every payload (`overlay.search`) until that changes, and the mod drops its
-    copy once a payload comes without it.
-
-    A state holding other rule jokers (`rule_jokers`) empties the engine's caches
-    (`engine.clear_caches`), so what the old rules built doesn't keep its memory.
-
-    A calculation or search that fails (a bug, not a cancellation) is logged on
-    stderr, once per run for each kind of error and place it's raised, and
-    answered as if there were nothing to show: the panel gets odds without
-    values, a search no options, so neither is left waiting. The next state is
-    calculated as usual.
-
-    Any other error in the loop (a bad state that `GameState.from_json` didn't
-    catch, say) is logged the same way, and the app carries on with the next state.
-    """
-    if watchdog is None:
-        watchdog = Watchdog()  # time limits only
-    session = Session()  # what the engine keeps between the jobs
-    job: Job[dict] | None = None
-    job_state: GameState | None = None  # the state the job is for
-    progress_sent = 0  # the job's progress last sent (`Control.updates`)
-    next_partial = 0.0
-    known: dict = {}  # finished rows for `known_for`. A job keeps the one it started with, so an
-    known_for: tuple | None = None  # older job can't add to a newer state's.
-    searching: Job[Search | TooSlow] | None = None
-    search_for: tuple[GameState, str, int, Target | CardQuery | None] | None = None  # basis, key, nonce, target
-    given_up: dict[object, Search | TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
-    given_up_for: GameState | None = None
-    found: dict | None = None  # the finished search's result, for the panel
-    seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
-    base: dict | None = None  # the latest payload, before the search's result goes on it
-    unsent: dict | None = None  # the latest payload, until the panel gets it
-    retry_at = 0.0
-    unwritten = ""  # why the odds file couldn't be written, as last logged ("" once it has been)
-    logged: set[tuple] = set()  # the failures reported so far, each only once (a message's values may change)
-    rules_held: frozenset[str] | None = None  # `rule_jokers` of the latest state
-
-    def failed(what: str, error: Exception) -> None:
+    def __call__(self, what: str, error: Exception) -> None:
         where = tuple((frame.f_code.co_filename, line) for frame, line in traceback.walk_tb(error.__traceback__))
-        if (type(error), where) in logged:
+        if (type(error), where) in self.logged:
             return
-        logged.add((type(error), where))
+        self.logged.add((type(error), where))
         message = "".join(traceback.format_exception(error))
         try:
             print(f"{what} failed:\n{message}", file=sys.stderr, end="", flush=True)
         except Exception:
             pass  # a full disk, say: this is the last resort for errors, so one here would stop the app
 
-    def send(payload: dict) -> None:
-        nonlocal unsent, retry_at, unwritten
+
+class Outbox:
+    """Delivers payloads to the mod's panel: the latest odds, with the latest search's result on them.
+
+    `panel` returns False if it couldn't deliver one for a lock; that payload is then sent again every RETRY
+    seconds (`retry`) until it is, or a newer one replaces it. It raises an `OSError` for any other failure, which
+    is logged and retried the same way but only every RETRY_ERROR seconds (a newer payload is still tried at once).
+    Each problem is logged when it starts, and once more when the file is written again."""
+
+    def __init__(self, panel: Callable[[dict], object]):
+        self.panel = panel
+        self.odds: dict | None = None  # the latest odds payload, before the search's result goes on it
+        self.unsent: dict | None = None  # the latest payload, until the panel gets it
+        self.retry_at = 0.0
+        self.unwritten = ""  # why the odds file couldn't be written, as last logged ("" once it has been)
+
+    def show(self, odds: dict | None, search: dict | None) -> None:
+        """Send `odds` (or, if None, the latest odds again) with `search` on them. Nothing before the first odds."""
+        if odds is not None:
+            self.odds = odds
+        if self.odds is not None:
+            self._send({**self.odds, "search": search} if search else self.odds)
+
+    def retry(self) -> None:
+        """Send again the payload the panel didn't get, once it's time to."""
+        if self.unsent is not None and time.monotonic() >= self.retry_at:
+            self._send(self.unsent)
+
+    def _send(self, payload: dict) -> None:
         try:
-            if panel(payload) is not False:
-                if unwritten:
+            if self.panel(payload) is not False:
+                if self.unwritten:
                     print("Odds file written again.", file=sys.stderr, flush=True)
-                unsent, unwritten = None, ""
+                self.unsent, self.unwritten = None, ""
                 return
             why, wait = "something else has it open", RETRY
         except OSError as error:
             why, wait = f"{type(error).__name__}: {error}", RETRY_ERROR
-        if why != unwritten:
+        if why != self.unwritten:
             print(f"Couldn't write the odds file ({why}); retrying.", file=sys.stderr, flush=True)
-        unsent, retry_at, unwritten = payload, time.monotonic() + wait, why
+        self.unsent, self.retry_at, self.unwritten = payload, time.monotonic() + wait, why
 
-    def show(payload: dict) -> None:
-        nonlocal base
-        base = payload
-        send({**payload, "search": found} if found else payload)
 
-    def start_search(state: GameState) -> None:
-        nonlocal searching, search_for, found, seen, given_up, given_up_for
+class OddsJobs:
+    """The odds of what each new state tracks (`tracked`), worked out in a job of their own.
+
+    A new state cancels the running job, so the panel keeps up with the game however slow the odds are, and while
+    the hand isn't `settled` none is started. Each row's finished odds are kept until `odds_basis` changes, so
+    selecting the same cards again doesn't calculate them again. Each value stops at its `limits` (`build_report`),
+    or once `watchdog` finds the app using too much memory, and is given up on (`worker.TooSlow`).
+
+    A job that fails is logged (`failures`) and answered with odds without values, so the panel isn't left
+    waiting."""
+
+    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures):
+        self.limits, self.watchdog, self.session, self.failures = limits, watchdog, session, failures
+        self.job: Job[dict] | None = None
+        self.state: GameState | None = None  # the state the job is for
+        self.progress_sent = 0  # the job's progress last sent (`Control.updates`)
+        self.next_partial = 0.0
+        self.known: dict = {}  # finished rows for `known_for`. A job keeps the one it started with, so an
+        self.known_for: tuple | None = None  # older job can't add to a newer state's.
+
+    def update(self, state: GameState) -> dict:
+        """Cancel the running job, and start one for `state`'s odds if it tracks anything and is settled. The
+        payload to show at once: pending, or odds without values if nothing is tracked."""
+        self.cancel()
+        targets, queries = tracked(state)
+        if not (targets or queries):
+            return overlay.odds(state, None)
+        if state.in_run and not settled(state):
+            return overlay.pending(state)  # the panel keeps the last odds, greyed out, until the hand settles
+        self.state = state
+        basis = odds_basis(state)
+        if basis != self.known_for:
+            self.known, self.known_for = {}, basis
+        self.job = Job(lambda control, known=self.known:
+                       calculate(state, targets, queries, control, known=known, limits=self.limits,
+                                 progress=control.progress, session=self.session), self.watchdog)
+        self.progress_sent, self.next_partial = 0, time.monotonic() + PARTIAL_INTERVAL
+        return overlay.pending(state)
+
+    def poll(self, wait: float) -> dict | None:
+        """Wait up to `wait` seconds for the job. The payload to show, if any: its odds once it's done (delivered
+        once), or `partial` ones as values are found, at most one every PARTIAL_INTERVAL seconds (none if
+        they're all found sooner)."""
+        if self.job is None:
+            time.sleep(wait)
+            return None
+        if self.job.wait(wait):
+            finished, self.job = self.job, None
+            try:
+                return finished.result()
+            except Exception as e:
+                self.failures(f"Odds for snapshot {self.state.id}", e)
+                return overlay.odds(self.state, None)
+        control = self.job.control
+        if control.updates != self.progress_sent and time.monotonic() >= self.next_partial:
+            self.progress_sent, self.next_partial = control.updates, time.monotonic() + PARTIAL_INTERVAL
+            return control.latest
+        return None
+
+    def forget_cancelled(self) -> None:
+        """Drop the job if it was cancelled for a state that then failed: any other is still answered."""
+        if self.job is not None and self.job.cancelled:
+            self.job = None
+
+    def cancel(self) -> None:
+        if self.job is not None:
+            self.job.cancel()
+            self.job = None
+
+
+class SearchJobs:
+    """Best-discard searches, each in a job of its own.
+
+    A state asking for a search (`GameState.search`, with a number not seen before) starts one. Only a change to
+    what it depends on (`search_basis`, or the row's target) cancels it, not selecting cards; if the state still
+    asks for it, it starts again. Its result (`found`, from `overlay.search`) goes on every payload until that
+    changes, and the mod drops its copy once a payload comes without it.
+
+    A search stops at its `limits`, or at the memory limit. One given up on answers from estimates if it can
+    (`search_within`), and is answered the same at once when asked for again, until what it depends on changes.
+    One that fails is logged (`failures`) and answered with no options, so the panel isn't left waiting."""
+
+    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures):
+        self.limits, self.watchdog, self.session, self.failures = limits, watchdog, session, failures
+        self.job: Job[Search | TooSlow] | None = None
+        self.asked: tuple[GameState, str, int, Target | CardQuery | None] | None = None  # basis, key, nonce, target
+        self.given_up: dict[object, Search | TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
+        self.given_up_for: GameState | None = None
+        self.found: dict | None = None  # the finished search's result, for the panel
+        self.seen: tuple[str, int] | None = None  # (session, nonce) of the latest search asked for
+
+    def update(self, state: GameState) -> None:
+        """Drop the search if `state` changes what it depends on, and start the one `state` asks for if it's new.
+        One already given up on, or for a row that isn't tracked, is answered at once."""
         basis = search_basis(state)
-        if basis != given_up_for:
-            given_up, given_up_for = {}, basis
-        if search_for is not None and (search_for[0] != basis
-                                       or row_key(search_target(state, search_for[1])) != row_key(search_for[3])):
-            # What it was worked out from has changed (or the row's target, as
-            # for "Any target" when a hand is added): drop it, and search again
-            # if the mod is still asking (it stops once it has a reply), so it
+        if basis != self.given_up_for:
+            self.given_up, self.given_up_for = {}, basis
+        if self.asked is not None and (self.asked[0] != basis
+                                       or row_key(search_target(state, self.asked[1])) != row_key(self.asked[3])):
+            # What it was worked out from has changed (or the row's target, as for "Any target" when a hand is
+            # added): drop it, and search again if the mod is still asking (it stops once it has a reply), so it
             # isn't left waiting for one.
-            if searching is not None:
-                searching.cancel()
-            searching = search_for = found = seen = None
+            self.cancel()
+            self.asked = self.found = self.seen = None
         if state.search is None:
             return
         key, nonce = state.search
         request = ((state.id or "").split(":")[0], nonce)
-        if request == seen:
+        if request == self.seen:
             return
-        seen = request
-        if searching is not None:
-            searching.cancel()
+        self.seen = request
+        self.cancel()
         target = search_target(state, key)
-        searching, search_for, found = None, (basis, key, nonce, target), None
-        if target is None or row_key(target) in given_up:
-            found = overlay.search(key, nonce, None if target is None else given_up[row_key(target)])
+        self.asked, self.found = (basis, key, nonce, target), None
+        if target is None or row_key(target) in self.given_up:
+            self.found = overlay.search(key, nonce, None if target is None else self.given_up[row_key(target)])
         else:
-            searching = Job(lambda control, state=state, target=target:
-                            search_within(state, target, control, limits, session), watchdog)
+            self.job = Job(lambda control: search_within(state, target, control, self.limits, self.session),
+                           self.watchdog)
 
+    def poll(self) -> bool:
+        """Whether the search has just finished, its result now in `found`."""
+        if self.job is None or not self.job.wait(0):
+            return False
+        _, key, nonce, target = self.asked
+        try:
+            result = self.job.result()
+        except Exception as e:
+            self.failures(f"Best discard search for {key}", e)
+            result = None
+        self.job, self.found = None, overlay.search(key, nonce, result)
+        if isinstance(result, TooSlow) or (isinstance(result, Search) and result.estimated is not None):
+            self.given_up[row_key(target)] = result
+        return True
+
+    def cancel(self) -> None:
+        if self.job is not None:
+            self.job.cancel()
+            self.job = None
+
+
+def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_interval: float = 0.05,
+              stop: Callable[[], bool] = lambda: False,
+              limits: Limits = LIMITS, watchdog: Watchdog | None = None,
+              memory_limit: Callable[[int | None], int] | None = None) -> None:
+    """Work out the odds of what each new state tracks, and the best discards it asks for, in the background
+    (`OddsJobs`, `SearchJobs`), for the mod's panel, until `stop()`.
+
+    `panel` receives the payloads for the mod's odds panel (`Outbox`): a `pending` one as soon as a state arrives,
+    then its odds (only the pending one while the hand isn't `settled`), partial ones as values are found, then
+    all of them, each with the latest search's result on it.
+
+    With `memory_limit`, each state sets the watchdog's limit to `memory_limit(state.memory_gb)`, the player's
+    "Memory limit" setting. The setting is part of `odds_basis` and `search_basis`, so changing it starts afresh:
+    what was given up on under the old limit is tried again.
+
+    A state holding other rule jokers (`rule_jokers`) empties the engine's caches (`engine.clear_caches`), so what
+    the old rules built doesn't keep its memory.
+
+    Any error in the loop (a bad state that `GameState.from_json` didn't catch, say) is logged as a failed job is
+    (`Failures`), and the app carries on with the next state. Once stopped, nothing is left running.
+    """
+    if watchdog is None:
+        watchdog = Watchdog()  # time limits only
+    session = Session()  # what the engine keeps between the jobs
+    failures = Failures()
+    outbox = Outbox(panel)
+    odds = OddsJobs(limits, watchdog, session, failures)
+    searches = SearchJobs(limits, watchdog, session, failures)
+    rules_held: frozenset[str] | None = None  # `rule_jokers` of the latest state
     while not stop():
         try:
-            if unsent is not None and time.monotonic() >= retry_at:
-                send(unsent)
+            outbox.retry()
             state = source.poll()
             if state is not None:
                 if rule_jokers(state) != rules_held:
@@ -288,64 +383,21 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
                     rules_held = rule_jokers(state)
                 if memory_limit is not None:
                     watchdog.memory_limit = memory_limit(state.memory_gb)
-                start_search(state)
-                if job is not None:
-                    job.cancel()
-                    job = None
-                targets, queries = tracked(state)
-                if (targets or queries) and state.in_run and not settled(state):
-                    # The panel keeps the last odds, greyed out, until the hand settles.
-                    show(overlay.pending(state))
-                elif targets or queries:
-                    show(overlay.pending(state))
-                    job_state = state
-                    basis = odds_basis(state)
-                    if basis != known_for:
-                        known, known_for = {}, basis
-                    job = Job(lambda control, state=state, targets=targets, queries=queries, known=known:
-                              calculate(state, targets, queries, control, known=known, limits=limits,
-                                        progress=control.progress, session=session), watchdog)
-                    progress_sent, next_partial = 0, time.monotonic() + PARTIAL_INTERVAL
-                else:
-                    show(overlay.odds(state, None))
-            if searching is not None and searching.wait(0):
-                _, key, nonce, target = search_for
-                try:
-                    result = searching.result()
-                except Exception as e:
-                    failed(f"Best discard search for {key}", e)
-                    result = None
-                searching, found = None, overlay.search(key, nonce, result)
-                if isinstance(result, TooSlow) or (isinstance(result, Search) and result.estimated is not None):
-                    given_up[row_key(target)] = result
-                if base is not None:
-                    show(base)
-            if job is None:
-                time.sleep(poll_interval)
-                continue
-            if job.wait(poll_interval):
-                finished, job = job, None  # delivered once, even if that fails
-                try:
-                    payload = finished.result()
-                except Exception as e:
-                    failed(f"Odds for snapshot {job_state.id}", e)
-                    payload = overlay.odds(job_state, None)
-                show(payload)
-            else:
-                control = job.control
-                if control.updates != progress_sent and time.monotonic() >= next_partial:
-                    progress_sent, next_partial = control.updates, time.monotonic() + PARTIAL_INTERVAL
-                    show(control.latest)
+                searches.update(state)
+                outbox.show(odds.update(state), searches.found)
+            if searches.poll():
+                outbox.show(None, searches.found)
+            payload = odds.poll(poll_interval)
+            if payload is not None:
+                outbox.show(payload, searches.found)
         except Exception as e:
             # Something the mod would never send got past `GameState.from_json`.
             # Skip it like a malformed snapshot: the next one recovers.
-            failed("Handling the game state", e)
-            if job is not None and job.cancelled:
-                job = None  # cancelled for the state that failed; any other is still answered
+            failures("Handling the game state", e)
+            odds.forget_cancelled()
             time.sleep(poll_interval)
-    for running in (job, searching):  # stopped: nothing is left calculating for a loop that's gone
-        if running is not None:
-            running.cancel()
+    odds.cancel()  # stopped: nothing is left calculating for a loop that's gone
+    searches.cancel()
 
 
 def _finish[T](job: Job[T]) -> T:
