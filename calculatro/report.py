@@ -184,129 +184,147 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
-    if known is None:
-        known = {}
-    if session is None:
-        session = Session()
+    return _Builder(state, targets, queries, cancel, {} if known is None else known, limits, progress,
+                    session or Session()).run()
 
-    def key(row: Target | CardQuery, discard: list[int]) -> tuple:
+
+class _Builder:
+    """One call of `build_report`: its arguments, the values to work out, and
+    the passes that work them out. `value` reads each from `known` (with
+    `bounds` for "Any target", which reads its hands' values)."""
+
+    def __init__(self, state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery],
+                 cancel: Control | Event | None, known: dict, limits: Limits,
+                 progress: Callable[[Report], None] | None, session: Session) -> None:
+        self.state, self.targets, self.queries = state, targets, queries
+        self.cancel, self.known, self.limits = cancel, known, limits
+        self.progress, self.session = progress, session
+        self.named = [(t.name, t) for t in targets]
+        self.combined: Target | None = None  # "Any target", bounded by `targets`
+        if len(targets) > 1:
+            self.combined = combine(targets)
+            self.named.insert(0, ("Any target", self.combined))
+        self.redraw = can_redraw(state)
+        self.selected = state.selected if self.redraw else []
+        rows: list[Target | CardQuery] = [t for _, t in self.named] + list(queries)
+        values = [(row, []) for row in rows] + [(row, self.selected) for row in rows if self.selected]
+        # Those still to work out, "Any target" after the hands, whose values bound it (sorted is stable).
+        self.todo = sorted({self.key(row, discard): (row, discard) for row, discard in values
+                            if known.get(self.key(row, discard), SLOW) is SLOW}.items(),
+                           key=lambda item: item[1][0] is self.combined)
+        self.sent: Report | None = None  # the last report given to `progress`
+
+    def run(self) -> Report:
+        # The quick pass tries what hasn't been tried (a value found slow before
+        # goes straight to its estimate, or the exact pass), the exact pass what
+        # it found slow. Between them (or during the quick pass, once it has
+        # taken long enough), each value found slow is estimated once.
+        if self.todo:
+            self.found_more()  # what's known already, as when the same cards are selected again
+        self.attempt(self.limits.quick, None)
+        self.estimate_slow()
+        self.attempt(self.limits.exact, SLOW)
+        return self.report()
+
+    def key(self, row: Target | CardQuery, discard: list[int]) -> tuple:
         # By the cards, not their positions: sorting the hand doesn't change the odds.
         # Face-down cards the hand's sorts tell about differ by `Card.latent`.
-        picked = frozenset(Counter(replace(state.hand[i], highlighted=False) for i in discard).items())
+        picked = frozenset(Counter(replace(self.state.hand[i], highlighted=False) for i in discard).items())
         return row_key(row), picked
 
-    def evaluate(row: Target | CardQuery, discard: list[int], cancel) -> DiscardOutcome:
-        return (evaluate_cards(state, row, discard, cancel, session) if isinstance(row, CardQuery)
-                else evaluate_discard(state, row, discard, cancel, session=session))
+    def evaluate(self, row: Target | CardQuery, discard: list[int], cancel) -> DiscardOutcome:
+        if isinstance(row, CardQuery):
+            return evaluate_cards(self.state, row, discard, cancel, self.session)
+        return evaluate_discard(self.state, row, discard, cancel, session=self.session)
 
-    def estimate(row: Target | CardQuery, discard: list[int], cancel, seconds: float) -> Estimate | None:
-        return (estimate_cards(state, row, discard, cancel, seconds, session) if isinstance(row, CardQuery)
-                else estimate_discard(state, row, discard, cancel, seconds, session=session))
+    def estimate(self, row: Target | CardQuery, discard: list[int], cancel, seconds: float) -> Estimate | None:
+        if isinstance(row, CardQuery):
+            return estimate_cards(self.state, row, discard, cancel, seconds, self.session)
+        return estimate_discard(self.state, row, discard, cancel, seconds, session=self.session)
 
-    named = [(t.name, t) for t in targets]
-    combined: Target | None = None  # "Any target", bounded by `targets`
-    if len(targets) > 1:
-        combined = combine(targets)
-        named.insert(0, ("Any target", combined))
-    redraw = can_redraw(state)
-    selected = state.selected if redraw else []
-    rows: list[Target | CardQuery] = [t for _, t in named] + list(queries)
-    values = [(row, []) for row in rows] + [(row, selected) for row in rows if selected]
-
-    def bounds(row: Target | CardQuery, discard: list[int]) -> tuple[Fraction, Fraction] | None:
+    def bounds(self, row: Target | CardQuery, discard: list[int]) -> tuple[Fraction, Fraction] | None:
         """Certain bounds on "Any target"'s odds from its hands' (None for other
         rows, or with nothing known): a hand whose odds aren't known could be
         anything from 0 to 1."""
-        if row is not combined:
+        if row is not self.combined:
             return None
-        each = [interval(value(t, discard)) or (Fraction(0), Fraction(1)) for t in targets]
+        each = [interval(self.value(t, discard)) or (Fraction(0), Fraction(1)) for t in self.targets]
         low, high = max(lo for lo, _ in each), min(Fraction(1), sum(hi for _, hi in each))
         return (low, high) if (low, high) != (0, 1) else None
 
-    def value(row: Target | CardQuery, discard: list[int]) -> Value:
-        k = key(row, discard)
-        found = known.get(k)
+    def value(self, row: Target | CardQuery, discard: list[int]) -> Value:
+        """What's known of a value so far: its odds, an approximation, TooSlow, or PENDING."""
+        k = self.key(row, discard)
+        found = self.known.get(k)
         if isinstance(found, DiscardOutcome):
             return found.probability
-        near = bounds(row, discard)
+        near = self.bounds(row, discard)
         if near is not None and near[0] == near[1]:
             return near[0]
         if found is SLOW or isinstance(found, TooSlow):
             limit = found.limit if isinstance(found, TooSlow) else None
-            if isinstance(estimated := known.get((ESTIMATE, k)), Estimate):
+            if isinstance(estimated := self.known.get((ESTIMATE, k)), Estimate):
                 return _sampled(estimated, near, limit)
             if near is not None:
                 return Approx(*near, limit=limit)
         return PENDING if found is None or found is SLOW else found
 
-    def report() -> Report:
+    def report(self) -> Report:
+        """The report of what's known so far."""
         def after(row: Target | CardQuery) -> Value | None:
-            return value(row, selected) if selected else None
-        found = [TargetOdds(name, value(t, []), after(t)) for name, t in named]
-        cards = [CardOdds(q, value(q, []), after(q)) for q in queries]
+            return self.value(row, self.selected) if self.selected else None
+        found = [TargetOdds(name, self.value(t, []), after(t)) for name, t in self.named]
+        cards = [CardOdds(q, self.value(q, []), after(q)) for q in self.queries]
         partial = any(isinstance(v, Pending) or (isinstance(v, Approx) and v.limit is None)
                       for o in found + cards for v in (o.keep, o.discard))
         # This state's cards, in its order: a known outcome may be from before the hand was sorted.
+        state, selected = self.state, self.selected
         return Report(found, cards, [state.hand[i] for i in selected],
-                      discard_draws(state, selected) if selected else 0, state.discards_left, redraw, partial)
+                      discard_draws(state, selected) if selected else 0, state.discards_left, self.redraw, partial)
 
-    sent = None
-
-    def found_more() -> None:
+    def found_more(self) -> None:
         """Gives `progress` the report, if it shows anything new."""
-        nonlocal sent
-        if progress is None:
+        if self.progress is None:
             return
-        now = report()
+        now = self.report()
         shows = any(v is not None and not isinstance(v, Pending)
                     for o in now.targets + now.cards for v in (o.keep, o.discard))
-        if shows and now != sent:
-            progress(now)
-            sent = now
+        if shows and now != self.sent:
+            self.progress(now)
+            self.sent = now
 
-    # "Any target" after the hands, whose values bound it (sorted is stable).
-    todo = sorted({key(row, discard): (row, discard) for row, discard in values
-                   if known.get(key(row, discard), SLOW) is SLOW}.items(), key=lambda item: item[1][0] is combined)
-    if todo:
-        found_more()  # what's known already, as when the same cards are selected again
-
-    def estimate_slow() -> None:
+    def estimate_slow(self) -> None:
         """Estimates each value found slow that has no estimate yet."""
-        for k, (row, discard) in todo:
-            if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(value(row, discard), Fraction):
+        known, approx = self.known, self.limits.approx
+        for k, (row, discard) in self.todo:
+            if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(self.value(row, discard), Fraction):
                 continue
             # The estimate stops itself after `limits.approx`; the limit is for one that can't start.
-            found = limited(cancel, 2 * limits.approx,
-                            lambda c, row=row, discard=discard: estimate(row, discard, c, limits.approx))
+            found = limited(self.cancel, 2 * approx,
+                            lambda c, row=row, discard=discard: self.estimate(row, discard, c, approx))
             known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
-            found_more()
+            self.found_more()
 
-    def attempt(seconds: float, before: Slow | None) -> None:
+    def attempt(self, seconds: float, before: Slow | None) -> None:
+        """A pass of exact tries of `seconds` each: the quick pass (`before` None) of the
+        values not tried yet, or the exact pass (`before` SLOW) of those it found slow."""
+        known = self.known
         # In the quick pass: a try ran out of time before the hand's sorts were checked, which every value
         # that uses them does first, so those would too (The House's first hand sorted both ways: 0.9 s).
         unchecked = False
         wasted = 0.0  # in the quick pass, on tries that ran out
-        for k, (row, discard) in todo:
-            if known.get(k) is not before or isinstance(value(row, discard), Fraction):
+        for k, (row, discard) in self.todo:
+            if known.get(k) is not before or isinstance(self.value(row, discard), Fraction):
                 continue  # done, or its bounds met
-            if unchecked and evidence_unchecked(state, discard, session):
+            if unchecked and evidence_unchecked(self.state, discard, self.session):
                 known[k] = SLOW
                 continue
             start = monotonic()
-            found = limited(cancel, seconds, lambda c, row=row, discard=discard: evaluate(row, discard, c))
+            found = limited(self.cancel, seconds, lambda c, row=row, discard=discard: self.evaluate(row, discard, c))
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
             if before is None and isinstance(found, TooSlow):
-                unchecked = unchecked or evidence_unchecked(state, discard, session)
+                unchecked = unchecked or evidence_unchecked(self.state, discard, self.session)
                 wasted += monotonic() - start
-            found_more()
-            if before is None and wasted >= limits.quick_pass:
-                estimate_slow()
-
-    # The quick pass tries what hasn't been tried (a value found slow before
-    # goes straight to its estimate, or the exact pass), the exact pass what
-    # it found slow. Between them (or during the quick pass, once it has
-    # taken long enough), each value found slow is estimated once.
-    attempt(limits.quick, None)
-    estimate_slow()
-    attempt(limits.exact, SLOW)
-    return report()
+            self.found_more()
+            if before is None and wasted >= self.limits.quick_pass:
+                self.estimate_slow()

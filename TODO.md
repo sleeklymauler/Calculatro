@@ -305,8 +305,13 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     `reference` and `over_branches` in `tests/state_oracle.py`.
   - Kept: `Estimate.samples` is read by the tests and the benchmark; `paths.SETTINGS_FILE` is the mod's
     file, checked against `core.lua`.
-- [ ] **A7** **[low] (seen)** `report.build_report`'s closures call each other in a loop (`value` → `bounds` → `value`) and rebuild the whole report after each value (`report.py:205-254`)
+- [x] **A7** **[low] (seen)** `report.build_report`'s closures call each other in a loop (`value` → `bounds` → `value`) and rebuild the whole report after each value (`report.py:205-254`)
   - It works, and the sizes are small. It's the hardest part of the file to follow; a small class holding `known` with `value()` and `bounds()` as methods would read better.
+  - Done (2026-11-16): `build_report` checks its arguments and runs a `report._Builder`, which holds them, the
+    values to do (`todo`) and the last report sent, with each closure now a method (`value`, `bounds`, `report`,
+    `found_more`, `estimate_slow`, `attempt`, the passes in `run`). Moved unchanged otherwise; the signature
+    is the same, so no caller or test changed. The rebuild after each value is left as is: a few dozen values.
+    Every test, 1000 fuzz seeds and `-m perf` pass.
 - [x] **A8** **[low] (seen)** Lua and Python each have their own copy of a few rules
   - The rank labels (`builder.lua` `ranks_label`, `cards._ranks_label`), the panel's capacity (`tracked.lua`, `overlay.columns_needed`), the sort order (`observe.lua` `sort_key`, `posterior.sort_value`), The Mark's face cards (`hint.lua`, `engine.flipped_by_mark`) and the memory limit (`memory.lua`, `process.memory_limit`).
   - Some have a test that they agree (`test_builder_queries_parse_as_labelled`). Check each pair has one.
