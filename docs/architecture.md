@@ -156,8 +156,11 @@ imports from `engine` itself, which re-exports what it uses (`engine/__init__.py
   `Limits.search_estimate` (5 s; `__main__.search_within`, `search.estimated_best`). The engine needs
   nothing for any of this: it raises `Cancelled` as before.
 - **The garbage collector.** `engine.gc_paused` turns it off while any job runs (`worker.Job`): a pass
-  of the collector runs on the thread that triggers it, without checking `cancel`, and took up to 30 ms
-  (over 100 ms on CI's runners) in a posterior or a best-discard search. Each of a job's parts stops at
+  of the collector runs on the thread that triggers it, without checking `cancel`: over the benchmark's
+  scenarios (2026-11-16), 19 had one over 50 ms, and the longest took 0.77 s (a best-discard search with
+  Four Fingers and Shortcut), against `cancel`'s 0.1 s. It also costs up to 30% of a search's time
+  ([performance](performance/engine.md#garbage-collection)). `tests/test_cancel.py` doesn't catch it with the
+  collector on: its runs stop before the full passes over big tables. Each of a job's parts stops at
   its limits. The worst case measured (the 9 GB face-down case, stopped at 2 GB after 18 s) left 6 MB of
   cycles for the collector once it was back on, and `tests/test_cancel.py`'s cases leave a few hundred
   objects each, so pausing it doesn't let memory grow.

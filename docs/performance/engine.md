@@ -259,8 +259,11 @@ where the second pass gained the most after the class order (about 2×).
 A big search creates millions of tuples and frozensets, and Python's cyclic
 garbage collector keeps traversing them. `probability()` pauses the
 collector while it runs (`gc_paused`), as does each of the app's jobs for the
-whole job (`worker.Job`, see [the architecture](../architecture.md)), which saves 5–8% on the largest
-searches (5–15% when it was added, before the Smeared Joker work) for a little more peak memory. The
+whole job (`worker.Job`, see [the architecture](../architecture.md)). Measured on 2026-11-16 over every
+benchmark scenario, with the collector left on they took 17% longer in all: a median of 10% (up to 30%)
+for those over 0.5 s, 3% for those of 0.05 to 0.5 s. The cost grew with the memo tables, since each full
+pass of the collector walks them (5–15% when it was added). Paused, it costs a little more peak memory:
+a run leaves at most a few hundred objects in cycles, and a cancelled one none. The
 collector is process-wide, and a cancelled search can still be unwinding
 in the background worker when the next one starts. So running searches
 are counted under a lock, and the last one to finish restores the

@@ -230,7 +230,13 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     forced card can't change (Pair to Four of a Kind, and "Any target"'s bounds from those hands), which were
     already quick, so no benchmark scenario moved; every result unchanged. Tested in
     `test_cerulean_bell_relabels_only_where_its_card_can_matter`.
-- [ ] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
+- [x] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
+  - Measured (2026-11-16), every benchmark scenario with the collector paused and on: on, they took 17% longer
+    in all (a median of 10%, up to 30%, for those over 0.5 s), and 19 had a single collection over 50 ms, the
+    longest 0.77 s, against `cancel`'s 0.1 s. Paused, nothing piles up: a run leaves at most 457 objects in
+    cycles, and 14 slow cases cancelled at three points each left none. Left as is; the docs' figures updated.
+  - It was never about the game: the app is its own process. It was added for speed (2026-10-06), then for
+    whole jobs so collections don't land between checks of `cancel` (2026-11-14).
 - [x] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
   - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.
   - Measured (2026-11-16) in `lupa`'s LuaJIT, 7 target rows and 6 card queries: 100 µs a frame (encode 50,
