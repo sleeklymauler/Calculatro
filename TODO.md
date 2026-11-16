@@ -131,8 +131,10 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done: each start numbers its thread in the `calculatro_file_thread` channel and names the thread's channels
     by that number. An older thread ends once it sees the number change. Tested in
     `test_thread_from_before_a_restart_ends`.
-- [ ] **B13** **[low] (guess)** Nothing recovers from an app that hangs without exiting
+- [x] **B13** **[low] (guess)** Nothing recovers from an app that hangs without exiting
   - The mod starts it again, but the new one finds the mutex held and exits. A heartbeat in the odds file, or the mod ending a silent app's process, would cover it. No hang is known.
+  - Deferred (2026-11-16) until a hang is seen: a heartbeat means a schema bump and the app writing to disk all
+    the time for every player, against a failure nobody has had since the cancel tests (T5) and A1's split.
 
 ## App robustness (Python)
 
@@ -229,8 +231,14 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     already quick, so no benchmark scenario moved; every result unchanged. Tested in
     `test_cerulean_bell_relabels_only_where_its_card_can_matter`.
 - [ ] **P10** **[low] (carried)** `engine.gc_paused` turns the collector off for the whole process while any search or job runs (`engine.py:270`)
-- [ ] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
+- [x] **P11** **[low] (carried)** The panel does avoidable work every frame (`panel.lua:199-220`, `odds.lua:192`)
   - `refresh_panel` builds the model and encodes it twice (`encode(model)`, `layout_key(model)`) before the early return, and `panel_model` calls `builder_for` for every card query.
+  - Measured (2026-11-16) in `lupa`'s LuaJIT, 7 target rows and 6 card queries: 100 µs a frame (encode 50,
+    `layout_key` 35, `panel_model` 15, of it `builder_for` 10).
+  - Done: `layout_key` only after the early return, and `panel_model` keeps whether each query is editable (at
+    most 64, by query; `builder_for` depends only on it). Now 51 µs, nearly all the one `encode(model)` that
+    tells whether anything changed. Removing that would mean tracking every input of the model, the clock's
+    messages included; not worth it.
 - [ ] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)
   - `sorted_cards` also encodes every unseen card for each snapshot, changed or not (`snapshot.lua:102-109`).
 - [x] **P13** **[low] (seen)** The game-started app formats console text nobody reads (`__main__.py:380`, `143-145`)

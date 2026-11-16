@@ -106,6 +106,20 @@ local function approximate_popup(mark)
     return { name = 'Approximate', text = text }
 end
 
+-- Whether the builder can make a tracked query, so it can be edited (true or
+-- nil). It depends only on the query, and the panel asks every frame, so
+-- the answers are kept: builder_for parses the query and builds it again.
+local editable_queries, editable_count = {}, 0
+local function editable(query)
+    local known = editable_queries[query]
+    if known == nil then
+        if editable_count >= 64 then editable_queries, editable_count = {}, 0 end
+        known = Calculatro.builder_for(query) ~= nil
+        editable_queries[query], editable_count = known, editable_count + 1
+    end
+    return known or nil
+end
+
 -- What the odds panel shows: a row for each tracked target hand ("Any
 -- target" first when there are several) and card query, with the odds the
 -- app keyed by them ('-' until it has). Odds for an older state stay up until
@@ -189,7 +203,7 @@ function Calculatro.panel_model()
         model.cards[#model.cards + 1] = {
             key = c.query, name = c.label, about = c.about, discard = text(o, 'discard'), trend = o.trend,
             discard_stale = stale(o, 'discard'), discard_popup = popup(o, 'discard'), has_discard = has_discard(o),
-            search = search_state(c.query), editable = Calculatro.builder_for(c.query) and true or nil }
+            search = search_state(c.query), editable = editable(c.query) }
     end
     return model
 end

@@ -207,11 +207,11 @@ function Calculatro.refresh_panel()
     end
     local page = model and (model.editor or model.settings)  -- rebuilt only by its own buttons
     local key = model and encode(model)
-    local layout = model and not page and layout_key(model) or key
     local panel = Calculatro.panel
     if panel and panel.REMOVED then panel = nil end  -- the game removes it with the run
     local same_place = panel and Calculatro.panel_major == G.deck
-    if same_place and key == Calculatro.panel_key then return end
+    if same_place and key == Calculatro.panel_key then return end  -- most frames
+    local layout = model and not page and layout_key(model) or key
     if same_place and layout == Calculatro.panel_layout and not page then
         update_values(panel, without_sprites(Calculatro.definition, model, panel.calculatro_per))
         Calculatro.panel_key = key
