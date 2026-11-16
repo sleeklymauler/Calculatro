@@ -219,7 +219,7 @@ MARK_SORTED = Situation("6 unknown: The Mark, 3 face-down, draw 3, sorted by ran
                         blind="The Mark", sorts=("desc",))
 # Face-down cards in the sorts under The Hook (the selection played, then 2 kept cards thrown away at random)
 # and Cerulean Bell (the first card discarded forced, or with HOUSE_AFTER's, a face-down one): neither takes
-# windows (engine._windows_for), so their deals are summed. Measured for face-down stage 5b; with 5 face-down
+# windows (engine.evidence._windows_for), so their deals are summed. Measured for face-down stage 5b; with 5 face-down
 # cards kept, the other targets take from 20 s to over a minute, so they're left out.
 SORTED_2_HOOK = Situation("7 unknown: 2 face-down, draw 5, sorted by rank, The Hook, played", kept=1, hidden=2,
                           sorts=("desc",), blind="The Hook", discards=0)
@@ -243,7 +243,7 @@ CRIMSON_KEEP_3 = Situation("Keep 3, draw 5, Crimson Heart, played", kept=3, hidd
 SERPENT_KEEP_3 = Situation("Keep 3, draw 3, The Serpent", kept=3, hidden=0, blind="The Serpent")
 SERPENT_KEEP_7 = Situation("Keep 7, draw 3, The Serpent", kept=7, hidden=0, blind="The Serpent")
 # The Hook with the selection played, and no face-down cards (unlike SORTED_2_HOOK): one search per way of
-# splitting its 2 cards between the kinds of kept card (engine._hook_taken).
+# splitting its 2 cards between the kinds of kept card (engine.discarding._hook_taken).
 HOOK_KEEP_3 = Situation("Keep 3, The Hook takes 2, draw 7, played", kept=3, hidden=0, blind="The Hook", discards=0)
 HOOK_KEEP_6 = Situation("Keep 6, The Hook takes 2, draw 4, played", kept=6, hidden=0, blind="The Hook", discards=0)
 
@@ -439,7 +439,7 @@ def _scenarios() -> list[Scenario]:
         # discarded in wide windows: about 1.7 * 10^8 deals, summed as they're dealt (posterior.summed).
         out += [Scenario(s, t, jokers) for s in (FISH_EARLIER, HOUSE_EARLIER)
                 for t in (("Pair",), ("Flush",), ("Full House",))]
-        # A discard that splits The House's first hand: split again by the cards at the edges (engine._split).
+        # A discard that splits The House's first hand: split again by the cards at the edges (engine.evidence._split).
         # Straight Flush with Four Fingers + Shortcut takes about 2 minutes there, so it's left out.
         split_top = [("Pair",), ("Flush",), ("Full House",)] + ([("Straight Flush",)] if jokers == "No jokers" else [])
         out += [Scenario(HOUSE_SPLIT_TOP, t, jokers) for t in split_top]

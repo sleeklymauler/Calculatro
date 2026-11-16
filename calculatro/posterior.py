@@ -32,12 +32,12 @@ likelihood) as `Branch`es. `summed` sums the assignments that its caller can't
 tell apart into one branch, as it goes, so that a run of eight face-down cards
 (10^8 deals) costs a fraction of a second; without a label, each assignment is
 its own branch. Nothing is skipped or sampled: the engine averages its odds
-over all of them (engine._averaged). `windows` finds latent cards that are a
+over all of them (engine.evidence._averaged). `windows` finds latent cards that are a
 uniformly random set of some cards, which the engine weighs the draw by
 instead of going through them.
 
 Where that's too slow, `deals` draws deals at random by their weight, for
-an estimate shown, marked, until the exact odds come (engine._estimate).
+an estimate shown, marked, until the exact odds come (engine.sampling._estimate).
 
 The tests check `summed` against `reference` (tests/state_oracle.py), which
 merges nothing, enumerating the unseen cards one by one.
@@ -266,7 +266,7 @@ def summed(observations: Sequence[Observation], observed: Sequence[ObservedCard]
 
     `extra` are more face-down cards in hand to enumerate (each `hand` and
     `marked`), with no evidence: DNA's copies of a face-down card
-    (engine._posterior_for). `marked_rest` is how many marked face-down cards
+    (engine.evidence._posterior_for). `marked_rest` is how many marked face-down cards
     aren't among the cards enumerated (see the module's docstring). Latent
     cards discarded face down are enumerated like those in hand: they're out of
     play, but the order says what they are, and so what's left to draw. The
@@ -543,7 +543,7 @@ def windows(observations: Sequence[Observation], observed: Sequence[ObservedCard
     a product over such groups: so the group's own sum (`summed` with the
     others left out) is its posterior. It's a Window if that gives every set of
     `size` of its candidates the same weight. The engine then weighs the draw
-    by how many of those cards it has (engine._window_split) instead of going
+    by how many of those cards it has (engine.counting._window_split) instead of going
     through them.
 
     A run of face-down cards side by side in one sort, and in no other, between

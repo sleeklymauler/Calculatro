@@ -85,8 +85,13 @@ Expand-Archive $pythonZip $python
 # The package goes next to pythonw.exe: the embeddable package's ._pth file
 # puts its own folder (".") on sys.path, so -m calculatro finds it.
 $app = Join-Path $python "calculatro"
-New-Item -ItemType Directory -Force $app | Out-Null
-Copy-Item (Join-Path $root "calculatro\*.py") $app
+# Every .py file of the package and its subpackages (calculatro\engine), without __pycache__.
+$package = Join-Path $root "calculatro"
+Get-ChildItem $package -Recurse -Filter *.py | Where-Object { $_.FullName -notmatch '\\__pycache__\\' } | ForEach-Object {
+    $dest = Join-Path $app $_.FullName.Substring($package.Length + 1)
+    New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+    Copy-Item $_.FullName $dest
+}
 
 # Check the bundled Python can import and run the app.
 & (Join-Path $python "python.exe") -m calculatro --help | Out-Null

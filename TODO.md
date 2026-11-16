@@ -241,8 +241,19 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 - [ ] **A1** **[med] (seen)** `run_watch` is one 215-line function with about 18 variables shared by its closures (`__main__.py:239-453`)
   - The odds job, the search job, resending and failure logging are each a small state machine. A class for the odds side and one for the search side would make each testable on its own, and the loop a dozen lines.
-- [ ] **A2** **[med] (seen)** `engine.py` is 2276 lines doing four jobs
+- [x] **A2** **[med] (seen)** `engine.py` is 2276 lines doing four jobs
   - The counting search (`probability` to `_bound`, about 1000 lines), the discard model (`_discard`, `rules_after`, The Hook, Cerulean Bell, card queries), what the hand's sorts say (`usable` to `_split`), and the estimates (`_sampled` to `_holds_test`). They'd split along those lines with few imports between them.
+  - Done (2026-11-15): `engine.py` (2427 lines by then) is the package `calculatro/engine/`, each module importing
+    only those before it: `counting` (the counting search, with `_holds_test` and `count_probability`, 1230 lines),
+    `discarding` (`_discard`, `_finals`, The Hook, Cerulean Bell, the rule classes and the exact odds with every
+    face-down card unknown, 430), `evidence` (`Session`, the posterior, windows, and the public `evaluate_discard`
+    and `evaluate_cards`, 560) and `sampling` (estimates and `can_miss`, 370). Each definition moved unchanged, by
+    a script over the syntax tree. `engine/__init__.py` re-exports what the app uses and holds `clear_caches`
+    (it empties the same caches as before), so no app module's imports changed. Not `discard` or `estimate` as
+    names: they're local variables everywhere.
+  - Tests reaching into internals import the module (`evidence._windows_for`), and monkeypatches go where the name
+    is used (`sampling.monotonic`, `evidence.summed`, `discarding.probability`). `pyproject.toml` lists the
+    subpackage, and `build_release.ps1` copies subfolders. Every test, 1000 fuzz seeds and `-m perf` pass.
 - [x] **A3** **[med] (seen)** The game's rules for a final hand are written twice (`engine.py:1832-1905` and `2019-2035`)
   - `_final_hands` "mirrors `_discard_odds` and what it calls": The Hook, The Mark, DNA, Cerulean Bell and Crimson Heart each have an exact version and a sampled one. A rule added to one and not the other gives estimates that disagree with the exact odds, without failing anything.
   - At least add a test that, for a small state under each boss and with DNA, `_final_hands`' share over many draws agrees with `_evaluate_discard` (T4).

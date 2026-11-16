@@ -60,8 +60,11 @@ def add_results(path: Path, new: dict[str, dict], **settings) -> None:
 
 
 def engine_path() -> str:
-    """Which engine.py was imported: relative to the repo when it's this one's."""
+    """Which engine was imported: relative to the repo when it's this one's. Its package's folder
+    (calculatro/engine), or an older version's engine.py."""
     path = Path(calculatro.engine.__file__).resolve()
+    if path.name == "__init__.py":
+        path = path.parent
     try:
         return path.relative_to(ROOT).as_posix()
     except ValueError:  # an older version, put first on PYTHONPATH

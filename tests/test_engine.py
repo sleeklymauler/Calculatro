@@ -13,17 +13,9 @@ import pytest
 
 from calculatro import hands
 from calculatro.cards import parse_query
-from calculatro.engine import (
-    _bell_after_draw,
-    _favourable,
-    _holds_test,
-    _split_by_suit,
-    count_probability,
-    evaluate_cards,
-    evaluate_discard,
-    probability,
-    rules_after,
-)
+from calculatro.engine import count_probability, evaluate_cards, evaluate_discard, probability, rules_after
+from calculatro.engine.counting import _favourable, _holds_test, _split_by_suit
+from calculatro.engine.discarding import _bell_after_draw
 from calculatro.hands import TARGETS, Requirement, card_key, combine, disjoint_groups, forced_patterns, get_target
 from calculatro.rules import Rules
 from calculatro.state import SUITS, Card, GameState, Joker
@@ -926,10 +918,10 @@ def test_crimson_heart_card_odds_after_a_play():
 
 
 def test_crimson_heart_works_out_rules_the_target_sees_once(monkeypatch):
-    import calculatro.engine as engine
+    from calculatro.engine import discarding
     calls = []
-    real = engine.probability
-    monkeypatch.setattr(engine, "probability", lambda *a, **kw: calls.append(a[4]) or real(*a, **kw))
+    real = discarding.probability
+    monkeypatch.setattr(discarding, "probability", lambda *a, **kw: calls.append(a[4]) or real(*a, **kw))
     state = crimson_state([Joker("j_four_fingers", debuff=True), Joker("j_joker"), Joker("j_shortcut")])
     # Shortcut changes neither a Pair nor a Flush, so only one of the two rule sets is searched.
     for name, searched in (("Pair", 1), ("Flush", 1), ("Straight", 2)):

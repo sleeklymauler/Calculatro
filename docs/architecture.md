@@ -96,9 +96,22 @@ username isn't plain ASCII (`test_mod_never_uses_a_function_taking_an_ansi_path`
 ## The app
 
 `source.py` polls the file's mtime/size → `state.py` parses it into frozen `GameState`/`Card`
-dataclasses → `engine.py` computes exact odds → `report.py` collects them into a `Report` →
+dataclasses → `engine/` computes exact odds → `report.py` collects them into a `Report` →
 `overlay.py` turns it into the mod's payload, and `__main__.run_watch` writes that to the odds file.
 `text.py` formats the state, a `Report` and a search as text, for `calculatro odds` only.
+
+The engine is a package of four modules, each importing only those before it. The rest of the app
+imports from `engine` itself, which re-exports what it uses (`engine/__init__.py`):
+
+- `counting`: the counting search, how many draws from the unseen pool make a target or meet a card
+  query (`probability`, `count_probability`; [performance/engine.md](performance/engine.md)).
+- `discarding`: what a discard does, and every way the final hand can then be made under the bosses
+  and jokers that change it (`_finals`), with its exact odds when every face-down card is unknown.
+- `evidence`: what the hand's sorts say about face-down cards, the exact odds averaged over what
+  they are (`evaluate_discard`, `evaluate_cards`), and the `Session` that keeps what's worked out
+  from the evidence ([probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
+- `sampling`: estimates while the exact odds are slow, and `can_miss`
+  ([probability-model.md](probability-model.md#approximations)).
 
 - **Jobs.** `__main__.run_watch` runs the odds in a `worker.Job` (daemon thread). Each new state
   cancels the running job (the engine checks the `cancel` Event and raises `engine.Cancelled`).
@@ -333,4 +346,4 @@ couldn't see.
   `len(unseen)` less their number (`GameState.deck_size`, `hidden`, `discarded_hidden`), and the marked
   ones, discarded or not, count as face cards (`GameState.marked`).
 - The engine draws kept face-down cards from `unseen` like the new cards, except that the marked ones are
-  known to be face cards, so they're drawn from the unseen face cards (`engine._mark_split`).
+  known to be face cards, so they're drawn from the unseen face cards (`engine.counting._mark_split`).

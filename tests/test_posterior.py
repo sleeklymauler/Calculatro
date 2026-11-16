@@ -11,7 +11,16 @@ import pytest
 
 from calculatro import engine
 from calculatro.cards import parse_query
-from calculatro.engine import Cancelled, evaluate_cards, evaluate_discard, flipped_by_mark, posterior
+from calculatro.engine import (
+    Cancelled,
+    discarding,
+    evaluate_cards,
+    evaluate_discard,
+    evidence,
+    flipped_by_mark,
+    posterior,
+    sampling,
+)
 from calculatro.hands import combine, get_target
 from calculatro.posterior import deals
 from calculatro.search import best_card_discards, best_discards
@@ -85,7 +94,7 @@ def test_a_card_between_two_spades_by_suit_makes_the_flush():
     # Today's odds, which don't know where it is: 2 of the 8 unseen cards are spades.
     plain = engine.with_usable_evidence(state)
     assert plain is state
-    assert engine._evaluate_discard(state, get_target("Flush"), [], None, None).probability == Fraction(2, 8)
+    assert discarding._evaluate_discard(state, get_target("Flush"), [], None, None).probability == Fraction(2, 8)
     # So no draw can miss: can_miss mustn't find one the evidence rules out.
     assert not engine.can_miss(state, get_target("Flush"), [], random.Random(0))
     check(case, [[], [0], [2]], targets=[get_target("Flush"), get_target("Pair")])
@@ -101,14 +110,14 @@ def test_windows_weigh_the_draw():
                 down={"high1", "high2", "low"}, views={"desc": ["K", "high1", "high2", "9", "low", "3"]},
                 deck=[card(11, "Hearts"), card(10, "Clubs"), card(7, "Hearts"), card(5, "Clubs"), card(2, "Hearts")])
     state = case.state()
-    found = engine.windows(state.observations, state.observed, state.unseen, lambda c: True)
+    found = evidence.windows(state.observations, state.observed, state.unseen, lambda c: True)
     assert sorted(w.size for w in found) == [1, 2]
-    classes = engine._rule_classes(state, [], engine._counts_towards(get_target("Straight"), state))
-    assert len(engine._windows_for(state, [], classes, None, engine.Session())[0]) == 2  # both kept
-    assert len(engine._windows_for(state, [0, 4], classes, None, engine.Session())[0]) == 2  # one kept, one gone
+    classes = discarding._rule_classes(state, [], discarding._counts_towards(get_target("Straight"), state))
+    assert len(evidence._windows_for(state, [], classes, None, engine.Session())[0]) == 2  # both kept
+    assert len(evidence._windows_for(state, [0, 4], classes, None, engine.Session())[0]) == 2  # one kept, one gone
     # The run of two split, kept and gone: split again by its lower card, the higher one is a window
-    # of the cards above it (engine._split), and the other run is a window as it was.
-    windows, splits = engine._windows_for(state, [1], classes, None, engine.Session())
+    # of the cards above it (evidence._split), and the other run is a window as it was.
+    windows, splits = evidence._windows_for(state, [1], classes, None, engine.Session())
     assert [w.size for _, w in windows] == [1]
     assert [len(ways) for _, ways in splits] == [3]  # J, 10 or 7 is the lower one: Q and 10 left above
     discards = [[], [0], [4], [0, 4], [1], [0, 3, 5]]
@@ -229,11 +238,11 @@ def test_the_house_first_hand_keeping_it_is_todays_odds(monkeypatch):
     cards = dict(zip(names, sorted(deck[:8], key=lambda c: nominal(printed(c), "desc"), reverse=True)))
     case = Case(hand=names, cards=cards, down=set(names), views={"desc": names}, deck=deck[8:])
     state = case.state()
-    monkeypatch.setattr(engine, "summed", None)  # never called
+    monkeypatch.setattr(evidence, "summed", None)  # never called
     for discard in ([], list(range(8))):
         assert (evaluate_discard(state, TARGETS[0], discard).probability
-                == engine._evaluate_discard(state, TARGETS[0], discard, None, None).probability)
-        assert evaluate_cards(state, QUERIES[0], discard).probability == engine._evaluate_cards(
+                == discarding._evaluate_discard(state, TARGETS[0], discard, None, None).probability)
+        assert evaluate_cards(state, QUERIES[0], discard).probability == discarding._evaluate_cards(
             state, QUERIES[0], discard).probability
 
 
@@ -266,8 +275,8 @@ def test_a_discarded_card_alone_says_what_is_left_to_draw():
     assert evaluate_discard(state, pair, [0]).probability == Fraction(1, 3)
     assert evaluate_discard(state, pair, [1]).probability == Fraction(1, 6)
     # Without the sort they're alike: either is left to draw 3 times in 4, then drawn 1 time in 3.
-    plain = engine._evaluate_discard(state, pair, [1], None, None).probability
-    assert plain == engine._evaluate_discard(state, pair, [0], None, None).probability == Fraction(1, 4)
+    plain = discarding._evaluate_discard(state, pair, [1], None, None).probability
+    assert plain == discarding._evaluate_discard(state, pair, [0], None, None).probability == Fraction(1, 4)
     check(case, [[], [0], [1], [0, 1]], [pair], [parse_query("9"), parse_query("at least 1 7")])
 
 
@@ -288,10 +297,10 @@ def test_the_house_after_discarding_some_face_down():
     case = random_case(rng, face_up=(0, 0), latent=(3, 3), down_discarded=2, both=False)
     assert len(case.hand) == 3 and len(case.gone) == 2
     state = case.state()
-    assert not engine._says_nothing_here(state, []) and not engine._says_nothing_here(state, [0])
+    assert not evidence._says_nothing_here(state, []) and not evidence._says_nothing_here(state, [0])
     check(case, [[], [0], [0, 1, 2]], TARGETS[:2], QUERIES[:2])
     # Throwing away the rest too leaves them all gone: today's odds.
-    assert engine._says_nothing_here(state, [0, 1, 2])
+    assert evidence._says_nothing_here(state, [0, 1, 2])
 
 
 def test_dna_copies_of_the_higher_of_two_is_not_keeping_it():
@@ -301,7 +310,7 @@ def test_dna_copies_of_the_higher_of_two_is_not_keeping_it():
                 views={"desc": ["L", "R"]}, deck=[card(8, "Clubs"), card(2, "Hearts"), card(3, "Hearts")],
                 kw={"discards_left": 0, "hands_left": 2, "dna_copies": 2})
     state = case.state()
-    assert not engine._says_nothing_here(state, [0])
+    assert not evidence._says_nothing_here(state, [0])
     nines = parse_query("at least 2 9")
     # The left one is the 9 in 4 of the 10 pairs, the right one in none.
     assert evaluate_cards(state, nines, [0]).probability == Fraction(4, 10)
@@ -316,7 +325,7 @@ def test_dna_one_copy_with_nothing_drawn():
                 views={"desc": ["L", "R"]}, deck=[card(8, "Clubs"), card(2, "Hearts"), card(3, "Hearts")],
                 kw={"discards_left": 0, "hands_left": 2, "dna_copies": 1})
     state = case.state()
-    assert engine._discard(state, [0]).draws == 0
+    assert discarding._discard(state, [0]).draws == 0
     nines = parse_query("at least 1 9")
     assert evaluate_cards(state, nines, [0]).probability == Fraction(4, 10)
     check(case, [[0], [1]], [get_target("Pair")], [nines])
@@ -389,12 +398,12 @@ def test_pareidolia_sold_under_the_mark(seed):
 @pytest.mark.parametrize("seed", range(3))
 def test_pareidolia_sold_under_the_mark_in_one_sort_of_face_down_cards(seed):
     # All face down, in one sort: which are the higher ones says which can be face cards, so it isn't
-    # nothing, as it would be with every card alike (engine._says_nothing_here).
+    # nothing, as it would be with every card alike (evidence._says_nothing_here).
     rng = random.Random(560 + seed)
     case = pareidolia_sold(rng, lambda c: latent_unmarked(c) and c.marked, face_up=(0, 0), latent=(3, 3),
                            both=False)
     state = case.state()
-    assert not engine._says_nothing_here(state, [])
+    assert not evidence._says_nothing_here(state, [])
     check(case, [[], list(range(len(case.hand)))], TARGETS[:1], QUERIES[:3])
 
 
@@ -406,7 +415,7 @@ def test_pareidolia_sold_under_the_mark_in_one_sort_of_face_down_cards(seed):
 ], ids=["plain", "dna", "dna2"])
 def test_pareidolia_sold_under_the_mark_with_dna(kw, sorted_):
     # A lone face-down card played as the first hand comes back: DNA's copies are of a card
-    # marked or not. Without sorts, only the draw is weighed (engine._mark_split).
+    # marked or not. Without sorts, only the draw is weighed (counting._mark_split).
     rng = random.Random(f"{kw} {sorted_}")
     case = pareidolia_sold(rng, lambda c: c.marked and set(c.down) - c.marked, hidden_extra=True, discarded=True,
                            latent=(1, 2), **kw)
@@ -460,7 +469,7 @@ def check_round(rnd: Round, truth: Played, discards, targets=(), queries=(), **k
     if any(o.latent for o in state.observed):
         assert ours_by_cards(post) == posterior_by_cards(case, state, dealt)
         ref = reference(state.observations, state.observed, state.unseen, flipped_by_mark, (),
-                        engine._slots(state, state.observed, ())[1])
+                        evidence._slots(state, state.observed, ())[1])
         assert ours_by_cards(ref) == ours_by_cards(post)
     else:  # every face-down card played: today's odds, which must agree too
         assert post is None
@@ -561,7 +570,7 @@ def test_evidence_no_deal_fits_is_set_aside(capsys):
     case.deck = clubs(7)
     state = case.state()
     nine = parse_query("9")
-    plain = engine._evaluate_cards(state, nine, [2]).probability
+    plain = discarding._evaluate_cards(state, nine, [2]).probability
     session = engine.Session()
     assert posterior(state, session=session) is None
     assert evaluate_cards(state, nine, [2], session=session).probability == plain
@@ -606,14 +615,14 @@ def test_resolving_changes_no_counts():
     state = case.state()
     assert state.discarded_hidden == 2
     for b in posterior(state).branches:
-        resolved = engine._resolved(state, b)
+        resolved = evidence._resolved(state, b)
         assert len(b.discarded) == 1
         assert (resolved.deck_size, len(resolved.hand)) == (state.deck_size, len(state.hand))
         assert (len(resolved.discard), resolved.discarded_hidden) == (len(state.discard), 1)
         assert sorted(map(repr, resolved.unseen + [c for i, c in b.cards] + list(b.discarded))) == sorted(
             map(repr, state.unseen))
         for discard in ([], [0], [1, 2]):
-            assert engine._discard(resolved, discard).draws == engine._discard(state, discard).draws
+            assert discarding._discard(resolved, discard).draws == discarding._discard(state, discard).draws
 
 
 def test_cancelled():
@@ -655,7 +664,7 @@ def test_deals_are_drawn_by_their_posterior_weight(seed):
 
 @pytest.mark.parametrize("dna", [0, 1])
 def test_final_hands_drawn_with_pareidolia_sold_agree_with_the_odds(dna):
-    """The sampled model (engine._final_hands, which estimates draw from) deals marked cards from the
+    """The sampled model (sampling._final_hands, which estimates draw from) deals marked cards from the
     face cards and the rest from what's left, as the exact odds do: their shares agree."""
     rng = random.Random(580 + dna)
     kw = {"discards_left": 0, "hands_left": 2, "dna_copies": 1} if dna else {}
@@ -668,7 +677,7 @@ def test_final_hands_drawn_with_pareidolia_sold_agree_with_the_odds(dna):
     for discard in ([], [hand_down[0]], [hand_down[-1]]):
         for target in TARGETS[:2]:
             exact = evaluate_discard(state, target, discard).probability
-            final = engine._final_hands(state, target, discard)
+            final = sampling._final_hands(state, target, discard)
             draw = random.Random(1)
             share = sum(final(draw) for _ in range(n)) / n
             margin = 4 * (float(exact) * (1 - float(exact)) / n) ** 0.5 + 1e-9
@@ -713,16 +722,16 @@ def test_estimates_hold_the_exact_odds(seed, blind, kw):
 def test_estimates_from_deals_drawing_hands_hold_the_exact_odds(monkeypatch, seed, blind, kw):
     """With every deal's exact odds given up (as when they're slow), each deal drawn is one final hand drawn at
     random: the range still holds the exact odds."""
-    exact = engine._evaluate_discard
+    exact = discarding._evaluate_discard
 
     def slow(state, target, discard, cancel, *args):
-        if isinstance(cancel, engine._Until):  # an estimate's deal: as if past its time
+        if isinstance(cancel, sampling._Until):  # an estimate's deal: as if past its time
             raise Cancelled
         return exact(state, target, discard, cancel, *args)
-    monkeypatch.setattr(engine, "_evaluate_discard", slow)
+    monkeypatch.setattr(sampling, "_evaluate_discard", slow)
     drawn = []
-    final_hands = engine._final_hands
-    monkeypatch.setattr(engine, "_final_hands", lambda *args: drawn.append(1) or final_hands(*args))
+    final_hands = sampling._final_hands
+    monkeypatch.setattr(sampling, "_final_hands", lambda *args: drawn.append(1) or final_hands(*args))
     rng = random.Random(100 + seed)
     while True:  # The Mark only flips face cards
         case = random_case(rng, ranks=range(9, 14) if blind == "The Mark" else range(7, 12), latent=(2, 3),
@@ -750,12 +759,12 @@ def test_estimates_share_one_sampler_of_deals(monkeypatch):
     want = [engine.estimate_discard(state, t, d, seconds=60) for t, d in values]  # a session each
 
     built = []
-    monkeypatch.setattr(engine, "deals", lambda *args: built.append(1) or deals(*args))
+    monkeypatch.setattr(evidence, "deals", lambda *args: built.append(1) or deals(*args))
     session = engine.Session()
     got = [engine.estimate_discard(state, t, d, seconds=60, session=session) for t, d in values]
     assert got == want
     assert len(built) == 1
-    assert session.usable[engine._evidence_key(state)] is True
+    assert session.usable[evidence._evidence_key(state)] is True
 
 
 def test_evidence_unchecked_until_usable_is_known():

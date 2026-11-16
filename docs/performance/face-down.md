@@ -32,7 +32,7 @@ the partial sums of a big `summed`.
 say how the cards split into suits, so `_says_nothing_here` doesn't apply and nothing narrows the deals
 down: the exact odds take seconds (`THE_HOUSE_BOTH`). Building the estimate's sampler of deals took
 over a second for each value, so with its own drawing most values went over the estimate's time limit
-and had no estimate. The sampler is now built once for every value of a state (`engine._deals_for`) and
+and had no estimate. The sampler is now built once for every value of a state (`engine.evidence._deals_for`) and
 counted in the estimate's time, and the quick pass stops trying values once one has run out of time
 checking the sorts, which every other one would too (`engine.evidence_unchecked`). Every row then had
 an estimate after 7.4 s, where it took 91 s for every row to show anything.

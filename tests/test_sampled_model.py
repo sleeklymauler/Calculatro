@@ -1,11 +1,11 @@
-"""The sampled model of a final hand (engine._final_hands, which estimates draw from) against the exact odds
+"""The sampled model of a final hand (sampling._final_hands, which estimates draw from) against the exact odds
 (evaluate_discard), under every rule: The Hook, The Mark, Cerulean Bell, Crimson Heart, The Serpent and DNA,
 alone and together (docs/probability-model.md#approximations).
 
-Both models start from the same ways the final hand can be made (engine._finals); what each has its own version
-of is how the unseen cards are drawn: counted, or sampled (engine._drawer), with The Mark's split, DNA's copies
-of one face-down card and Cerulean Bell's forced card. A mistake in either would make the estimates disagree
-with the exact odds. Here each
+Both models start from the same ways the final hand can be made (engine.discarding._finals); what each has its
+own version of is how the unseen cards are drawn: counted, or sampled (sampling._drawer), with The Mark's split,
+DNA's copies of one face-down card and Cerulean Bell's forced card. A mistake in either would make the estimates
+disagree with the exact odds. Here each
 model's share of final hands that make a target agrees with the other's, within 4 standard errors. Seeded, so
 stable. Each case also checks that its rule changes the exact odds by more than that, so a sampled model that
 left the rule out would fail.
@@ -20,8 +20,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from calculatro import engine
-from calculatro.engine import evaluate_discard, flipped_by_mark
+from calculatro.engine import evaluate_discard, flipped_by_mark, sampling
 from calculatro.hands import Target, combine, get_target
 from calculatro.state import SUITS, Card, GameState, Joker
 from poker import card
@@ -170,7 +169,7 @@ CASES: dict[str, Callable[[random.Random], Situation]] = {f.__name__: f for f in
 
 
 def share(state: GameState, target: Target, discard: list[int]) -> float:
-    final = engine._final_hands(state, target, discard)
+    final = sampling._final_hands(state, target, discard)
     rng = random.Random(1)
     return sum(final(rng) for _ in range(SAMPLES)) / SAMPLES
 

@@ -1,6 +1,6 @@
 # How the probability engine stays fast
 
-`calculatro/engine.py` computes **exact** odds (a `Fraction`), not Monte Carlo
+`calculatro/engine/` computes **exact** odds (a `Fraction`), not Monte Carlo
 estimates. The work is counting: of all the ways to draw the unknown cards,
 how many give a final hand that contains the target? A full deck with 8
 unknown cards has C(52, 8) ≈ 750 million draws, so the engine can never list

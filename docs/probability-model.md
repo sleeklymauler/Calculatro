@@ -74,7 +74,7 @@ game's code.
 
 A lone card played as the round's first hand (no discards left, so `evaluate_discard` predicts across
 a play) comes back as `dna_copies` known cards instead of being replaced by a draw
-(`engine._dna_copies`), so the odds normally equal Keep's. The mod counts the copies, following
+(`engine.discarding._dna_copies`), so the odds normally equal Keep's. The mod counts the copies, following
 Blueprint and Brainstorm chains (`jokers` hides the order; with a joker face down, only DNA itself
 counts). See `docs/jokers.md`.
 
@@ -87,11 +87,11 @@ these:
 
 - **The Serpent:** its draws (`GameState.serpent`).
 - **The Mark:** its face-down face cards, those it drew without Pareidolia (`Card.marked`,
-  `GameState.marked`, `engine._mark_split`).
+  `GameState.marked`, `engine.counting._mark_split`).
 - **Cerulean Bell:** its forced card (`GameState.bell`/`forced`, from the hand cards' exported `forced`
-  flag; `hands.forced_patterns`, `engine._bell_after_draw`).
+  flag; `hands.forced_patterns`, `engine.discarding._bell_after_draw`).
 - **The Hook:** its 2 random cards thrown away after a play, which applies when the selection has to be
-  played for want of discards (`GameState.hook`, `engine._hooked`/`_hook_taken`).
+  played for want of discards (`GameState.hook`, `engine.discarding._hooked`/`_hook_taken`).
 - **Crimson Heart:** its joker swap after such a play, which changes the rules the final hand is judged
   under (`GameState.crimson`, `engine.rules_after`, `search._rule_sets`; run-out Perishables, which it
   can't swap, are exported as `perished`).
@@ -131,14 +131,14 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
   one of the discard pile's `{hidden: true}` cards for one discarded before, and leaves `unseen`, so the
   deck size, hand size and indices don't change). Deals that turn up as many cards of each class, kept
   or gone (discarded now or before; nothing of those if nothing is drawn), and forced or not, give the
-  same odds, so `summed` makes them one branch and they share one evaluation (`engine._averaged`,
+  same odds, so `summed` makes them one branch and they share one evaluation (`engine.evidence._averaged`,
   `_labels`, `_rule_classes`). A card's class there is what the target can tell of it, under every rule
   set the final hand may be judged under (`_counts_towards`: which requirements of the patterns it counts
   towards, as in `search._groups`; the class itself under Cerulean Bell), or for a card query whether it
   matches, and with marked cards its face status. So for Pair, deals that differ only in suits share one
   evaluation. Nothing is sampled or cut off. `can_miss` picks a branch for each try, so a draw it finds
   is one the evidence allows.
-- **Windows** (`posterior.windows`, `engine._window_split`). Latent cards that depend on no others (not
+- **Windows** (`posterior.windows`, `engine.counting._window_split`). Latent cards that depend on no others (not
   side by side with them in a sort, and unable to be cards alike in print) whose posterior is uniform
   over the sets of their candidates are a *window*: a run of face-down cards in one sort between face-up
   cards none can tie with, say, or one face-down card. If they're all kept or all gone, the odds don't go
@@ -146,7 +146,7 @@ the cards around it, and says what's left to draw. When the mod trusts the hand'
   split does for face cards (`_Layout.bases` packs a count for each window into one int). Kept, a draw with
   a of a window's w cards holds its r in C(a, r) ways; gone, it misses them in C(w - a, r). A window
   whose cards meet different fates, side by side in a sort, is split by the cards at the edges of its
-  blocks (`engine._split`): given those, each block's other cards are a window of the cards between. Not
+  blocks (`engine.evidence._split`): given those, each block's other cards are a window of the cards between. Not
   with marked cards, The Hook, Cerulean Bell or DNA's copies of a face-down card, which branch as above.
 - **No evidence needed.** A single sort with no face-up card (The House's first hand) only says which
   of its cards is higher, not what they are. So while they all meet the same fate (all kept, or all
@@ -201,12 +201,12 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   `summed` telling no deals apart, keeping how it reached each partial state, so a deal is drawn from
   the last card back. That's usually quick, but with no face-up card to narrow down the deals it can
   take a second (The House's first hand sorted both ways, 36 MB), so it's built once for every value
-  of a state and kept in the session (`engine._deals_for`, the latest 2: [the engine's
+  of a state and kept in the session (`engine.evidence._deals_for`, the latest 2: [the engine's
   session](architecture.md#the-app)), and the estimate's time includes it, with at
   least a quarter left for drawing. A sampler built also answers `usable`. Each deal's odds are then
   exact and quick, every face-down card turned up, and deals alike in what the odds see of them share
   an evaluation (`_labels`), so the estimate is off only by which deals were drawn
-  (`engine._estimate`). Where a deal's exact odds are slow too (Four Fingers + Shortcut), they're given
+  (`engine.sampling._estimate`). Where a deal's exact odds are slow too (Four Fingers + Shortcut), they're given
   up after 1/200 of the time (`DEAL_SHARE`), and so are every other deal's from then on: each deal
   drawn is then one final hand drawn from its resolved state, as below, which still gives an unbiased
   value. It draws until its range is within half a point either side, or 4096 deals (131,072 when
@@ -221,9 +221,9 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   `test_estimates_from_deals_drawing_hands_hold_the_exact_odds` does it with every deal drawing hands,
   and `test_estimates_share_one_sampler_of_deals` checks the sampler is built once.
 - **Any other target value** (`how: "draws"`): an estimate from final hands drawn at random, the share
-  of them that make the target (`engine._estimate_draws`), for what's slow however few the face-down
+  of them that make the target (`engine.sampling._estimate_draws`), for what's slow however few the face-down
   cards are (Four Fingers + Shortcut, The Mark, Cerulean Bell). `_final_hands` draws a hand as the exact
-  odds model the game dealing it. Both start from `engine._finals`, the ways the final hand can be made,
+  odds model the game dealing it. Both start from `engine.discarding._finals`, the ways the final hand can be made,
   weighted: the rules it's judged under (`rules_after`), the kept cards The Hook leaves (`_hook_taken`),
   DNA's copies, how many marked face-down cards it holds, and Cerulean Bell's forced card, kept or a
   random card of the hand. **A new rule about what the final hand holds goes there**, so the two can't

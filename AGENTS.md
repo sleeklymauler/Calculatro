@@ -47,7 +47,7 @@ Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (w
    (~5×/sec, only when it changes), reads the odds back from `odds.json` and draws the
    panel. It owns what's tracked, set in game with the panel's target editor.
 2. **Python app** (`calculatro/`): `source.py` polls the state file → `state.py` parses it →
-   `engine.py` computes exact odds → `report.py` collects them → `overlay.py` turns them into the
+   `engine/` computes exact odds → `report.py` collects them → `overlay.py` turns them into the
    odds file's payload (`text.py` into text, for `calculatro odds`). Odds and best-discard searches run in cancellable background
    jobs (`worker.Job`), whose parts stop at time and memory limits (`worker.Watchdog`).
 

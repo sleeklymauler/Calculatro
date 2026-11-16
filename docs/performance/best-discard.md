@@ -85,7 +85,7 @@ each time. It also covers single hands, where it takes Straight from 120 ms to
 36 ms on 10 cards.
 
 A miss only proves the odds are below 1 if the draw could really happen, so
-`can_miss` draws final hands as estimates do (`engine._final_hands`, which
+`can_miss` draws final hands as estimates do (`engine.sampling._final_hands`, which
 models The Mark's split, The Hook, DNA and Crimson Heart as the exact odds do).
 It gives up (and the exact odds are worked out) under Cerulean Bell, where each
 forced card's patterns take a while to build. It tests the kept hands first,
@@ -174,7 +174,7 @@ took the 11-card hand holding a Full House from 3.5 s to about 0.5 s.
   the boss then swaps which joker is debuffed (`engine.rules_after`): each
   odds value averages over the rules left by the swap, and the search can
   only treat cards as alike under all of them (`search._rule_sets`). Rule sets
-  the target can't tell apart are worked out once (`engine._merged`; Shortcut
+  the target can't tell apart are worked out once (`engine.discarding._merged`; Shortcut
   for a Flush, say), and in a search `Reuse` shares the rest, so the averaging
   itself costs little (the "Crimson Heart, played" scenarios: 17–210 ms on
   8 cards outside Straight Flush and "Any target"). The cost is that the swap

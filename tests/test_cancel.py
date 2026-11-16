@@ -3,9 +3,9 @@ through the slow scenarios, that a new state never waits long on the job it repl
 
 Times are the job thread's CPU time (`time.thread_time`), not the clock's, and each run stops after a number of
 checks, not of seconds, so a busy machine does the same work and doesn't fail them. Each case runs once first to
-fill the caches built once per set of rules and target (patterns, `engine._split_by_suit`, Cerulean Bell's forced
-patterns...): those builds can't be cancelled (TODO.md, P8). Both run with the garbage collector paused, as a job
-runs them (`worker.Job`): its passes don't check `cancel` either.
+fill the caches built once per set of rules and target (patterns, `engine.counting._split_by_suit`, Cerulean
+Bell's forced patterns...): those builds can't be cancelled (TODO.md, P8). Both run with the garbage collector
+paused, as a job runs them (`worker.Job`): its passes don't check `cancel` either.
 """
 
 import threading

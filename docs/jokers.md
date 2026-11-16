@@ -104,12 +104,12 @@ These change the deck or hand outside the draw. Because the exported state is a 
 - Vampire strips enhancements from scored cards.
 - Midas Mask turns scored face cards into Gold cards.
 
-The engine does predict across one of them: without discards left, a selection is played instead (`engine._discard`), so it sees what follows a play. Only DNA changes what's held after it. The other effects in this list act on cards that are leaving the hand, or at the start of a round.
+The engine does predict across one of them: without discards left, a selection is played instead (`engine.discarding._discard`), so it sees what follows a play. Only DNA changes what's held after it. The other effects in this list act on cards that are leaving the hand, or at the start of a round.
 
 **DNA** (`card.lua:3501`, in the jokers' `before` step, so not for a hand The Psychic debuffs, the only boss that debuffs a first hand):
 - The refill counts the copy, so a lone card played normally gives the same hand back, with nothing drawn: the odds equal keeping the hand. It's different when other cards move too: The Hook throws away 2 kept cards (never the copy, as it acts first), so 2 are drawn; The Serpent still draws 3; a hand left short is topped up.
 - The effect has no `not context.blueprint`, so every Blueprint or Brainstorm that reaches DNA makes another copy, past the hand size if need be. The mod follows the chains and sends the count as `dna_copies`, since the export hides the jokers' order. With a joker face down (Amber Acorn) the player can't see the order either, so only DNA itself counts, which can undercount.
-- A face-down card's copy comes back face up. One copy is the same as keeping that card face down. Several copies are all the same unknown card (2 copies are always a Pair), so the engine branches on what that card is (`engine._dna_branch`; see [probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
+- A face-down card's copy comes back face up. One copy is the same as keeping that card face down. Several copies are all the same unknown card (2 copies are always a Pair), so the engine branches on what that card is (`engine.evidence._dna_branch`; see [probability-model.md](probability-model.md#face-down-cards-in-the-hands-sorts)).
 
 ### Per-round targets (needed to evaluate these jokers' conditions)
 

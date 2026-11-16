@@ -14,9 +14,8 @@ from fractions import Fraction
 from itertools import pairwise, permutations
 from math import comb, factorial, prod
 
-from calculatro import engine
 from calculatro.cards import CardQuery
-from calculatro.engine import evaluate_cards, evaluate_discard, flipped_by_mark, posterior
+from calculatro.engine import discarding, evaluate_cards, evaluate_discard, evidence, flipped_by_mark, posterior
 from calculatro.hands import Target
 from calculatro.posterior import Posterior, _branch, latent_ids, sort_value, sortable, tie_factor
 from calculatro.posterior import printed as printed_key
@@ -288,9 +287,9 @@ def reference(observations: Sequence[Observation], observed: Sequence[ObservedCa
 def over_branches(state: GameState, post: Posterior, odds: Callable[[GameState], Fraction]) -> Fraction:
     """The odds averaged over the posterior's branches, by weight: `odds` of
     each branch's resolved state, every face-down card turned up. With one
-    branch for each deal (`reference`), it's what `engine._averaged` is checked against."""
+    branch for each deal (`reference`), it's what `evidence._averaged` is checked against."""
     total = Fraction(0)
-    resolve = engine._resolver(state)
+    resolve = evidence._resolver(state)
     for branch in post.branches:
         total += branch.weight * odds(resolve(branch))
     return total / post.total
@@ -307,7 +306,7 @@ def check(case: Case, discards, targets=(), queries=()) -> None:
         assert post is not None
         assert ours_by_cards(post) == posterior_by_cards(case, state)
         ref = reference(state.observations, state.observed, state.unseen, flipped_by_mark, (),
-                        engine._slots(state, state.observed, ())[1])
+                        evidence._slots(state, state.observed, ())[1])
         assert ours_by_cards(ref) == ours_by_cards(post)
     for discard in discards:
         for target in targets:
@@ -315,14 +314,14 @@ def check(case: Case, discards, targets=(), queries=()) -> None:
             assert found.probability == oracle(case, discard, target_holds(target, state)), (target.name, discard)
             if ref is not None:
                 # DNA's copies of a face-down card in no sort: enumerated too, as the engine does.
-                dna = engine._dna_branch(state, discard)
+                dna = evidence._dna_branch(state, discard)
                 in_sorts = {o.hand for o in state.observed}
                 ref_here = ref if dna is None or dna in in_sorts else reference(
                     state.observations, state.observed, state.unseen, flipped_by_mark,
-                    *engine._slots(state, state.observed, (dna,)))
+                    *evidence._slots(state, state.observed, (dna,)))
                 one_by_one = over_branches(
                     state, ref_here,
-                    lambda s, t=target, d=discard: engine._evaluate_discard(s, t, d, None, None).probability)
+                    lambda s, t=target, d=discard: discarding._evaluate_discard(s, t, d, None, None).probability)
                 assert one_by_one == found.probability
             assert found.discarded == [state.hand[i] for i in sorted(discard)]  # as the player sees them
         for query in queries:

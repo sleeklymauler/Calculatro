@@ -4,7 +4,8 @@ and `fakes`."""
 
 import pytest
 
-from calculatro import engine, report, search
+from calculatro import report, search
+from calculatro.engine import sampling
 from fakes import FakeClock
 from hand_driver import Game
 from mocked_game import MOCK_THREAD, new_lua
@@ -77,6 +78,6 @@ def fake_clock(monkeypatch) -> FakeClock:
     between reads). Seeded estimates stop at a deadline: by the real clock, a busy machine (a CI runner running
     the tests in parallel) draws fewer samples, and gets other ranges, which can miss the exact odds."""
     clock = FakeClock(1e-5)
-    monkeypatch.setattr(engine, "monotonic", clock)
+    monkeypatch.setattr(sampling, "monotonic", clock)
     monkeypatch.setattr(search, "monotonic", clock)
     return clock
