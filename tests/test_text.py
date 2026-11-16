@@ -66,13 +66,13 @@ def test_values_given_up_on_and_approximated(tmp_path, odds, monkeypatch):
 
 
 def test_the_best_discard_the_state_asks_for(tmp_path, odds, monkeypatch):
-    monkeypatch.setattr(cli, "best_discards", lambda state, target, cancel, progress=None: Search([[2]], Fraction(1)))
+    monkeypatch.setattr(cli, "best_discards", lambda state, target, *_, **__: Search([[2]], Fraction(1)))
     _, out, _ = odds(state_file(tmp_path, search={"key": "Pair", "nonce": 1}))
     assert out.splitlines()[-1] == "Best discard for Pair: discard 2♣, 100.00%"
 
 
 def test_the_best_discard_for_another_row(tmp_path, odds, monkeypatch):
-    monkeypatch.setattr(cli, "best_discards", lambda state, target, cancel, progress=None: Search([[]], Fraction(1)))
+    monkeypatch.setattr(cli, "best_discards", lambda state, target, *_, **__: Search([[]], Fraction(1)))
     path = state_file(tmp_path, search={"key": "Pair", "nonce": 1})
     _, out, _ = odds(path, "Pair")
     assert out.splitlines()[-1] == "Best discard for Pair: keep the hand, 100.00%"
@@ -80,7 +80,7 @@ def test_the_best_discard_for_another_row(tmp_path, odds, monkeypatch):
     assert out.splitlines()[-1] == "Best discard for Flush: no such row is tracked."
 
 
-def until_cancelled(state, target, cancel, progress=None):
+def until_cancelled(state, target, cancel, progress=None, **_):
     while not cancel.is_set():
         time.sleep(0.001)
     raise Cancelled
@@ -95,7 +95,7 @@ def test_a_best_discard_given_up_on(tmp_path, odds, monkeypatch):
 def test_a_best_discard_from_estimates(tmp_path, odds, monkeypatch):
     guesses = {(): Estimate(0.4, 0.35, 0.45, 1000, True), (0,): Estimate(0.6, 0.55, 0.65, 1000, True)}
 
-    def search(state, target, cancel, progress=None):
+    def search(state, target, cancel, progress=None, **_):
         progress.start(state, [[0], [1], [2]], None, [None, (1, 0, 0)],
                        lambda discard, cancel, seconds: guesses[tuple(discard)])
         return until_cancelled(state, target, cancel)

@@ -104,11 +104,11 @@ def test_windows_weigh_the_draw():
     found = engine.windows(state.observations, state.observed, state.unseen, lambda c: True)
     assert sorted(w.size for w in found) == [1, 2]
     classes = engine._rule_classes(state, [], engine._counts_towards(get_target("Straight"), state))
-    assert len(engine._windows_for(state, [], classes, None)[0]) == 2  # both kept
-    assert len(engine._windows_for(state, [0, 4], classes, None)[0]) == 2  # one kept, one gone
+    assert len(engine._windows_for(state, [], classes, None, engine.Session())[0]) == 2  # both kept
+    assert len(engine._windows_for(state, [0, 4], classes, None, engine.Session())[0]) == 2  # one kept, one gone
     # The run of two split, kept and gone: split again by its lower card, the higher one is a window
     # of the cards above it (engine._split), and the other run is a window as it was.
-    windows, splits = engine._windows_for(state, [1], classes, None)
+    windows, splits = engine._windows_for(state, [1], classes, None, engine.Session())
     assert [w.size for _, w in windows] == [1]
     assert [len(ways) for _, ways in splits] == [3]  # J, 10 or 7 is the lower one: Q and 10 left above
     discards = [[], [0], [4], [0, 4], [1], [0, 3, 5]]
@@ -562,21 +562,22 @@ def test_evidence_no_deal_fits_is_set_aside(capsys):
     state = case.state()
     nine = parse_query("9")
     plain = engine._evaluate_cards(state, nine, [2]).probability
-    assert posterior(state) is None
-    assert evaluate_cards(state, nine, [2]).probability == plain
-    unused = engine.with_usable_evidence(state)
+    session = engine.Session()
+    assert posterior(state, session=session) is None
+    assert evaluate_cards(state, nine, [2], session=session).probability == plain
+    unused = engine.with_usable_evidence(state, session=session)
     assert unused.observations == () and all(c.latent is None for c in unused.hand)
+    evaluate_cards(state, nine, [1], session=session)
+    assert capsys.readouterr().err.count("fit no deal") == 1  # once a session
     evaluate_cards(state, nine, [1])
-    assert capsys.readouterr().err.count("fit no deal") == 1
+    assert capsys.readouterr().err.count("fit no deal") == 1  # and once more in another
 
 
-def test_evidence_set_aside_is_remembered_only_for_the_latest(capsys, monkeypatch):
+def test_evidence_set_aside_is_remembered_only_for_the_latest(capsys):
     # The observations already logged are bounded: one forgotten is logged again, not kept for good.
-    # `_usable` keeps nothing here, so each call reaches the log.
-    monkeypatch.setattr(engine, "_usable", type(engine._usable)())
-    monkeypatch.setattr(engine, "_USABLE_KEPT", 0)
-    monkeypatch.setattr(engine, "_ignored", type(engine._ignored)())
-    monkeypatch.setattr(engine, "_IGNORED_KEPT", 1)
+    # `usable` keeps nothing here, so each call reaches the log.
+    session = engine.Session()
+    session.usable_kept, session.ignored_kept = 0, 1
 
     def unfit(suit: str) -> GameState:
         case = worked_example()
@@ -588,8 +589,8 @@ def test_evidence_set_aside_is_remembered_only_for_the_latest(capsys, monkeypatc
         return case.state()
 
     for suit in ("Spades", "Spades", "Diamonds", "Spades"):
-        assert not engine.usable(unfit(suit))
-    assert len(engine._ignored) == 1
+        assert not engine.usable(unfit(suit), session=session)
+    assert len(session.ignored) == 1
     assert capsys.readouterr().err.count("fit no deal") == 3
 
 
@@ -620,7 +621,6 @@ def test_cancelled():
     cancel.set()
     case = random_case(random.Random(800), latent=(3, 3))
     state = case.state()
-    engine._usable.clear()
     with pytest.raises(Cancelled):
         posterior(state, cancel)
     with pytest.raises(Cancelled):
@@ -747,19 +747,15 @@ def test_estimates_share_one_sampler_of_deals(monkeypatch):
     state = case.state()
     values = [(target, discard) for discard in some_discards(rng, case) for target in TARGETS]
 
-    def fresh(target, discard):
-        engine._deals.clear()
-        return engine.estimate_discard(state, target, discard, seconds=60)
-    want = [fresh(t, d) for t, d in values]
+    want = [engine.estimate_discard(state, t, d, seconds=60) for t, d in values]  # a session each
 
     built = []
     monkeypatch.setattr(engine, "deals", lambda *args: built.append(1) or deals(*args))
-    engine._deals.clear()
-    engine._usable.clear()
-    got = [engine.estimate_discard(state, t, d, seconds=60) for t, d in values]
+    session = engine.Session()
+    got = [engine.estimate_discard(state, t, d, seconds=60, session=session) for t, d in values]
     assert got == want
     assert len(built) == 1
-    assert engine._usable[engine._evidence_key(state)] is True
+    assert session.usable[engine._evidence_key(state)] is True
 
 
 def test_evidence_unchecked_until_usable_is_known():
@@ -769,16 +765,16 @@ def test_evidence_unchecked_until_usable_is_known():
 
     def state(situation):
         return Scenario(situation, ("Pair",), "No jokers").state()[0]
-    engine._usable.clear()
-    engine._deals.clear()
-    assert not engine.evidence_unchecked(state(THE_HOUSE), [])
+    session = engine.Session()
+    assert not engine.evidence_unchecked(state(THE_HOUSE), [], session)
     once = state(THE_HOUSE_SORTED)
-    assert not engine.evidence_unchecked(once, [])
-    assert engine.evidence_unchecked(once, [0])  # thrown away, it's the higher or the lower cards
+    assert not engine.evidence_unchecked(once, [], session)
+    assert engine.evidence_unchecked(once, [0], session)  # thrown away, it's the higher or the lower cards
     both = state(THE_HOUSE_BOTH)
-    assert engine.evidence_unchecked(both, [])
-    engine.usable(both)
-    assert not engine.evidence_unchecked(both, [])
+    assert engine.evidence_unchecked(both, [], session)
+    engine.usable(both, session=session)
+    assert not engine.evidence_unchecked(both, [], session)
+    assert engine.evidence_unchecked(both, [], engine.Session())  # another session hasn't checked
 
 
 def test_estimate_from_draws_without_evidence():

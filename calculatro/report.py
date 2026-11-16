@@ -11,6 +11,7 @@ from .cards import CardQuery
 from .engine import (
     DiscardOutcome,
     Estimate,
+    Session,
     discard_draws,
     estimate_cards,
     estimate_discard,
@@ -138,7 +139,7 @@ def row_key(row: Target | CardQuery | None) -> object:
 
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
                  cancel: Control | Event | None = None, known: dict | None = None, limits: Limits = LIMITS,
-                 progress: Callable[[Report], None] | None = None) -> Report | None:
+                 progress: Callable[[Report], None] | None = None, session: Session | None = None) -> Report | None:
     """Odds of the target hands and card queries for keeping the hand vs.
     discarding the in-game selection. None outside a run, with an empty hand,
     or with nothing to calculate. With no way left to throw cards away and draw
@@ -178,11 +179,15 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     again. Its keys hold each value's target and selection, so share it only
     between states alike in everything else the odds depend on: the same cards,
     jokers, blind and sorts, in whatever order the hand is in.
+
+    `session`: see engine.Session. Without it, the report keeps what the engine works out only for itself.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
     if known is None:
         known = {}
+    if session is None:
+        session = Session()
 
     def key(row: Target | CardQuery, discard: list[int]) -> tuple:
         # By the cards, not their positions: sorting the hand doesn't change the odds.
@@ -191,12 +196,12 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         return row_key(row), picked
 
     def evaluate(row: Target | CardQuery, discard: list[int], cancel) -> DiscardOutcome:
-        return (evaluate_cards(state, row, discard, cancel) if isinstance(row, CardQuery)
-                else evaluate_discard(state, row, discard, cancel))
+        return (evaluate_cards(state, row, discard, cancel, session) if isinstance(row, CardQuery)
+                else evaluate_discard(state, row, discard, cancel, session=session))
 
     def estimate(row: Target | CardQuery, discard: list[int], cancel, seconds: float) -> Estimate | None:
-        return (estimate_cards(state, row, discard, cancel, seconds) if isinstance(row, CardQuery)
-                else estimate_discard(state, row, discard, cancel, seconds))
+        return (estimate_cards(state, row, discard, cancel, seconds, session) if isinstance(row, CardQuery)
+                else estimate_discard(state, row, discard, cancel, seconds, session=session))
 
     named = [(t.name, t) for t in targets]
     combined: Target | None = None  # "Any target", bounded by `targets`
@@ -284,14 +289,14 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
         for k, (row, discard) in todo:
             if known.get(k) is not before or isinstance(value(row, discard), Fraction):
                 continue  # done, or its bounds met
-            if unchecked and evidence_unchecked(state, discard):
+            if unchecked and evidence_unchecked(state, discard, session):
                 known[k] = SLOW
                 continue
             start = monotonic()
             found = limited(cancel, seconds, lambda c, row=row, discard=discard: evaluate(row, discard, c))
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
             if before is None and isinstance(found, TooSlow):
-                unchecked = unchecked or evidence_unchecked(state, discard)
+                unchecked = unchecked or evidence_unchecked(state, discard, session)
                 wasted += monotonic() - start
             found_more()
             if before is None and wasted >= limits.quick_pass:

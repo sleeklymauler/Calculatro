@@ -163,6 +163,13 @@ dataclasses → `engine.py` computes exact odds → `report.py` collects them in
   (`engine.clear_caches`) whenever the rule jokers held change (`rule_jokers`: Four Fingers, Shortcut, Smeared,
   Pareidolia, debuffed or not, since Crimson Heart moves its debuff every hand). Building them again costs up to
   about 0.2 s, with Four Fingers and Shortcut.
+- **The engine's session.** What the engine works out from a state's evidence rather than its target (whether
+  the hand's sorts fit any deal, the samplers of deals, the windows, the pool's class keys) is kept in an
+  `engine.Session`: each cache only its latest few entries. `run_watch` makes one and passes it to every odds
+  job and search, and `calculatro odds` one for its report and search, so it's shared between threads (it has
+  its own lock). The engine's entry points take it as `session`; a call without one keeps what it works out only
+  for itself, which keeps tests apart. Only `engine.gc_paused`'s count stays global, since the collector it
+  pauses is the whole process's.
 - **Failures in a job.** A job that fails (anything but `Cancelled`) doesn't stop the app: `run_watch`
   logs the traceback on stderr (once per run for each exception type and stack; a failure to log is
   ignored) and answers as if there were nothing to show, odds without values

@@ -1359,17 +1359,54 @@ def _same_for(target: Target) -> Callable[[Rules], object]:
 
 # --- What the hand's sorts say about face-down cards (docs/probability-model.md) ---
 
-_USABLE_KEPT = 16  # states whose evidence was checked: build_report and the search ask many times
-_usable: OrderedDict[tuple, bool] = OrderedDict()
-_usable_lock = Lock()
-# Observations no deal fits, already logged: the latest few, so the same ones aren't logged again for every
-# state of the hand. One forgotten is only logged a second time.
-_IGNORED_KEPT = 16
-_ignored: OrderedDict[tuple, None] = OrderedDict()
-# Samplers of deals (_deals_for), shared by every value estimated for a state. Each can take tens of
-# MB (36 MB for The House's first hand sorted both ways), so only the latest few are kept.
-_DEALS_KEPT = 2
-_deals: OrderedDict[tuple, Deals | None] = OrderedDict()
+class Session:
+    """What the engine keeps from one calculation for the next: the app's session (`run_watch` makes one), shared
+    by its odds job and its searches, so it's safe between threads. Each entry point takes one as `session`;
+    without it, a call keeps what it works out only for itself.
+
+    Everything here is worked out from the state's evidence, so it's for every target and rule; the patterns,
+    and what's worked out from them, are in functools caches (`clear_caches`). Each cache keeps only its latest
+    few entries.
+    """
+    usable_kept = 16  # states whose evidence was checked: build_report and the search ask many times
+    # Observations no deal fits, already logged: the latest few, so the same ones aren't logged again for every
+    # state of the hand. One forgotten is only logged a second time.
+    ignored_kept = 16
+    # Samplers of deals (_deals_for), shared by every value estimated for a state. Each can take tens of
+    # MB (36 MB for The House's first hand sorted both ways), so only the latest few are kept.
+    deals_kept = 2
+    windows_kept = 16  # _windows_for's windows, by the evidence
+
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.usable: OrderedDict[tuple, bool] = OrderedDict()
+        self.ignored: OrderedDict[tuple, None] = OrderedDict()
+        self.deals: OrderedDict[tuple, Deals | None] = OrderedDict()
+        self.windows: OrderedDict[tuple, list[Window]] = OrderedDict()
+        # The latest pool's class keys (_pool_keys): (pool, rules, keys). A search's can_miss draws from the same
+        # pool (`state.unseen`) for every discard, and working out its keys was most of each call.
+        self.pool: tuple[list[Card], Rules, list[ClassKey | None]] | None = None
+
+    def get[V, D](self, cache: OrderedDict[tuple, V], key: tuple, default: D = None) -> V | D:
+        """`cache`'s entry for `key`, now its latest; `default` if it has none."""
+        with self.lock:
+            if key not in cache:
+                return default
+            cache.move_to_end(key)
+            return cache[key]
+
+    def keep[V](self, cache: OrderedDict[tuple, V], key: tuple, value: V, kept: int) -> None:
+        """Keeps `value` for `key` as `cache`'s latest entry, and only the latest `kept`."""
+        with self.lock:
+            cache[key] = value
+            cache.move_to_end(key)
+            while len(cache) > kept:
+                cache.popitem(last=False)
+
+
+def _own(session: Session | None) -> Session:
+    """`session`, or one for a call made without."""
+    return Session() if session is None else session
 
 
 def _evidence_key(state: GameState) -> tuple:
@@ -1395,80 +1432,72 @@ def _checker(cancel: Event | None) -> Callable[[], None]:
     return check
 
 
-def usable(state: GameState, cancel: Event | None = None) -> bool:
+def usable(state: GameState, cancel: Event | None = None, session: Session | None = None) -> bool:
     """Whether some deal of the unseen cards fits `state.observations`.
 
     Observations that none does (a card changed while face down, say) are set
-    aside, logged once on stderr: the odds are then today's, with no part of
-    that evidence used. Raises Cancelled soon after `cancel` is set.
+    aside, logged once a session on stderr: the odds are then today's, with no
+    part of that evidence used. Raises Cancelled soon after `cancel` is set.
     """
     if not any(o.latent for o in state.observed):
         return True
+    session = _own(session)
     key = _evidence_key(state)
-    with _usable_lock:
-        if key in _usable:
-            _usable.move_to_end(key)
-            return _usable[key]
+    known = session.get(session.usable, key)
+    if known is not None:
+        return known
     # Telling no deals apart, the sum is one branch: quick even for The House's first hand.
     _, rest = _slots(state, state.observed, ())
     found = summed(state.observations, state.observed, state.unseen, flipped_by_mark, (), no_label,
                    _checker(cancel), marked_rest=rest).total > 0
     if not found:
         failure = state.observations, state.observed
-        with _usable_lock:
-            first = failure not in _ignored
-            _ignored[failure] = None
-            _ignored.move_to_end(failure)
-            while len(_ignored) > _IGNORED_KEPT:
-                _ignored.popitem(last=False)
+        with session.lock:
+            first = failure not in session.ignored
+        session.keep(session.ignored, failure, None, session.ignored_kept)
         if first:
             print("The hand's sorts fit no deal of the unseen cards, so the odds don't use them: "
                   f"{state.observations} of {state.observed}", file=sys.stderr, flush=True)
-    with _usable_lock:
-        _usable[key] = found
-        while len(_usable) > _USABLE_KEPT:
-            _usable.popitem(last=False)
+    session.keep(session.usable, key, found, session.usable_kept)
     return found
 
 
-def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], None]) -> Deals | None:
+_NOT_KEPT = object()  # Session.get's default where None is a value kept
+
+
+def _deals_for(state: GameState, extra: tuple[int, ...], check: Callable[[], None], session: Session) -> Deals | None:
     """posterior.deals for `state`'s evidence, with the face-down cards at hand
-    indices `extra`; None if no deal fits. Built once for every value an
-    estimate is made of (`build_report` estimates each row, Keep and Discard),
-    as it can take a second (The House's first hand sorted both ways). A deal
-    that fits makes the evidence usable, so `usable` is answered too."""
+    indices `extra`; None if no deal fits. Built once a session for every value
+    an estimate is made of (`build_report` estimates each row, Keep and
+    Discard), as it can take a second (The House's first hand sorted both
+    ways). A deal that fits makes the evidence usable, so `usable` is answered too."""
     cards, rest = _slots(state, state.observed, extra)
     key = (*_evidence_key(state), cards)
-    with _usable_lock:
-        if key in _deals:
-            _deals.move_to_end(key)
-            return _deals[key]
+    known = session.get(session.deals, key, _NOT_KEPT)
+    if known is not _NOT_KEPT:
+        return known
     found = deals(state.observations, state.observed, state.unseen, flipped_by_mark, cards, check, rest)
-    with _usable_lock:
-        _deals[key] = found
-        while len(_deals) > _DEALS_KEPT:
-            _deals.popitem(last=False)
-        if found is not None:
-            _usable[_evidence_key(state)] = True
-            while len(_usable) > _USABLE_KEPT:
-                _usable.popitem(last=False)
+    session.keep(session.deals, key, found, session.deals_kept)
+    if found is not None:
+        session.keep(session.usable, _evidence_key(state), True, session.usable_kept)
     return found
 
 
-def evidence_unchecked(state: GameState, discard: list[int]) -> bool:
+def evidence_unchecked(state: GameState, discard: list[int], session: Session) -> bool:
     """Whether the odds of discarding `discard` (evaluate_discard's or
     evaluate_cards') start by checking the hand's sorts (`usable`), and that
-    isn't done for `state` yet. Every such odds checks the same thing, so once a
-    try at one has run out of time with this still true, a try at another with
-    as little time would too (`build_report`'s quick pass)."""
+    isn't done for `state` in `session` yet. Every such odds checks the same
+    thing, so once a try at one has run out of time with this still true, a try
+    at another with as little time would too (`build_report`'s quick pass)."""
     if not any(o.latent for o in state.observed) or _says_nothing_here(state, discard):
         return False
-    with _usable_lock:
-        return _evidence_key(state) not in _usable
+    with session.lock:
+        return _evidence_key(state) not in session.usable
 
 
 def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = (),
-              label: Label | None = None, skip: frozenset[int] = frozenset()) -> Posterior | None:
+              label: Label | None = None, skip: frozenset[int] = frozenset(),
+              session: Session | None = None) -> Posterior | None:
     """What the face-down cards in `state.observations` are, as a posterior
     (posterior.summed), with the face-down cards at hand indices `extra` too
     (no evidence: see _posterior_for). None if there's nothing to branch on.
@@ -1481,7 +1510,7 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
     Raises Cancelled soon after `cancel` is set.
     """
     observations, observed = state.observations, state.observed
-    if not usable(state, cancel):
+    if not usable(state, cancel, session):
         observations, observed = (), ()
     in_hand = {o.hand for o in observed if o.hand is not None}
     extra = tuple(i for i in extra if i not in in_hand)
@@ -1494,16 +1523,17 @@ def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, .
     return found if found.total else None
 
 
-def with_usable_evidence(state: GameState, cancel: Event | None = None) -> GameState:
+def with_usable_evidence(state: GameState, cancel: Event | None = None, session: Session | None = None) -> GameState:
     """`state`, or, if its observations are set aside (see `usable`), `state`
     without them, so that its face-down cards are interchangeable again."""
-    if usable(state, cancel):
+    if usable(state, cancel, session):
         return state
     return replace(state, observations=(), observed=(), hand=[replace(c, latent=None) for c in state.hand])
 
 
 def _posterior_for(state: GameState, discard: list[int], cancel: Event | None,
-                   classes: Callable[[Card], object] | None, skip: frozenset[int] = frozenset()) -> Posterior | None:
+                   classes: Callable[[Card], object] | None, session: Session,
+                   skip: frozenset[int] = frozenset()) -> Posterior | None:
     """The posterior the odds of discarding `discard` average over, its deals
     summed by what those odds see of them (`classes`, see _labels); every deal
     its own branch without `classes`.
@@ -1519,7 +1549,7 @@ def _posterior_for(state: GameState, discard: list[int], cancel: Event | None,
     label = None if classes is None else _labels(state, discard, dna, classes)
     if _says_nothing_here(state, discard):
         state = replace(state, observations=(), observed=())
-    return posterior(state, cancel, () if dna is None else (dna,), label, skip)
+    return posterior(state, cancel, () if dna is None else (dna,), label, skip, session)
 
 
 def _dna_branch(state: GameState, discard: list[int]) -> int | None:
@@ -1672,7 +1702,8 @@ def _memberships(hands: tuple[str, ...], rules: Rules) -> dict[ClassKey, frozens
 
 
 def _averaged(state: GameState, discard: list[int], classes: Callable[[Card], object],
-              odds: Callable[[GameState, tuple[Marked, ...]], Fraction], cancel: Event | None) -> Fraction | None:
+              odds: Callable[[GameState, tuple[Marked, ...]], Fraction], cancel: Event | None,
+              session: Session) -> Fraction | None:
     """The odds of discarding `discard`, averaged over what the face-down cards the
     hand's sorts tell about are; None if they tell about none, or say nothing
     here (_says_nothing_here). `odds` evaluates a branch's resolved state, with
@@ -1682,10 +1713,10 @@ def _averaged(state: GameState, discard: list[int], classes: Callable[[Card], ob
     so there's one evaluation for each thing they can tell apart, and none at
     all for each of a window's cards.
     """
-    windows, splits = _windows_for(state, discard, classes, cancel)
+    windows, splits = _windows_for(state, discard, classes, cancel, session)
     skip = frozenset(i for ids, _ in windows + splits for i in ids)
     marked = tuple(m for _, m in windows)
-    post = _posterior_for(state, discard, cancel, classes, skip)
+    post = _posterior_for(state, discard, cancel, classes, session, skip)
     if post is None:
         if not skip:
             return None
@@ -1707,8 +1738,6 @@ def _averaged(state: GameState, discard: list[int], classes: Callable[[Card], ob
     return total / whole
 
 
-_WINDOWS_KEPT = 16
-_windows: OrderedDict[tuple, list[Window]] = OrderedDict()
 WINDOW_COUNTS = 64  # most combinations of how many of each window's cards a draw has
 SPLITS = 5000  # most ways to split a window by its cards' fates (_split)
 
@@ -1718,8 +1747,8 @@ type WindowSplit = tuple[int, tuple[tuple[int | None, Card], ...], tuple[Marked,
 
 
 def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card], object],
-                 cancel: Event | None) -> tuple[list[tuple[frozenset[int], Marked]],
-                                                list[tuple[frozenset[int], list[WindowSplit]]]]:
+                 cancel: Event | None, session: Session) -> tuple[list[tuple[frozenset[int], Marked]],
+                                                                  list[tuple[frozenset[int], list[WindowSplit]]]]:
     """Windows of `state`'s face-down cards (posterior.windows) for the odds of
     discarding `discard` to weigh the draw by, rather than go through their
     cards: each one's card ids and how the engine sees it.
@@ -1740,19 +1769,13 @@ def _windows_for(state: GameState, discard: list[int], classes: Callable[[Card],
     with each window's ids and its ways.
     """
     if (state.marked or state.bell or _hooked(state, discard) or _dna_copies(state, discard)
-            or _says_nothing_here(state, discard) or not usable(state, cancel)):
+            or _says_nothing_here(state, discard) or not usable(state, cancel, session)):
         return [], []
     key = (state.observations, state.observed, tuple(state.unseen))
-    with _usable_lock:
-        found = _windows.get(key)
-        if found is not None:
-            _windows.move_to_end(key)
+    found = session.get(session.windows, key)
     if found is None:
         found = windows(state.observations, state.observed, state.unseen, flipped_by_mark, _checker(cancel))
-        with _usable_lock:
-            _windows[key] = found
-            while len(_windows) > _WINDOWS_KEPT:
-                _windows.popitem(last=False)
+        session.keep(session.windows, key, found, session.windows_kept)
     thrown = set(discard)
     d = _discard(state, discard)
     unknown = d.draws + d.hidden_kept + d.added_hidden  # cards drawn from the unseen ones, with the kept face-down
@@ -1898,7 +1921,7 @@ DEAL_SHARE = 200  # an estimate gives each deal's exact odds 1/DEAL_SHARE of its
 
 def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], object],
               odds: Callable[[GameState, Event | _Until | None], Fraction], cancel: Event | None,
-              seconds: float, hands: Callable[[GameState], Callable[[Random], bool]] | None = None
+              seconds: float, session: Session, hands: Callable[[GameState], Callable[[Random], bool]] | None = None
               ) -> Estimate | None:
     """The odds of discarding `discard` estimated from deals of the face-down
     cards the hand's sorts tell about, drawn at random by their weight in the
@@ -1933,7 +1956,7 @@ def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], ob
     in_hand = {o.hand for o in state.observed if o.hand is not None}
     extra = () if dna is None or dna in in_hand else (dna,)
     # None as well if the evidence is set aside (`usable`): no deal fits it.
-    found = _deals_for(state, extra, check)
+    found = _deals_for(state, extra, check, session)
     if found is None:
         return None
     label = _labels(state, discard, dna, classes)
@@ -1969,7 +1992,7 @@ def _estimate(state: GameState, discard: list[int], classes: Callable[[Card], ob
 
 
 def estimate_discard(state: GameState, target: Target, discard: list[int], cancel: Event | None = None,
-                     seconds: float = 1.0, most: int = DRAW_SAMPLES) -> Estimate:
+                     seconds: float = 1.0, most: int = DRAW_SAMPLES, session: Session | None = None) -> Estimate:
     """evaluate_discard's odds estimated in about `seconds`: from deals of the
     face-down cards the hand's sorts tell about (_estimate), or where they
     tell about none here, from final hands drawn at random (_estimate_draws,
@@ -1978,46 +2001,42 @@ def estimate_discard(state: GameState, target: Target, discard: list[int], cance
         return _evaluate_discard(resolved, target, discard, until, None).probability
 
     classes = _rule_classes(state, discard, _counts_towards(target, state))
-    found = _estimate(state, discard, classes, odds, cancel, seconds,
-                      lambda resolved: _final_hands(resolved, target, discard))
-    return found if found is not None else _estimate_draws(state, target, discard, cancel, seconds, most)
+    session = _own(session)
+    found = _estimate(state, discard, classes, odds, cancel, seconds, session,
+                      lambda resolved: _final_hands(resolved, target, discard, session))
+    return found if found is not None else _estimate_draws(state, target, discard, cancel, seconds, most, session)
 
 
 def _estimate_draws(state: GameState, target: Target, discard: list[int], cancel: Event | None,
-                    seconds: float, most: int = DRAW_SAMPLES) -> Estimate:
+                    seconds: float, most: int = DRAW_SAMPLES, session: Session | None = None) -> Estimate:
     """evaluate_discard's odds without the hand's sorts (`_evaluate_discard`'s),
     estimated from final hands drawn at random (_final_hands): the share that
     make `target`. Seeded, so the same state gives the same estimate, unless
     the time runs out first. For the odds that are slow to count however few
     the face-down cards are (Four Fingers with Shortcut, The Mark)."""
-    final = _final_hands(state, target, discard)
+    final = _final_hands(state, target, discard, session)
     rng = Random(0)
     return _sampled(lambda: float(final(rng)), _checker(cancel), seconds, most, draws=True)
 
 
-# The latest pool's class keys (_pool_keys): (pool, rules, keys). A search's can_miss draws from the same
-# pool (`state.unseen`) for every discard, and working out its keys was most of each call.
-_last_pool: tuple[list[Card], Rules, list[ClassKey | None]] | None = None
-
-
-def _pool_keys(pool: list[Card], rules: Rules) -> list[ClassKey | None]:
+def _pool_keys(pool: list[Card], rules: Rules, session: Session) -> list[ClassKey | None]:
     """[card_key(c, rules) for c in pool], kept for the same list (by identity, which holding it keeps)
-    and rules as last time. Nothing changes a pool once made."""
-    global _last_pool
-    last = _last_pool
+    and rules as the session's last time (`Session.pool`). Nothing changes a pool once made."""
+    last = session.pool  # read once: another thread may replace it, never change it
     if last is not None and last[0] is pool and last[1] == rules:
         return last[2]
     keys = [card_key(c, rules) for c in pool]
-    _last_pool = pool, rules, keys
+    session.pool = pool, rules, keys
     return keys
 
 
-def _final_hands(state: GameState, target: Target, discard: list[int]) -> _FinalHands:
+def _final_hands(state: GameState, target: Target, discard: list[int],
+                 session: Session | None = None) -> _FinalHands:
     """Draws a final hand after discarding `discard` at random, as the engine
     models the game dealing it, and says whether it makes `target`: so the
     chance it says yes is `_evaluate_discard`'s odds. Every face-down card is
     unknown (the hand's sorts aren't used)."""
-    return _FinalHands(state, target, discard)
+    return _FinalHands(state, target, discard, _own(session))
 
 
 def _drawer(pool: list[Card], marked: int) -> Callable[[Random, int, int], tuple[list[int], list[int]]]:
@@ -2051,7 +2070,8 @@ class _FinalHands:
     forced card, if not kept, a random one of the hand (as _bell_after_draw).
     A call draws one and says whether it makes the target."""
 
-    def __init__(self, state: GameState, target: Target, discard: list[int]):
+    def __init__(self, state: GameState, target: Target, discard: list[int], session: Session):
+        self.session = session
         self.d = d = _discard(state, discard)
         self.hands = target.hands
         self.finals = _finals(state, discard, d, _bell_for(target, state), _same_for(target), card_key)
@@ -2074,7 +2094,7 @@ class _FinalHands:
     @cached_property
     def pools(self) -> dict[Rules, list[ClassKey | None]]:
         """The pool's class keys under each set of rules: only worked out to draw, which `sure` saves."""
-        return {f.rules: _pool_keys(self.d.pool, f.rules) for f in self.finals}
+        return {f.rules: _pool_keys(self.d.pool, f.rules, self.session) for f in self.finals}
 
     @cached_property
     def draw(self) -> Callable[[Random, int, int], tuple[list[int], list[int]]]:
@@ -2162,16 +2182,18 @@ def _holds_test(patterns: tuple[Pattern, ...]) -> Callable[[Iterable[ClassKey | 
 
 
 def estimate_cards(state: GameState, query: CardQuery, discard: list[int], cancel: Event | None = None,
-                   seconds: float = 1.0) -> Estimate | None:
+                   seconds: float = 1.0, session: Session | None = None) -> Estimate | None:
     """evaluate_cards's odds estimated as estimate_discard's."""
     def odds(resolved: GameState, until: Event | None) -> Fraction:
         return _evaluate_cards(resolved, query, discard).probability
 
-    return _estimate(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel, seconds)
+    return _estimate(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel, seconds,
+                     _own(session))
 
 
 def evaluate_discard(state: GameState, target: Target, discard: list[int],
-                     cancel: Event | None = None, reuse: Reuse | None = None) -> DiscardOutcome:
+                     cancel: Event | None = None, reuse: Reuse | None = None,
+                     session: Session | None = None) -> DiscardOutcome:
     """Probability of reaching `target` after discarding hand cards at indices `discard`.
 
     Without discards left they'd have to be played instead, which under The
@@ -2188,7 +2210,8 @@ def evaluate_discard(state: GameState, target: Target, discard: list[int],
     def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
         return _evaluate_discard(resolved, target, discard, cancel, reuse, windows).probability
 
-    p = _averaged(state, discard, _rule_classes(state, discard, _counts_towards(target, state)), odds, cancel)
+    p = _averaged(state, discard, _rule_classes(state, discard, _counts_towards(target, state)), odds, cancel,
+                  _own(session))
     if p is None:
         return _evaluate_discard(state, target, discard, cancel, reuse)
     d = _discard(state, discard)
@@ -2225,7 +2248,7 @@ def _discard_odds(target: Target, d: _Discard, f: _Final, cancel: Event | None, 
 
 
 def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, tries: int = 200,
-             cancel: Event | None = None) -> bool:
+             cancel: Event | None = None, session: Session | None = None) -> bool:
     """Whether a draw that makes none of `target`'s hands was found, so that the
     odds after discarding `discard` are certainly below 1. False proves nothing.
 
@@ -2242,15 +2265,17 @@ def can_miss(state: GameState, target: Target, discard: list[int], rng: Random, 
     """
     if state.bell:
         return False
-    post = _posterior_for(state, discard, cancel, _rule_classes(state, discard, _counts_towards(target, state)))
+    session = _own(session)
+    post = _posterior_for(state, discard, cancel, _rule_classes(state, discard, _counts_towards(target, state)),
+                          session)
     if post is None:
-        final = _final_hands(state, target, discard)
+        final = _final_hands(state, target, discard, session)
         return not final.sure and any(not final(rng) for _ in range(tries))
     branches: dict[int, _FinalHands] = {}
     for _ in range(tries):
         b = rng.randrange(len(post.branches))
         if b not in branches:
-            branches[b] = _final_hands(_resolved(state, post.branches[b]), target, discard)
+            branches[b] = _final_hands(_resolved(state, post.branches[b]), target, discard, session)
         if not branches[b].sure and not branches[b](rng):
             return True
     return False
@@ -2350,7 +2375,7 @@ def count_probability(query: CardQuery, pool: list[Card], draws: int, rules: Rul
 
 
 def evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
-                   cancel: Event | None = None) -> DiscardOutcome:
+                   cancel: Event | None = None, session: Session | None = None) -> DiscardOutcome:
     """Probability that the final hand after discarding satisfies `query`.
 
     Like evaluate_discard, it averages over what the face-down cards the hand's
@@ -2360,7 +2385,7 @@ def evaluate_cards(state: GameState, query: CardQuery, discard: list[int],
     def odds(resolved: GameState, windows: tuple[Marked, ...]) -> Fraction:
         return _evaluate_cards(resolved, query, discard, windows).probability
 
-    p = _averaged(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel)
+    p = _averaged(state, discard, _rule_classes(state, discard, query.filter.test), odds, cancel, _own(session))
     if p is None:
         return _evaluate_cards(state, query, discard)
     d = _discard(state, discard)

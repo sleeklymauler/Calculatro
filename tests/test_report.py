@@ -40,9 +40,9 @@ def calls(monkeypatch) -> list[tuple]:
     seen: list[tuple] = []
 
     def counted(evaluate, name):
-        def wrapper(state, row, discard, *rest):
+        def wrapper(state, row, discard, *rest, **kw):
             seen.append((name(row), [state.hand[i].rank_id for i in discard]))
-            return evaluate(state, row, discard, *rest)
+            return evaluate(state, row, discard, *rest, **kw)
         return wrapper
 
     monkeypatch.setattr(report, "evaluate_discard", counted(evaluate_discard, lambda t: t.name))
@@ -115,7 +115,7 @@ def test_the_forced_card_is_not_the_same_card(calls):
 
 
 def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
-    def cancelled_on_discard(state, target, discard, cancel=None):
+    def cancelled_on_discard(state, target, discard, cancel=None, **_):
         if discard:
             raise Cancelled
         return evaluate_discard(state, target, discard, cancel)
@@ -126,7 +126,7 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
         build_report(selecting(STATE, 0), [get_target("Pair")], known=known)
     assert len(known) == 1  # Keep
 
-    def only_the_discard(state, target, discard, cancel=None):
+    def only_the_discard(state, target, discard, cancel=None, **_):
         assert discard
         return evaluate_discard(state, target, discard, cancel)
 
@@ -171,7 +171,7 @@ def test_a_value_using_too_much_memory_is_given_up(monkeypatch):
     used = [0]
     slow = taking({"Flush": 10})
 
-    def hungry(state, target, discard, cancel=None):
+    def hungry(state, target, discard, cancel=None, **_):
         if target.name != "Flush":
             return slow(state, target, discard, cancel)
         used[0] = 2000
@@ -193,7 +193,7 @@ def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
     slow, calls = taking({"Pair": 10}), []
     control = Control(Watchdog(period=0.005))
 
-    def cancelled_on_last_try(state, target, discard, cancel=None):
+    def cancelled_on_last_try(state, target, discard, cancel=None, **_):
         # Cancelled once a value is tried again (the exact pass), not on a timer, which a busy runner's quick
         # pass could outlast.
         if (target.name, tuple(discard)) in calls:
@@ -255,7 +255,7 @@ def test_bounds_that_meet_are_the_exact_odds(monkeypatch):
 
 def estimating(estimates: dict[str, Estimate | None], calls: list[tuple]):
     """A stand-in for `estimate_discard`: `estimates` by the target's name."""
-    def estimate(state, target, discard, cancel=None, seconds=1.0):
+    def estimate(state, target, discard, cancel=None, seconds=1.0, **_):
         calls.append(("estimate", target.name, len(discard)))
         return estimates.get(target.name)
     return estimate
@@ -297,7 +297,8 @@ def test_no_more_quick_tries_once_one_ran_out_checking_the_sorts(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
     monkeypatch.setattr(report, "estimate_discard", estimating({}, calls))
-    monkeypatch.setattr(report, "evidence_unchecked", lambda state, discard: not discard)  # Keep uses the sorts
+    # Keep uses the sorts
+    monkeypatch.setattr(report, "evidence_unchecked", lambda state, discard, session: not discard)
     targets = [get_target("Flush"), get_target("Straight")]
     build_report(selecting(STATE, 0), targets, cancel=Control(Watchdog(period=0.005)),
                  limits=Limits(quick=0.05, approx=0.05, exact=0.05))

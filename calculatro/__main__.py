@@ -14,7 +14,7 @@ from threading import Event
 
 from . import overlay, paths, process, text
 from .cards import CardQuery, parse_query
-from .engine import clear_caches
+from .engine import Session, clear_caches
 from .hands import Target, combine, get_target
 from .log import header, open_log
 from .report import build_report, row_key
@@ -52,11 +52,12 @@ def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
 
 def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
               cancel: Control | Event | None = None, known: dict | None = None, limits: Limits = LIMITS,
-              progress: Callable[[dict], None] | None = None) -> dict:
+              progress: Callable[[dict], None] | None = None, session: Session | None = None) -> dict:
     """The odds as the payload for the mod's panel. `progress` is given the
-    partial payloads as values are found. `known`, `limits`: see `build_report`."""
+    partial payloads as values are found. `known`, `limits`, `session`: see `build_report`."""
     report = build_report(state, targets, queries, cancel, known, limits,
-                          None if progress is None else lambda partial: progress(overlay.odds(state, partial)))
+                          None if progress is None else lambda partial: progress(overlay.odds(state, partial)),
+                          session)
     return overlay.odds(state, report)
 
 
@@ -71,21 +72,21 @@ def search_target(state: GameState, key: str) -> Target | CardQuery | None:
 
 
 def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None = None,
-              progress: Progress | None = None) -> Search:
+              progress: Progress | None = None, session: Session | None = None) -> Search:
     """The best discards for a row's target hand or card query."""
     if isinstance(target, CardQuery):
-        return best_card_discards(state, target, cancel, progress)
-    return best_discards(state, target, cancel, progress)
+        return best_card_discards(state, target, cancel, progress, session=session)
+    return best_discards(state, target, cancel, progress, session=session)
 
 
 def search_within(state: GameState, target: Target | CardQuery, control: Control | Event | None,
-                  limits: Limits = LIMITS) -> Search | TooSlow:
+                  limits: Limits = LIMITS, session: Session | None = None) -> Search | TooSlow:
     """find_best, given up after `limits.search` (or at the memory limit). One
     given up on answers from estimates of what it had found
     (`search.estimated_best`, in about `limits.search_estimate`), marked with
     what stopped it; TooSlow if it can't. (Unmarked if they turn out exact.)"""
     progress = Progress()
-    found = limited(control, limits.search, lambda cancel: find_best(state, target, cancel, progress))
+    found = limited(control, limits.search, lambda cancel: find_best(state, target, cancel, progress, session))
     if not isinstance(found, TooSlow):
         return found
     # The estimates stop themselves; the limit is for ones that can't.
@@ -193,6 +194,7 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
     """
     if watchdog is None:
         watchdog = Watchdog()  # time limits only
+    session = Session()  # what the engine keeps between the jobs
     job: Job[dict] | None = None
     job_state: GameState | None = None  # the state the job is for
     progress_sent = 0  # the job's progress last sent (`Control.updates`)
@@ -271,8 +273,8 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
         if target is None or row_key(target) in given_up:
             found = overlay.search(key, nonce, None if target is None else given_up[row_key(target)])
         else:
-            searching = Job(lambda control, state=state, target=target: search_within(state, target, control, limits),
-                            watchdog)
+            searching = Job(lambda control, state=state, target=target:
+                            search_within(state, target, control, limits, session), watchdog)
 
     while not stop():
         try:
@@ -302,7 +304,7 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
                         known, known_for = {}, basis
                     job = Job(lambda control, state=state, targets=targets, queries=queries, known=known:
                               calculate(state, targets, queries, control, known=known, limits=limits,
-                                        progress=control.progress), watchdog)
+                                        progress=control.progress, session=session), watchdog)
                     progress_sent, next_partial = 0, time.monotonic() + PARTIAL_INTERVAL
                 else:
                     show(overlay.odds(state, None))
@@ -377,10 +379,11 @@ def print_odds(path: Path | None, key: str | None, limits: Limits = LIMITS, watc
         return 0
     if watchdog is None:
         watchdog = Watchdog(process.memory_used, process.memory_limit(state.memory_gb, process.installed_memory()))
+    session = Session()  # shared by the report and the search, as in game
     targets, queries = tracked(state)
     if targets or queries:
-        report = _finish(Job(lambda control: build_report(state, targets, queries, control, limits=limits),
-                                watchdog))
+        report = _finish(Job(lambda control: build_report(state, targets, queries, control, limits=limits,
+                                                          session=session), watchdog))
         print(text.format_report(report) if report else "Nothing to calculate with this hand.")
     else:
         print(NOTHING_TRACKED)
@@ -391,7 +394,7 @@ def print_odds(path: Path | None, key: str | None, limits: Limits = LIMITS, watc
         if target is None:
             print(f"Best discard for {key}: no such row is tracked.")
         else:
-            found = _finish(Job(lambda control: search_within(state, target, control, limits), watchdog))
+            found = _finish(Job(lambda control: search_within(state, target, control, limits, session), watchdog))
             print(text.format_search(state, key, found))
     return 0
 

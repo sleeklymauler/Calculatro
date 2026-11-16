@@ -249,6 +249,9 @@ HOOK_KEEP_6 = Situation("Keep 6, The Hook takes 2, draw 4, played", kept=6, hidd
 
 
 clear_caches = calculatro.engine.clear_caches
+# What the engine keeps between calculations, shared by every run as by every calculation of the app's session,
+# so a scenario's first run fills it, and the timed ones don't include it (benchmark.measure).
+SESSION = calculatro.engine.Session()
 
 
 @dataclass(frozen=True)
@@ -306,7 +309,7 @@ class Scenario:
         state, discard = self.state()
         if self.situation.cold:
             clear_caches()
-        return evaluate_discard(state, self.target(), discard, cancel).probability
+        return evaluate_discard(state, self.target(), discard, cancel, session=SESSION).probability
 
     def estimate(self, seconds: float):
         """The estimate the panel shows while the exact odds are slow (engine.Estimate)."""
@@ -367,7 +370,7 @@ class BestDiscard:
 
     def run(self, cancel: Event | None = None) -> str:
         from calculatro.search import best_discards
-        found = best_discards(self.state(), self.target(), cancel)
+        found = best_discards(self.state(), self.target(), cancel, session=SESSION)
         return f"{found.probability} ({len(found.options)} options, first {found.options[0]})"
 
     def estimate(self, seconds: float):

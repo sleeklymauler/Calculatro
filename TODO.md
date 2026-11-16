@@ -263,8 +263,16 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
   - Done (2026-11-14): `_holds` and `_can_miss`'s copy are gone; `probability`'s path with nothing to draw and
     `_can_miss` both use `_target_test`'s cached `_holds_test`. Its test, which compared it with `_holds`, now
     checks it against the brute-force port of the game's evaluation (`test_holds_test_matches_brute_force`).
-- [ ] **A5** **[low] (seen)** The engine keeps state in module globals (`_usable`, `_deals`, `_windows`, `_ignored`, `_gc_searches`; `engine.py:246-248`, `1205-1212`, `1545`)
+- [x] **A5** **[low] (seen)** The engine keeps state in module globals (`_usable`, `_deals`, `_windows`, `_ignored`, `_gc_searches`; `engine.py:246-248`, `1205-1212`, `1545`)
   - Tests share them between cases, and nothing ties them to a session. An object passed down (as `Reuse` is) would hold them.
+  - Done (2026-11-15): an `engine.Session` holds them, with A3's `_last_pool` (now `Session.pool`), each still
+    only its latest few, under its own lock. The entry points (`evaluate_*`, `estimate_*`, `can_miss`,
+    `posterior`, `usable`, `with_usable_evidence`; `evidence_unchecked` needs one) take it as `session`, and so do
+    `build_report`, the searches and `__main__`'s helpers. `run_watch` makes one for its jobs and searches, and
+    `calculatro odds` one for its report and search. A call without one keeps what it works out only for itself,
+    so tests no longer share it; those that checked the caches now hold their own session. The benchmark shares
+    one across runs (`scenarios.SESSION`), as it shared the globals.
+  - Kept global: `gc_paused`'s count, since the collector is the whole process's.
 - [x] **A6** **[low] (seen)** Dead or unused
   - `cards._has_rank` (`cards.py:57`) is never called.
   - `GameState.played` and `discards_used` are exported, parsed and never read. Drop them from the contract (a schema bump), or note in `docs/architecture.md` what they're kept for.

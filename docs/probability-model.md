@@ -201,7 +201,8 @@ The panel shows an approximation of a value whose exact odds are slow, until the
   `summed` telling no deals apart, keeping how it reached each partial state, so a deal is drawn from
   the last card back. That's usually quick, but with no face-up card to narrow down the deals it can
   take a second (The House's first hand sorted both ways, 36 MB), so it's built once for every value
-  of a state and kept (`engine._deals_for`, the latest 2), and the estimate's time includes it, with at
+  of a state and kept in the session (`engine._deals_for`, the latest 2: [the engine's
+  session](architecture.md#the-app)), and the estimate's time includes it, with at
   least a quarter left for drawing. A sampler built also answers `usable`. Each deal's odds are then
   exact and quick, every face-down card turned up, and deals alike in what the odds see of them share
   an evaluation (`_labels`), so the estimate is off only by which deals were drawn

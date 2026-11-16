@@ -33,7 +33,7 @@ def taking(seconds: dict[str, float], calls: list[tuple] | None = None, odds: di
     """A stand-in for `evaluate_discard` whose rows take set times, by the target's
     name (none for others), and stop when cancelled, as the engine does. The odds
     are `odds` by the target's name, else 1/(number of cards discarded + 2)."""
-    def evaluate(state, target, discard, cancel=None):
+    def evaluate(state, target, discard, cancel=None, **_):
         if calls is not None:
             calls.append((target.name, len(discard)))
         end = time.monotonic() + seconds.get(target.name, 0)

@@ -41,6 +41,7 @@ from .engine import (
     Cancelled,
     Estimate,
     Reuse,
+    Session,
     can_miss,
     estimate_cards,
     estimate_discard,
@@ -109,7 +110,7 @@ class Progress:
 
 
 def best_discards(state: GameState, target: Target, cancel: Event | None = None,
-                  progress: Progress | None = None) -> Search:
+                  progress: Progress | None = None, session: Session | None = None) -> Search:
     """The discards (or keeping the hand) with the best odds of reaching `target`.
 
     Discards hold at most `state.select_limit` cards, and with Cerulean Bell
@@ -117,9 +118,10 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
     away does the same, as long as another hand is left to play after it
     (`can_redraw`); otherwise only keeping is an option.
     Raises engine.Cancelled soon after `cancel` is set, with what it has
-    found by then in `progress`.
+    found by then in `progress`. `session`: see engine.Session.
     """
-    state = with_usable_evidence(state, cancel)
+    session = session or Session()
+    state = with_usable_evidence(state, cancel, session)
     hand = state.hand
     forced = state.forced if state.bell else None
     limit = min(state.select_limit, len(hand)) if can_redraw(state) else 0
@@ -139,7 +141,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
         if p is None:
             if cancel is not None and cancel.is_set():
                 raise Cancelled
-            p = known[key] = evaluate_discard(state, goal, discard, cancel, reuse).probability
+            p = known[key] = evaluate_discard(state, goal, discard, cancel, reuse, session).probability
         return p
 
     choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
@@ -147,7 +149,8 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
         choices += [c for c in _counts([len(g) for g in groups], budget) if forced is not None or any(c)]
     progress = progress or Progress()
     progress.start(state, groups, forced, choices,
-                   lambda discard, cancel, seconds: estimate_discard(state, target, discard, cancel, seconds))
+                   lambda discard, cancel, seconds: estimate_discard(state, target, discard, cancel, seconds,
+                                                                     session=session))
     discards = progress.discards
     # The odds of any of several hands are at least each one's and at most
     # their sum (or 1), and each hand alone is much quicker to work out than
@@ -171,7 +174,8 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
             break
         if lows[j] == highs[j]:
             p = lows[j]
-        elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng, cancel=cancel):
+        elif max(floor, best or 0) == 1 and can_miss(state, target, discards[j], rng, cancel=cancel,
+                                                                session=session):
             progress.out.add(j)
             continue  # below 1, so it can't tie, and how far below doesn't matter
         else:
@@ -187,7 +191,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
 
 
 def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None = None,
-                       progress: Progress | None = None) -> Search:
+                       progress: Progress | None = None, session: Session | None = None) -> Search:
     """The discards (or keeping the hand) with the best odds of a final hand
     satisfying `query`, under the same rules as best_discards.
 
@@ -195,9 +199,10 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     set of rules it may be judged under, `_rule_sets`), or that it's face
     down, so those are the groups whose counts are enumerated.
     Raises engine.Cancelled soon after `cancel` is set, with what it has found
-    by then in `progress`.
+    by then in `progress`. `session`: see engine.Session.
     """
-    state = with_usable_evidence(state, cancel)
+    session = session or Session()
+    state = with_usable_evidence(state, cancel, session)
     hand = state.hand
     rule_sets = _rule_sets(state)
     forced = state.forced if state.bell else None
@@ -216,8 +221,8 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
 
     def estimate(discard: list[int], cancel: Event | None, seconds: float) -> Estimate | Fraction:
         # Without the hand's sorts telling about face-down cards, a query's odds are quick.
-        found = estimate_cards(state, query, discard, cancel, seconds)
-        return found if found is not None else evaluate_cards(state, query, discard, cancel).probability
+        found = estimate_cards(state, query, discard, cancel, seconds, session)
+        return found if found is not None else evaluate_cards(state, query, discard, cancel, session).probability
     progress = progress or Progress()
     progress.start(state, group_list, forced, choices, estimate)
     best: Fraction | None = None
@@ -225,7 +230,7 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     for j, counts in enumerate(choices):
         if cancel is not None and cancel.is_set():
             raise Cancelled
-        p = progress.exact[j] = evaluate_cards(state, query, progress.discards[j], cancel).probability
+        p = progress.exact[j] = evaluate_cards(state, query, progress.discards[j], cancel, session).probability
         if best is None or p > best:
             best, winners = p, [counts]
         elif p == best:
