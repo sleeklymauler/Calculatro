@@ -1938,14 +1938,41 @@ def test_editor_grows_downwards_when_too_tall(lua, tmp_path):
     assert box.alignment.offset.y == pytest.approx(-lift + 0.2)  # its top where it would fit
 
 
-def test_editor_closes_with_the_panel(lua, tmp_path):
+def test_editor_stays_open_while_the_panel_is_hidden_in_the_blind(lua, tmp_path):
     rt, mod = open_editor(lua, tmp_path)
-    rt.execute("G.STATE = G.STATES.HAND_PLAYED")
+    assert click(lua, "calculatro_tab_cards")
+    open_page = panel_texts(rt)
+    for hidden in ("G.STATE = G.STATES.HAND_PLAYED",  # a played hand scored
+                   "G.OVERLAY_MENU = {}"):  # run info, deck view, options
+        rt.execute(hidden)
+        mod.update(0.1)
+        assert panel_texts(rt) is None and mod.editor is not None
+        rt.execute("G.STATE = G.STATES.SELECTING_HAND; G.OVERLAY_MENU = nil")
+        mod.update(0.1)
+        assert panel_texts(rt) == open_page
+
+
+@pytest.mark.parametrize("ended", [
+    "G.GAME.round = (G.GAME.round or 0) + 1",  # the next blind
+    "G.GAME = {current_round = {hands_left = 4, discards_left = 3}, blind = {name = 'Small Blind'}}",  # a new run
+])
+def test_editor_closes_once_its_blind_is_over(lua, tmp_path, ended):
+    rt, mod = open_editor(lua, tmp_path)
+    rt.execute("G.STATE = G.STATES.SHOP")
     mod.update(0.1)
-    assert panel_texts(rt) is None and mod.editor is None
-    rt.execute("G.STATE = G.STATES.SELECTING_HAND")
+    assert mod.editor is not None  # hidden, until it's known the blind is over
+    rt.execute(ended + "; G.STATE = G.STATES.SELECTING_HAND")
     mod.update(0.1)
-    assert "Hands@muted" in panel_texts(rt)
+    assert mod.editor is None and "Done@light" not in panel_texts(rt)  # the odds' page
+
+
+def test_hotkey_closes_the_editor(lua, tmp_path):
+    rt, mod = open_editor(lua, tmp_path)
+    mod.key_press("c")
+    mod.update(0.1)
+    mod.key_press("c")
+    mod.update(0.1)
+    assert mod.editor is None and "Hands@muted" in panel_texts(rt)
 
 
 def test_targets_reset_with_a_new_run(lua, tmp_path):

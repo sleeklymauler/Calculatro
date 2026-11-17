@@ -158,8 +158,13 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Mod (Lua)
 
-- [ ] **M1** **[low] (carried)** The editor and the settings page close whenever the panel is hidden for a moment (`panel.lua:202`)
+- [x] **M1** **[low] (carried)** The editor and the settings page close whenever the panel is hidden for a moment (`panel.lua:202`)
   - The pause menu, Run Info and View Deck all set `G.OVERLAY_MENU`. Looking at the deck while building a card query loses the query. Keep the state until the blind ends.
+  - It also closed while a played hand was scored (`HAND_PLAYED`).
+  - Done (2026-11-17): they close when `G.GAME.round` or `G.GAME` changes (the next blind, a new run), not when
+    the panel is hidden. Hiding it with the hotkey still closes them, as `test_settings_close_with_the_panel`
+    expects. Tested in `test_editor_stays_open_while_the_panel_is_hidden_in_the_blind`,
+    `test_editor_closes_once_its_blind_is_over` and `test_hotkey_closes_the_editor`. Still to try in game.
 - [x] **M2** **[low] (seen)** The builder's counts stop at 8 (`builder.lua:45-50`)
   - Hands of 10 or 11 cards are reachable (Juggler, Troubadour, Turtle Bean). Take the largest count from the hand size, or raise it.
   - Done: counts go up to `largest_count`, the hand size or the cards held if more (DNA), and never below 8 so

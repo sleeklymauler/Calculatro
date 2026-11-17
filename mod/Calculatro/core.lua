@@ -53,6 +53,7 @@ local Calculatro = {
     settings_open = nil,  -- true while the settings page is open
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open
     editor_tab = 'hands',  -- the tab last shown, which the editor reopens on
+    page_game = nil, page_round = nil,  -- the blind (G.GAME and its round) the editor and settings stay open in
     -- Best-discard searches (see "Best discard"): the latest asked for, sent
     -- with every snapshot; the one waiting for the app's reply; and the
     -- options the last reply found, which the search button cycles through.

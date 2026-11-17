@@ -42,6 +42,10 @@ The panel only exists in a blind (`Calculatro.in_blind`: `SELECTING_HAND`/`DRAW_
 `PLAY_TAROT` interrupting one, and no `G.OVERLAY_MENU`). It's hidden while a played hand scores
 (`HAND_PLAYED`), since the played cards reach it.
 
+The target editor and the settings stay open while it's hidden like this, and come back as they were
+(View Deck while building a card query, say). They close once the blind they were opened in is over
+(`G.GAME.round` or `G.GAME` changes), or when the player hides the panel with the hotkey.
+
 ## Placement and size
 
 The UI must work on standard 16:9 screens as well as ultrawide. Balatro lays everything out in a fixed
@@ -325,7 +329,7 @@ true` for them. They don't shake the screen: `steady_buttons` gives each a `clic
 `G.ROOM.jiggle` the game's `UIElement:click` adds (the click sound stays).
 
 Buttons need a box that isn't replaced while they're used, so the editor is rebuilt only when its own
-model changes (its buttons), never by odds. It closes when the panel goes away.
+model changes (its buttons), never by odds. When it closes, see [When it's shown](#when-its-shown).
 
 ### The editor's size
 

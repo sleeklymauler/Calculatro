@@ -188,17 +188,30 @@ local function build_page(definition)
     return panel
 end
 
+-- The editor and the settings stay open while the panel is hidden for a while
+-- (a menu such as View Deck, a played hand being scored), and close once the
+-- blind they were opened in is over: in another round (G.GAME.round counts the
+-- blinds played) or another run. Hiding the panel with the hotkey closes them
+-- too (key_pressed).
+local function close_pages_after_the_blind()
+    local game = G and G.GAME
+    local round = game and game.round
+    if game == Calculatro.page_game and round == Calculatro.page_round then return end
+    Calculatro.editor, Calculatro.settings_open = nil, nil
+    Calculatro.page_game, Calculatro.page_round = game, round
+end
+
 -- Rebuilds the panel when its layout changes, and only updates its values
 -- when they're all that changed (most often, the odds); removes it outside
--- blinds, closing the editor or settings. The odds fill each column with as many rows
+-- blinds. The odds fill each column with as many rows
 -- as keep it clear of the consumables before starting the next; a box's
 -- size is only known once it's built, so it tries each section in one
 -- column, then one fewer row per column, and so on (remembered in
 -- Calculatro.fits).
 function Calculatro.refresh_panel()
     if G.FUNCS then G.FUNCS.calculatro_button = Calculatro.button_pressed end
+    close_pages_after_the_blind()
     local shown = Calculatro.visible and Calculatro.in_blind()
-    if not shown then Calculatro.editor, Calculatro.settings_open = nil, nil end
     local model
     if shown then
         model = (Calculatro.editor and Calculatro.editor_model())
@@ -238,6 +251,7 @@ function Calculatro.key_pressed(key)
     if key ~= Calculatro.toggle_key or not Calculatro.in_blind() then return end
     if G.CONTROLLER and G.CONTROLLER.text_input_hook then return end
     Calculatro.visible = not Calculatro.visible
+    if not Calculatro.visible then Calculatro.editor, Calculatro.settings_open = nil, nil end
 end
 
 -- G.FUNCS.calculatro_button, run by the panel's buttons (see `button`).
