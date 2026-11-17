@@ -49,7 +49,8 @@ Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (w
 2. **Python app** (`calculatro/`): `source.py` polls the state file → `state.py` parses it →
    `engine/` computes exact odds → `report.py` collects them → `overlay.py` turns them into the
    odds file's payload (`text.py` into text, for `calculatro odds`). Odds and best-discard searches run in cancellable background
-   jobs (`worker.Job`), whose parts stop at time and memory limits (`worker.Watchdog`).
+   jobs (`worker.Job`), whose parts stop at time and memory limits (`worker.Watchdog`). The parts are tasks
+   (`tasks.py`) that run in the job's thread or, with the "Cores used" setting above 1, in worker processes (`pool.py`).
 
 ## Read before changing
 
@@ -74,6 +75,9 @@ Two halves connected by two JSON files in `%AppData%\Balatro\calculatro_data` (w
   (the Lua decoder doesn't support it).
 - **Cancellable.** Slow code paths must check the `cancel` Event and raise `engine.Cancelled`, at most 0.1 s
   of CPU apart (`tests/test_cancel.py`; add a case for a new slow path).
+- **Worker processes.** A task's arguments and results (`tasks.py`) must pickle, and `calculatro/__main__.py`
+  must do nothing on import: each worker process imports it again
+  ([architecture.md](docs/architecture.md#worker-processes)).
 - **Exact odds.** The engine counts exactly (`Fraction`); it isn't Monte Carlo. The panel may show an
   approximation while the exact odds are worked out, or once they're given up on, but a value that isn't
   exact is always marked as such (`report.Approx`: an asterisk, on the panel and in `calculatro odds`).

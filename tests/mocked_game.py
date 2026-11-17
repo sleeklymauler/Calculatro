@@ -149,7 +149,8 @@ local function put(name, mode, text)
   f:close()
   return true
 end
-love = {filesystem = {
+PROCESSORS = 8  -- the computer's logical cores, as love.system counts them
+love = {system = {getProcessorCount = function() return PROCESSORS end}, filesystem = {
   getSaveDirectory = function() return dir end,
   read = function(name)
     local f = open(name, 'rb')

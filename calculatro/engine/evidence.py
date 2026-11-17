@@ -173,6 +173,22 @@ def evidence_unchecked(state: GameState, discard: list[int], session: Session) -
 
 
 
+def evidence_checked(state: GameState, session: Session) -> bool | None:
+    """What `usable` has found for `state` in `session`; None if it hasn't been worked out there, or there's
+    nothing to check. A worker process tells the app, which tells the others (`note_evidence`), so the check
+    is made once between them (pool.ProcessRunner)."""
+    if not any(o.latent for o in state.observed):
+        return None
+    return session.get(session.usable, _evidence_key(state))
+
+
+
+def note_evidence(state: GameState, session: Session, found: bool) -> None:
+    """Keep in `session` what `usable` found for `state` in another (`evidence_checked`)."""
+    session.keep(session.usable, _evidence_key(state), found, session.usable_kept)
+
+
+
 def posterior(state: GameState, cancel: Event | None = None, extra: tuple[int, ...] = (),
               label: Label | None = None, skip: frozenset[int] = frozenset(),
               session: Session | None = None) -> Posterior | None:

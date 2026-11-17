@@ -13,7 +13,7 @@ local Calculatro = {
     odds_elapsed = 0,
     clock = 0,
     last_json = nil,
-    schema = 17,
+    schema = 18,
     odds_schema = 9,
     -- Snapshot ids are '<session>:<seq>'; the app echoes them back with its odds.
     session = string.format('%d-%d', os.time(), math.floor(os.clock() * 1000)),
@@ -48,6 +48,7 @@ local Calculatro = {
     settings = {
         face_down = false,  -- the hint over a face-down card: what the hand's sorts say it can be
         memory_gb = 2,  -- the most the app's calculations may use, in GB (memory.lua)
+        cores = 0,  -- how many cores they may use; 0 lets the app choose (cores.lua)
     },
     settings_open = nil,  -- true while the settings page is open
     editor = nil,    -- {tab = 'hands' or 'cards', page = n} while the target editor is open

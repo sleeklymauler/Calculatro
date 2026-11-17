@@ -111,6 +111,13 @@ jokers:
   times slower. `--save FILE --rerun-noisy` re-measures only the scenarios
   in FILE whose standard deviation is over 25% of the mean, and updates them
   in place.
+- `--cores N` runs each scenario as the app does with "Cores used" at N: as a
+  task in one of N worker processes
+  ([architecture.md](../architecture.md#worker-processes)), timed from the
+  benchmark's process, so with what crossing to the worker costs, and with
+  the workers' memory counted. The default is 1, in the benchmark's own
+  process, which is how `baseline.json` is measured, so don't `--save` a run
+  with more over it. `calculatro odds --cores N` does the same for one state.
 - `--estimates [SECONDS]` times the estimate the panel shows while a value's
   exact odds are slow (`engine.estimate_discard`, with up to SECONDS, 1 by
   default), for each odds scenario: from deals of the face-down cards in the

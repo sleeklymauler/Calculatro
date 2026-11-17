@@ -5,6 +5,7 @@
     .venv\\Scripts\\python tests\\perf\\benchmark.py --save tests\\perf\\baseline.json
     .venv\\Scripts\\python tests\\perf\\benchmark.py --compare tests\\perf\\baseline.json --markdown
     .venv\\Scripts\\python tests\\perf\\benchmark.py --estimates -k sorted
+    .venv\\Scripts\\python tests\\perf\\benchmark.py --cores 4 -k "Best discard"
 
 Each scenario runs up to --repeat times, stopping early once its runs add up to
 --budget seconds, so slow scenarios get fewer runs. A run longer than --timeout
@@ -23,6 +24,11 @@ adds a column from such a file. See docs/performance/README.md.
 
 Exits with status 1 if a result was not as expected or had no expected
 result (unless --update-expected wrote it), else 0.
+
+--cores N runs each scenario as the app does with its "Cores used" setting at N:
+as a task in one of N worker processes (pool.ProcessRunner), timed from here, so
+with what crossing to the worker costs, and with the workers' memory counted.
+The default, 1, calls the engine in this process, as the baseline was measured.
 
 --estimates times, instead, the estimate the panel shows while a value's
 exact odds are slow, for each odds scenario (from deals of the face-down
@@ -45,9 +51,11 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Event, Thread, Timer
 
+from calculatro import spread, tasks
 from calculatro.engine import Cancelled
+from calculatro.pool import ProcessRunner
 from calculatro.process import memory_used
-from calculatro.worker import LIMITS
+from calculatro.worker import LIMITS, Control, Limits
 from perfdata import add_results, engine_path, load_expected, save_expected, save_results
 from scenarios import JOKERS, SCENARIOS, BestDiscard, Scenario
 
@@ -59,17 +67,19 @@ MB = 2**20
 
 class PeakMemory:
     """The most memory the process committed while it was running, read as the app's
-    watchdog reads it (process.memory_used) every MEMORY_PERIOD seconds, so a peak
-    shorter than that can be missed. `start` is the reading when it began."""
+    watchdog reads it (process.memory_used, with `runner`'s worker processes') every
+    MEMORY_PERIOD seconds, so a peak shorter than that can be missed. `start` is the
+    reading when it began."""
 
-    def __init__(self):
-        self.start = self.peak = memory_used()
+    def __init__(self, runner: ProcessRunner | None = None):
+        self.used = memory_used if runner is None else lambda: memory_used() + runner.memory_used()
+        self.start = self.peak = self.used()
         self._stop = Event()
         self._thread = Thread(target=self._run, name="peak-memory", daemon=True)
 
     def _run(self) -> None:
         while not self._stop.wait(MEMORY_PERIOD):
-            self.peak = max(self.peak, memory_used())
+            self.peak = max(self.peak, self.used())
 
     def __enter__(self) -> PeakMemory:
         self._thread.start()
@@ -78,7 +88,7 @@ class PeakMemory:
     def __exit__(self, *exc) -> None:
         self._stop.set()
         self._thread.join()
-        self.peak = max(self.peak, memory_used())
+        self.peak = max(self.peak, self.used())
 
 
 class Progress:
@@ -105,7 +115,21 @@ class Progress:
             print(" " * self.blank, end="\r", flush=True)
 
 
-def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> dict:
+def in_worker(scenario: Scenario | BestDiscard, runner: ProcessRunner, control: Control, timeout: float):
+    """`scenario.run`, as a task in one of `runner`'s worker processes, with limits past `timeout`: the same
+    result. A scenario with nothing cached has every worker's caches cleared first."""
+    if getattr(scenario.situation, "cold", False):
+        runner.clear_caches()
+    if isinstance(scenario, BestDiscard):
+        limits = Limits(search=2 * timeout, search_estimate=2 * timeout)
+        found = spread.best_discards(runner, scenario.state(), scenario.target(), control, limits)
+        return f"{found.probability} ({len(found.options)} options, first {found.options[0]})"
+    state, discard = scenario.state()
+    return runner.submit(tasks.Odds(state, scenario.target(), discard, 2 * timeout), control).result().probability
+
+
+def measure(scenario: Scenario, repeat: int, budget: float, timeout: float,
+            runner: ProcessRunner | None = None) -> dict:
     """Timings of up to `repeat` runs; `timed_out` if a run hit `timeout`. Also the
     peak memory over the runs (`peak_mb`, the whole process's, as the app's
     memory limit counts it) and its growth over the start (`growth_mb`).
@@ -113,21 +137,26 @@ def measure(scenario: Scenario, repeat: int, budget: float, timeout: float) -> d
     The first run fills one-off caches. It's left out unless it took over
     WARMUP seconds, since then those costs are lost in the noise and
     repeating it would be expensive.
+
+    With `runner`, each run is a task in one of its worker processes (`in_worker`), whose
+    memory is counted too. The first run fills that worker's caches, as the tasks of a
+    row go to the worker that last had it.
     """
-    scenario.prepare()
+    if runner is None:
+        scenario.prepare()
     gc.collect()
     times: list[float] = []
     result = None
     warmup = True
     timed_out = False
-    with PeakMemory() as memory:
+    with PeakMemory(runner) as memory:
         while len(times) < repeat and sum(times) < budget:
-            cancel = Event()
-            timer = Timer(timeout, cancel.set)
+            cancel = Event() if runner is None else Control()
+            timer = Timer(timeout, cancel.set if runner is None else cancel.cancel)
             timer.start()
             start = time.perf_counter()
             try:
-                result = scenario.run(cancel)
+                result = scenario.run(cancel) if runner is None else in_worker(scenario, runner, cancel, timeout)
             except Cancelled:
                 timed_out = True
                 break
@@ -275,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--estimates", type=positive(float), nargs="?", const=1.0, metavar="SECONDS",
                         help="time the estimates shown while the exact odds are slow instead, each with up to "
                              "SECONDS (default 1), and how far they are from the expected results")
+    parser.add_argument("--cores", type=positive(int), default=1, metavar="N",
+                        help="run each scenario as a task in one of N worker processes, as the app does with "
+                             "\"Cores used\" at N (default 1: in this process, as the baseline is measured)")
     parser.add_argument("--update-expected", action="store_true",
                         help="write the results (measured, or from --from) to tests/perf/expected.json")
     args = parser.parse_args(argv)
@@ -297,13 +329,20 @@ def main(argv: list[str] | None = None) -> int:
         scenarios = [s for s in scenarios if noisy(results.get(s.id, {}))]
     if scenarios:
         print(f"Engine: {engine_path()}", flush=True)
+    runner = None
+    if args.cores > 1 and scenarios:
+        runner = ProcessRunner()
+        runner.resize(args.cores)
+        if not runner.wait_ready():
+            parser.error("the worker processes didn't start")
+        print(f"Cores: {args.cores} (each scenario is a task in a worker process)", flush=True)
     expected = load_expected()
     width = max((len(s.id) for s in scenarios), default=0)
     wrong = 0
     progress = Progress(len(scenarios), width)
     for s in scenarios:
         progress.start(s.id)
-        r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout)
+        r = results[s.id] = measure(s, args.repeat, args.budget, args.timeout, runner)
         line = (f"{progress.prefix()}{s.id:<{width}}  {cell(r):>22}  "
                 f"runs={r['runs']}  peak={r['peak_mb']:.0f} MB (+{r['growth_mb']:.0f})")
         if before is not None:
@@ -320,6 +359,8 @@ def main(argv: list[str] | None = None) -> int:
                 wrong += 1
         print(line, flush=True)
 
+    if runner is not None:
+        runner.close()
     settings = {"repeat": args.repeat, "budget": args.budget, "timeout": args.timeout}
     if args.save and not args.source:
         if args.k and not args.rerun_noisy:

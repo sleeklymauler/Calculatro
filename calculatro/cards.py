@@ -99,6 +99,13 @@ class CardQuery:
             desc = {">=": "at least", "<=": "at most", "==": "exactly"}[self.op] + f" {self.count}"
         return f"{self.filter.name}: {desc}"
 
+    def __reduce__(self) -> tuple:
+        """Pickled (for a worker process: tasks.py) as its text, to be parsed again there: a filter's test
+        can be a closure, which doesn't pickle."""
+        if not self.text:
+            raise TypeError(f"a card query without its text can't be pickled: {self.label}")
+        return parse_query, (self.text,)
+
     def accepts(self, k: int) -> bool:
         if self.op == "between":
             return self.count <= k <= self.high

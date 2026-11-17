@@ -82,9 +82,11 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 - [ ] **B4** **[low] (guess)** A value can be given up on for memory another job used (`worker.py:111-114`, `report.py:273`)
   - The watchdog stops every running attempt when the process is over the limit. An odds value in its exact pass that was stopped because a best-discard search filled the memory is stored as `TooSlow(MEMORY)` until `odds_basis` changes.
   - Possible fix: retry a value stopped for memory once, after the other job has ended.
+  - Settled with worker processes (2026-11-16, P1): the watchdog stops only the largest worker's task, and an exact try stopped for memory beside others is made once more on its own (`_Builder.spread`). With "Cores used" at 1 (Auto on fewer than 8 cores) it's as before.
 - [ ] **B5** **[low] (guess)** Time limits are wall-clock, but the odds job and a search share one interpreter lock (`worker.py`, `__main__.py:366`)
   - With a search running, a value's quick try (0.25 s) gets about half the work done, so which values show as slow depends on what else is running. The same goes for the 30 s limits.
   - See P1: a search in its own process would fix both.
+  - Settled with worker processes (2026-11-16, P1): each task has a process to itself, and its limit starts when a worker starts it. With "Cores used" at 1 it's as before.
 - [x] **B6** **[low] (guess)** With many slow rows, the first approximation may be late (`report.py:281-290`)
   - Every value gets its quick try (0.25 s each) before any estimate is made. A full panel has up to 36 values, so in the worst case that's about 9 s of "Calculating..." before the first asterisked value.
   - `unchecked` only shortens this for the hand's sorts. Consider estimating a value straight after its quick try fails, or a budget for the whole quick pass.
@@ -179,10 +181,13 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
 
 ## Performance
 
-- [ ] **P1** **[med] (carried)** Consider parallelism
+- [x] **P1** **[med] (carried)** Consider parallelism
   - Rows, "Any target", `_union_by_suit`'s terms and a search's choices are independent, but everything runs on one thread. A persistent process pool, or at least the search in its own process, would also make the time limits mean the same thing whatever else is running.
+  - Planned (2026-11-16) in [docs/plans/parallelism.md](docs/plans/parallelism.md).
+  - Done (2026-11-16), phases 0 to 3: the "Cores used" setting, worker processes (`pool.py`), a report's values and a search's choices side by side. See [architecture.md](docs/architecture.md#worker-processes) and the plan's "Results". Phase 4 (inside one value) is deferred. Checked in game: no stutter under `start /affinity 3`.
 - [ ] **P2** **[med] (carried)** "Any target" best-discard on 10 or 11 cards when the best odds are below 1 (`search.py`)
   - See "What's still slow" in `docs/performance/best-discard.md`. It now ends in estimates after 30 s rather than never, but it's still the slowest common case.
+  - With 4 cores used (2026-11-16, P1): 11 cards holding no target takes 1.9 s against 4.6 s. Not a quarter, and nothing on a PC where Auto picks 1 core, so this stays open.
 - [x] **P3** **[low-med] (guess)** Large pattern tuples are hashed again and again as cache keys
   - Measured (2026-11-13): nothing. Profiled the slowest Four Fingers + Shortcut scenarios (wild deck under The
     House, The Mark sorted): `Requirement.__hash__` runs a few hundred times per scenario, 0.0% of the time.

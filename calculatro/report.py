@@ -1,28 +1,21 @@
 """Odds for one game state, shared by the console output and the mod's panel."""
 
+import queue
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from threading import Event
-from time import monotonic
 
+from . import tasks
 from .cards import CardQuery
-from .engine import (
-    DiscardOutcome,
-    Estimate,
-    Session,
-    discard_draws,
-    estimate_cards,
-    estimate_discard,
-    evaluate_cards,
-    evaluate_discard,
-    evidence_unchecked,
-)
+from .engine import DiscardOutcome, Estimate, Session, discard_draws, evidence_unchecked
 from .hands import Target, combine
+from .pool import Future, InProcessRunner, Runner
 from .search import can_redraw
 from .state import Card, GameState
-from .worker import LIMITS, Control, Limits, TooSlow, limited
+from .tasks import row_key
+from .worker import LIMITS, MEMORY, Control, Limits, TooSlow
 
 
 class Pending:
@@ -131,15 +124,10 @@ class Report:
     partial: bool = False  # some values are still to come (PENDING, or an Approx without a limit)
 
 
-def row_key(row: Target | CardQuery | None) -> object:
-    """What tells a row's target apart from another's. A query goes by its text, since
-    two parses of the same text may not be equal (their filters can be closures)."""
-    return (row.text or row) if isinstance(row, CardQuery) else row
-
-
 def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery] = (),
                  cancel: Control | Event | None = None, known: dict | None = None, limits: Limits = LIMITS,
-                 progress: Callable[[Report], None] | None = None, session: Session | None = None) -> Report | None:
+                 progress: Callable[[Report], None] | None = None, session: Session | None = None,
+                 runner: Runner | None = None) -> Report | None:
     """Odds of the target hands and card queries for keeping the hand vs.
     discarding the in-game selection. None outside a run, with an empty hand,
     or with nothing to calculate. With no way left to throw cards away and draw
@@ -180,12 +168,23 @@ def build_report(state: GameState, targets: Sequence[Target], queries: Sequence[
     between states alike in everything else the odds depend on: the same cards,
     jokers, blind and sorts, in whatever order the hand is in.
 
-    `session`: see engine.Session. Without it, the report keeps what the engine works out only for itself.
+    Each try and estimate is a task (tasks.Odds, tasks.Approximate) given to `runner` (pool.Runner). Without
+    one, they run here, with `session` (see engine.Session; without that either, the report keeps what the
+    engine works out only for itself), each before the next.
+
+    A runner with worker processes (its `width` above 1) runs them side by side, which changes the passes a
+    little (`_Builder.spread`). Every quick try is given out at once, and each value found slow is estimated
+    once a worker is free of quick tries (or before the quick tries still waiting, once those that ran out
+    have taken `limits.quick_pass` for each worker). The exact tries start when those are all done. A try
+    still running when "Any target"'s bounds meet is cancelled, and so are the quick ones that check the
+    hand's sorts when one has run out still doing that. An exact try stopped at the memory limit with others
+    running beside it, whose memory it may have been stopped for, is made once more on its own before it's
+    given up on.
     """
     if not state.in_run or not state.hand or not (targets or queries):
         return None
     return _Builder(state, targets, queries, cancel, {} if known is None else known, limits, progress,
-                    session or Session()).run()
+                    runner or InProcessRunner(session)).run()
 
 
 class _Builder:
@@ -195,10 +194,11 @@ class _Builder:
 
     def __init__(self, state: GameState, targets: Sequence[Target], queries: Sequence[CardQuery],
                  cancel: Control | Event | None, known: dict, limits: Limits,
-                 progress: Callable[[Report], None] | None, session: Session) -> None:
+                 progress: Callable[[Report], None] | None, runner: Runner) -> None:
         self.state, self.targets, self.queries = state, targets, queries
         self.cancel, self.known, self.limits = cancel, known, limits
-        self.progress, self.session = progress, session
+        self.progress, self.runner = progress, runner
+        self.session = runner.session  # with worker processes, what they've found of the hand's sorts
         self.named = [(t.name, t) for t in targets]
         self.combined: Target | None = None  # "Any target", bounded by `targets`
         if len(targets) > 1:
@@ -221,6 +221,9 @@ class _Builder:
         # taken long enough), each value found slow is estimated once.
         if self.todo:
             self.found_more()  # what's known already, as when the same cards are selected again
+        if self.runner.width > 1 and isinstance(self.cancel, Control):
+            self.spread()
+            return self.report()
         self.attempt(self.limits.quick, None)
         self.estimate_slow()
         self.attempt(self.limits.exact, SLOW)
@@ -231,16 +234,6 @@ class _Builder:
         # Face-down cards the hand's sorts tell about differ by `Card.latent`.
         picked = frozenset(Counter(replace(self.state.hand[i], highlighted=False) for i in discard).items())
         return row_key(row), picked
-
-    def evaluate(self, row: Target | CardQuery, discard: list[int], cancel) -> DiscardOutcome:
-        if isinstance(row, CardQuery):
-            return evaluate_cards(self.state, row, discard, cancel, self.session)
-        return evaluate_discard(self.state, row, discard, cancel, session=self.session)
-
-    def estimate(self, row: Target | CardQuery, discard: list[int], cancel, seconds: float) -> Estimate | None:
-        if isinstance(row, CardQuery):
-            return estimate_cards(self.state, row, discard, cancel, seconds, self.session)
-        return estimate_discard(self.state, row, discard, cancel, seconds, session=self.session)
 
     def bounds(self, row: Target | CardQuery, discard: list[int]) -> tuple[Fraction, Fraction] | None:
         """Certain bounds on "Any target"'s odds from its hands' (None for other
@@ -299,9 +292,8 @@ class _Builder:
         for k, (row, discard) in self.todo:
             if known.get(k) is not SLOW or (ESTIMATE, k) in known or isinstance(self.value(row, discard), Fraction):
                 continue
-            # The estimate stops itself after `limits.approx`; the limit is for one that can't start.
-            found = limited(self.cancel, 2 * approx,
-                            lambda c, row=row, discard=discard: self.estimate(row, discard, c, approx))
+            found = self.runner.submit(tasks.Approximate(self.state, row, discard, approx), self.cancel,
+                                       tasks.ESTIMATE).result()
             known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
             self.found_more()
 
@@ -319,12 +311,98 @@ class _Builder:
             if unchecked and evidence_unchecked(self.state, discard, self.session):
                 known[k] = SLOW
                 continue
-            start = monotonic()
-            found = limited(self.cancel, seconds, lambda c, row=row, discard=discard: self.evaluate(row, discard, c))
+            tried = self.runner.submit(tasks.Odds(self.state, row, discard, seconds), self.cancel,
+                                       tasks.QUICK if before is None else tasks.EXACT)
+            found = tried.result()
             known[k] = SLOW if isinstance(found, TooSlow) and before is None else found
             if before is None and isinstance(found, TooSlow):
                 unchecked = unchecked or evidence_unchecked(self.state, discard, self.session)
-                wasted += monotonic() - start
+                wasted += tried.seconds  # the time it ran, not any it waited for a worker process
             self.found_more()
             if before is None and wasted >= self.limits.quick_pass:
                 self.estimate_slow()
+
+    def spread(self) -> None:
+        """The same passes with a runner that has worker processes, the values side by side (`build_report`)."""
+        state, known, limits, runner = self.state, self.known, self.limits, self.runner
+        done: queue.SimpleQueue[Future] = queue.SimpleQueue()
+        running: dict[Future, tuple[int, tuple, Target | CardQuery, list[int]]] = {}
+        beside: set[Future] = set()  # those that had another running with them
+        wasted = 0.0  # on quick tries that ran out
+
+        def start(kind: int, k: tuple, row: Target | CardQuery, discard: list[int]) -> None:
+            if kind in (tasks.ESTIMATE, tasks.OVERDUE):
+                task: tasks.Task = tasks.Approximate(state, row, discard, limits.approx)
+            else:
+                task = tasks.Odds(state, row, discard, limits.quick if kind == tasks.QUICK else limits.exact)
+            future = runner.submit(task, self.cancel, kind)
+            if running:
+                beside.update(running, [future])
+            running[future] = kind, k, row, discard
+            future.then(done.put)
+
+        def finished() -> tuple[Future, object, int, tuple, Target | CardQuery, list[int]]:
+            """The next task to finish, and its result. Raises Cancelled with the job, as all the others would."""
+            while True:
+                future = done.get()
+                if future in running:  # not one cancelled here (`drop`)
+                    return future, future.result(), *running.pop(future)
+
+        def drop(unwanted: Callable[[int, Target | CardQuery, list[int]], bool]) -> list[tuple]:
+            """Cancel the running tasks that are `unwanted(kind, row, discard)`: each one's key, row and discard."""
+            dropped = [(future, running[future][1:]) for future, (kind, _, row, discard) in running.items()
+                       if unwanted(kind, row, discard)]
+            for future, _ in dropped:
+                del running[future]
+                future.cancel()
+            return [value for _, value in dropped]
+
+        def estimate(k: tuple, row: Target | CardQuery, discard: list[int]) -> None:
+            if (ESTIMATE, k) not in known and not isinstance(self.value(row, discard), Fraction):
+                overdue = wasted >= limits.quick_pass * runner.width
+                start(tasks.OVERDUE if overdue else tasks.ESTIMATE, k, row, discard)
+
+        def found_more() -> None:
+            drop(lambda kind, row, discard: isinstance(self.value(row, discard), Fraction))  # their bounds met
+            self.found_more()
+
+        for k, (row, discard) in self.todo:
+            if isinstance(self.value(row, discard), Fraction):
+                continue
+            if known.get(k) is None:
+                start(tasks.QUICK, k, row, discard)
+            else:
+                estimate(k, row, discard)  # found slow before
+        while running:
+            tried, found, kind, k, row, discard = finished()
+            if kind != tasks.QUICK:
+                known[(ESTIMATE, k)] = found if isinstance(found, Estimate) else None
+            elif not isinstance(found, TooSlow):
+                known[k] = found
+            else:
+                wasted += tried.seconds
+                slow = [(k, row, discard)]
+                if evidence_unchecked(state, discard, self.session):
+                    # It ran out still checking the hand's sorts, as the others that start with that would.
+                    slow += drop(lambda kind, row, discard: kind == tasks.QUICK
+                                 and evidence_unchecked(state, discard, self.session))
+                for k, _, _ in slow:
+                    known[k] = SLOW
+                for each in slow:
+                    estimate(*each)
+            found_more()
+
+        again: list[tuple[tuple, Target | CardQuery, list[int]]] = []  # stopped for memory, perhaps another's
+        for k, (row, discard) in self.todo:
+            if known.get(k) is SLOW and not isinstance(self.value(row, discard), Fraction):
+                start(tasks.EXACT, k, row, discard)
+        while running or again:
+            if not running:
+                beside.clear()
+                start(tasks.EXACT, *again.pop(0))  # on its own
+            tried, found, _, k, row, discard = finished()
+            if found == TooSlow(MEMORY) and tried in beside:
+                again.append((k, row, discard))
+                continue
+            known[k] = found
+            found_more()

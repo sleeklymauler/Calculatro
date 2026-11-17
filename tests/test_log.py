@@ -13,7 +13,7 @@ import pytest
 
 import calculatro
 import calculatro.__main__ as cli
-from calculatro import log, process, report
+from calculatro import log, process, tasks
 from calculatro.paths import log_path, odds_path
 from calculatro.state import SCHEMA
 from fakes import taking
@@ -102,6 +102,7 @@ def start_from_game(monkeypatch, tmp_path, run_watch, state: Path | None = None,
         patch.setattr(sys, "stderr", sys.stderr)
         patch.setattr(process, "claim_instance", lambda name: True)
         patch.setattr(process, "exited", exited)
+        patch.setattr(process, "cores_used", lambda setting, limit: 1)  # in this process, where the engine is patched
         patch.setattr(cli, "run_watch", run_watch)
         assert cli.main(["watch", "--file", str(state), "--game-pid", "1"]) == 0
         sys.stdout.close()
@@ -142,7 +143,7 @@ def test_game_start_runs_without_a_log(monkeypatch, tmp_path, stderr):
 def test_game_start_watches_until_the_game_exits(monkeypatch, tmp_path, capsys, no_estimates):
     """The real loop, as the game starts it: odds for the panel, nothing on the console, and the app ends with the
     game, stopping the calculation still running."""
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 30}))  # still calculating when the game exits
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 30}))  # still calculating when the game exits
     state = tmp_path / "state.json"
     hearts = lambda *ranks: [{"rank_id": r, "suit": "Hearts"} for r in ranks]
     state.write_text(json.dumps({

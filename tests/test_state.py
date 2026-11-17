@@ -555,6 +555,26 @@ def test_snapshot_sends_the_memory_setting_as_it_applies(lua):
     assert not state.in_run and state.memory_gb == 4
 
 
+@pytest.mark.parametrize(("raw", "parsed"), [(4, 4), (1, 1), (0, 0), (None, 0), ("4", 0), (True, 0), (-2, 0),
+                                             (2.0, 2), (2.5, 2)])
+def test_cores_setting(raw, parsed):
+    snapshot = {"schema": SCHEMA, "cores": raw}
+    assert GameState.from_json({**snapshot, "in_run": True}).cores == parsed
+    assert GameState.from_json({**snapshot, "in_run": False}).cores == parsed
+
+
+def test_snapshot_sends_the_cores_setting_as_it_applies(lua):
+    """In a run or not, as the panel shows it: no more than the computer's cores less one, and 0 for Auto."""
+    rt, mod = lua
+    rt.execute("PROCESSORS = 4")
+    assert GameState.from_json(snapshot_json(lua)).cores == 0  # the default: Auto
+    mod.settings.cores = 8
+    assert GameState.from_json(snapshot_json(lua)).cores == 3
+    rt.execute("G.STAGE = G.STAGES.MAIN_MENU")
+    state = GameState.from_json(snapshot_json(lua))
+    assert not state.in_run and state.cores == 3
+
+
 def test_malformed_snapshot_skipped_until_a_valid_one(lua, tmp_path, capsys):
     """Valid JSON of the wrong shape is skipped with one message, not fatal."""
     _, mod = lua

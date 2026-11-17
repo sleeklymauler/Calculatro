@@ -35,7 +35,8 @@ def test_gear_opens_the_settings_in_place_of_the_odds_until_done(lua, tmp_path):
     assert mod.settings_open and mod.editor is None
     assert panel_texts(rt) == ["CALCULATRO@light", "Done@light", "Settings@muted",
                                "Face-down hints@light", "Off@light",
-                               "Memory limit@light", "<@light", "2 GB@light", ">@light"]
+                               "Memory limit@light", "<@light", "2 GB@light", ">@light",
+                               "Cores used@light", "<@light", "Auto@light", ">@light"]
     assert rt.eval("BOXES[#BOXES].config.can_collide")
     # New odds and snapshots don't rebuild it under the cursor.
     boxes = rt.eval("#BOXES")
@@ -72,11 +73,11 @@ def test_toggle_turns_a_setting_on_and_off_and_saves_it(lua, tmp_path):
     assert click(lua, toggle)
     assert mod.settings.face_down
     assert panel_texts(rt)[4] == "On@light" and find(rt, toggle).config.colour == "blue"
-    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
+    assert saved(tmp_path) == {"face_down": True, "memory_gb": 2, "cores": 0}
 
     assert click(lua, toggle)
     assert not mod.settings.face_down and panel_texts(rt)[4] == "Off@light"
-    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 2}
+    assert saved(tmp_path) == {"face_down": False, "memory_gb": 2, "cores": 0}
 
 
 def test_setting_name_explains_it_when_hovered(lua, tmp_path):
@@ -178,7 +179,7 @@ def test_memory_cycle_steps_through_the_choices_and_saves(lua, tmp_path):
     assert shown() == "2 GB"
     assert click(lua, "calculatro_setting_memory_gb_next")
     assert mod.settings.memory_gb == 4 and shown() == "4 GB"
-    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": False, "memory_gb": 4}
+    assert saved(tmp_path) == {"face_down": False, "memory_gb": 4, "cores": 0}
     assert click(lua, "calculatro_setting_memory_gb_next")
     assert click(lua, "calculatro_setting_memory_gb_next")  # wraps around
     assert mod.settings.memory_gb == 1 and shown() == "1 GB"
@@ -222,6 +223,99 @@ def test_memory_setting_is_read_as_the_mod_starts(lua, tmp_path):
     assert mod.settings.memory_gb == 8
 
 
+# --- Cores --------------------------------------------------------------------
+
+def with_cores(lua, count: int | None):
+    """The mod as if the computer had `count` logical cores (None: the game's engine can't say)."""
+    rt, mod = lua
+    rt.execute(f"PROCESSORS = {'nil' if count is None else count}")
+    return rt, mod
+
+
+@pytest.mark.parametrize(("count", "offered"), [
+    (32, list(range(9))), (16, list(range(9))), (9, list(range(9))), (8, list(range(8))), (4, [0, 1, 2, 3]),
+    (2, [0, 1]), (1, [0, 1]), (None, [0, 1]),
+])
+def test_cores_offers_auto_and_up_to_all_but_one_of_the_computers(lua, count, offered):
+    _, mod = with_cores(lua, count)
+    assert list(mod.cores_choices().values()) == offered
+
+
+def test_cores_are_counted_by_the_games_engine(lua):
+    rt, mod = with_cores(lua, 6)
+    assert mod.processor_count() == 6
+    rt.execute("love.system = nil")  # an engine without it
+    assert mod.processor_count() is None and list(mod.cores_choices().values()) == [0, 1]
+
+
+@pytest.mark.parametrize(("saved", "applies"), [(0, 0), (1, 1), (3, 3), (8, 3), (2.5, 2), (-1, 0)])
+def test_cores_applies_the_largest_choice_up_to_the_saved_one(lua, saved, applies):
+    _, mod = with_cores(lua, 4)
+    mod.settings.cores = saved
+    assert mod.cores() == applies
+    assert mod.settings.cores == saved  # kept for a computer with more
+
+
+@pytest.mark.parametrize("count", [1, 2, 4, 8, 9, 16, 64])
+def test_mod_and_app_agree_on_the_cores(lua, count):
+    """cores.lua's copy of process.cores_used: the app uses every number the panel offers, on a computer whose
+    cores the game may all use."""
+    _, mod = with_cores(lua, count)
+    offered = list(mod.cores_choices().values())
+    assert offered[0] == 0 and max(offered) <= process.CORES_MOST
+    for cores in offered[1:]:
+        assert process.cores_used(cores, process.GB, count) == cores
+    if count > 1:
+        assert process.cores_used(max(offered) + 1, process.GB, count) == max(offered)
+
+
+def test_cores_cycle_steps_through_the_choices_and_saves(lua, tmp_path):
+    with_cores(lua, 4)
+    rt, mod = open_settings(lua, tmp_path)
+    shown = lambda: panel_texts(rt)[11].split("@")[0]  # between the cycle's arrows
+    assert shown() == "Auto"
+    assert click(lua, "calculatro_setting_cores_next")
+    assert mod.settings.cores == 1 and shown() == "1"
+    assert saved(tmp_path) == {"face_down": False, "memory_gb": 2, "cores": 1}
+    assert click(lua, "calculatro_setting_cores_prev")
+    assert click(lua, "calculatro_setting_cores_prev")  # wraps around
+    assert mod.settings.cores == 3 and shown() == "3"
+    assert click(lua, "calculatro_setting_cores_next")
+    assert mod.settings.cores == 0 and shown() == "Auto"
+
+
+@pytest.mark.parametrize(("count", "says"), [
+    (16, "Auto: 4 here, from your cores and memory."), (8, "Auto: 2 here, from your cores and memory."),
+    (4, "Auto: 1 here, from your cores and memory."), (None, "Auto: chosen from your cores and memory."),
+])
+def test_cores_explains_itself_when_hovered(lua, tmp_path, count, says):
+    with_cores(lua, count)
+    rt, mod = open_settings(lua, tmp_path)
+    cell = find(rt, "calculatro_setting_name_cores")
+    rt.execute("UIElement = {hover = function(self) end}")
+    rt.eval("require('calculatro.uibox')").hover_popups(cell)
+    cell.hover(cell)
+    lines = [t.split("@")[0] for t in rt.execute(TEXTS)(cell.config.h_popup).values()]
+    assert lines[0] == "Cores used" and says in lines
+    assert all(line.isascii() for line in lines)
+
+
+@pytest.mark.parametrize("count", [1, 2, 4, 7, 8, 12, 16, 64])
+@pytest.mark.parametrize("gb", [1, 2, 4, 8])
+def test_mod_and_app_agree_on_what_auto_uses(lua, count, gb):
+    """cores.lua's copy of process.auto_cores, for the popup, on a computer whose cores the game may all use."""
+    rt, mod = with_cores(lua, count)
+    rt.execute(f"local C = require('calculatro.core'); C.memory_gb = function() return {gb} end")
+    assert mod.auto_cores() == process.auto_cores(count, gb * process.GB)
+
+
+def test_cores_setting_is_read_as_the_mod_starts(lua, tmp_path):
+    rt, mod = lua
+    (settings_file(tmp_path)).write_text('{"cores": 4}', encoding="utf-8")
+    mod.update(1.0)
+    assert mod.settings.cores == 4 and mod.settings.memory_gb == 2
+
+
 def test_face_down_hint_needs_the_setting(lua):
     game = Game(lua)
     game.mod.settings.face_down = False
@@ -252,7 +346,7 @@ def test_settings_are_saved_on_the_file_thread(threaded, tmp_path):
 
     rt.eval("RUN_THREAD")()
     mod.check_worker()
-    assert json.loads((settings_file(tmp_path)).read_text(encoding="utf-8")) == {"face_down": True, "memory_gb": 2}
+    assert saved(tmp_path) == {"face_down": True, "memory_gb": 2, "cores": 0}
     # The snapshot handed over with them was written too.
     assert mod.state_id is not None
 

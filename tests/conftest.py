@@ -4,7 +4,7 @@ and `fakes`."""
 
 import pytest
 
-from calculatro import report, search
+from calculatro import process, search, tasks
 from calculatro.engine import sampling
 from fakes import FakeClock
 from hand_driver import Game
@@ -65,11 +65,18 @@ def game(lua):
     return Game(lua)
 
 
+@pytest.fixture(autouse=True)
+def priority_kept(monkeypatch) -> None:
+    """`main` lowers the app's priority when the game starts it (`process.set_low_priority`), which in a test
+    would be the tests' own process's, for every test after it. (test_process checks the real one in a child.)"""
+    monkeypatch.setattr(process, "set_low_priority", lambda: True)
+
+
 @pytest.fixture
 def no_estimates(monkeypatch) -> None:
     """build_report gets no estimates unless a test gives it some (`estimating`): with the engine stubbed, the real
     ones would estimate odds other than the stub's."""
-    monkeypatch.setattr(report, "estimate_discard", lambda *args, **kw: None)
+    monkeypatch.setattr(tasks, "estimate_discard", lambda *args, **kw: None)
 
 
 @pytest.fixture

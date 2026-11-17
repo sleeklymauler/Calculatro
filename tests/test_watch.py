@@ -10,7 +10,7 @@ from fractions import Fraction
 import pytest
 
 import calculatro.__main__ as cli
-from calculatro import report
+from calculatro import tasks
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, Estimate, probability
 from calculatro.hands import get_target
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.usefixtures("no_estimates")
 @pytest.fixture(autouse=True)
 def jobs_ended():
     """Each test's jobs have ended before the next test starts. One still running on a busy machine would call what
-    the next test has patched (`report.evaluate_discard`, say), and count as that test's."""
+    the next test has patched (`tasks.evaluate_discard`, say), and count as that test's."""
     yield
     end = time.monotonic() + 5
     for thread in threading.enumerate():
@@ -380,7 +380,7 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
             time.sleep(0.001)
         return Search([[2]], Fraction(1))
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -389,7 +389,7 @@ def test_search_survives_selecting_and_rides_on_payloads(monkeypatch):
         wait_for(lambda: any(p["id"] == "s:2" and "targets" in p for p in sent))
         assert not any("search" in p for p in sent)
         release.set()
-        wait_for(lambda: "search" in sent[-1])
+        wait_for(lambda: sent and "search" in sent[-1])
         reply = {"nonce": 1, "key": "Pair", "options": [[2]]}
         assert sent[-1]["search"] == reply and sent[-1]["id"] == "s:2"
         source.queue.append(hand_state(3, selected=(2,)))  # the search's own selection
@@ -416,13 +416,13 @@ def test_new_hand_cancels_search(monkeypatch):
         cancelled.set()
         raise Cancelled
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent)
     try:
         wait_for(lambda: any("targets" in p for p in sent))
         source.queue.append(hand_state(2, ranks=(9, 9, 5), search=("Pair", 2)))
-        wait_for(lambda: "search" in sent[-1])
+        wait_for(lambda: sent and "search" in sent[-1])
         assert cancelled.wait(5)  # the cancelled search's thread may not have finished yet
         assert sent[-1]["search"] == {"nonce": 2, "key": "Pair", "options": [[]]}
     finally:
@@ -443,13 +443,13 @@ def test_search_started_again_when_its_basis_changes(monkeypatch):
             time.sleep(0.001)
         raise Cancelled
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent)
     try:
         wait_for(lambda: calls == ["s:1"])
         source.queue.append(hand_state(2, ranks=(9, 9, 3)))  # the same request, a card changed
-        wait_for(lambda: "search" in sent[-1])
+        wait_for(lambda: sent and "search" in sent[-1])
         assert sent[-1]["search"] == {"nonce": 1, "key": "Pair", "options": [[0]]}
         assert calls == ["s:1", "s:2"]
     finally:
@@ -464,7 +464,7 @@ def test_finished_search_dropped_and_redone_when_its_basis_changes(monkeypatch):
         calls.append(state.id)
         return Search([[len(calls)]], Fraction(1))
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -492,7 +492,7 @@ def test_any_target_search_follows_its_hands(monkeypatch):
     def at(n, hands, cards=()):
         return replace(hand_state(n, search=("Any target", 1)), tracked_hands=hands, tracked_cards=list(cards))
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(at(1, ["Pair", "Flush"])), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -525,7 +525,7 @@ def test_card_query_search_survives_selecting(monkeypatch, query):
     def asking(n: int, selected=(), request=(query, 1)) -> GameState:
         return replace(hand_state(n, selected, request), tracked_hands=[], tracked_cards=[query])
 
-    monkeypatch.setattr(cli, "best_card_discards", search)
+    monkeypatch.setattr(tasks, "best_card_discards", search)
     source, sent = FakeSource(asking(1)), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -556,7 +556,7 @@ def test_failed_search_answered_without_options(monkeypatch, capsys):
             raise ValueError("boom")
         return Search([[0]], Fraction(1))
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -640,13 +640,13 @@ def test_odds_basis_with_sorts():
 def test_selecting_the_same_cards_again_calculates_nothing(monkeypatch):
     """Finished rows last until something they depend on changes, and answer the snapshot asking for them."""
     calls: list[tuple] = []
-    real = report.evaluate_discard
+    real = tasks.evaluate_discard
 
     def counted(state, target, discard, *rest, **kw):
         calls.append(tuple(state.hand[i].rank_id for i in discard))
         return real(state, target, discard, *rest, **kw)
 
-    monkeypatch.setattr(report, "evaluate_discard", counted)
+    monkeypatch.setattr(tasks, "evaluate_discard", counted)
     hand = [Card(rank=str(r), rank_id=r, suit="Spades", enhancement="c_base") for r in (9, 10, 12)]
     unseen = [Card(rank=str(r), rank_id=r, suit="Hearts", enhancement="c_base") for r in (9, 10, 12, 13)]
     base = GameState(in_run=True, state="SELECTING_HAND", hand_size=3, hands_left=2, discards_left=2,
@@ -758,7 +758,7 @@ def no_nulls(value) -> bool:
 
 def test_quick_rows_are_sent_before_slow_ones_and_slow_ones_given_up(monkeypatch):
     calls: list[tuple] = []
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
     hands = ["Pair", "Flush", "Straight Flush"]
     first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=hands)
     source, sent = FakeSource(first), []
@@ -794,7 +794,7 @@ def test_a_slow_any_target_is_approximated(monkeypatch):
     them once those are given up on."""
     any_name = "Pair / Flush"
     odds = {"Pair": Fraction(1, 5), "Flush": Fraction(1, 10)}
-    monkeypatch.setattr(report, "evaluate_discard", taking({any_name: 10}, odds=odds))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({any_name: 10}, odds=odds))
     first = replace(hand_state(1, selected=(0,), search=None), tracked_hands=["Pair", "Flush"])
     source, sent = FakeSource(first), []
     stopped, t = watch_thread(source, sent, limits=Limits(quick=0.05, exact=0.4))
@@ -814,7 +814,7 @@ def test_a_slow_any_target_is_approximated(monkeypatch):
 
 
 def test_all_quick_rows_send_no_partial_payload(monkeypatch):
-    monkeypatch.setattr(report, "evaluate_discard", taking({}))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({}))
     source, sent = FakeSource(replace(hand_state(1, selected=(0,), search=None), tracked_hands=["Pair", "Flush"])), []
     stopped, t = watch_thread(source, sent)
     try:
@@ -839,7 +839,7 @@ def test_search_given_up_answers_from_estimates(monkeypatch):
             time.sleep(0.001)
         raise Cancelled
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent, limits=Limits(search=0.1, search_estimate=0.5))
     try:
@@ -864,7 +864,7 @@ def test_search_given_up_at_its_limit_and_answered_at_once_after(monkeypatch):
             time.sleep(0.001)
         raise Cancelled
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     source, sent = FakeSource(hand_state(1)), []
     stopped, t = watch_thread(source, sent, limits=Limits(search=0.1))
     try:
@@ -963,7 +963,7 @@ def test_search_jobs_search_each_request_once_and_answer_one_given_up_on_at_once
         calls.append(state.id)
         return TooSlow(TIME)
 
-    monkeypatch.setattr(cli, "search_within", search_within)
+    monkeypatch.setattr(tasks, "search_within", search_within)
     searches = cli.SearchJobs(cli.LIMITS, Watchdog(), cli.Session(), cli.Failures())
     assert not searches.poll()
     searches.update(hand_state(1))

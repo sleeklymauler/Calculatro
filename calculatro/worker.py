@@ -60,16 +60,24 @@ class Attempt:
 
 class Watchdog:
     """The thread that stops attempts (`Attempt.stop`): each one at its
-    deadline (TIME), and every one running while the app uses more than
-    `memory_limit` bytes (MEMORY), `memory` being a reading of what it uses.
+    deadline (TIME), and those running while the app uses more than
+    `memory_limit` bytes (MEMORY), `memory` being a reading of what it uses,
+    its worker processes included (pool.ProcessRunner).
+
+    Over the limit, it stops the attempts of one process: the one that has
+    grown most (`grown`, which a task in a worker process has: see
+    pool.ProcessRunner). The attempts running in the app itself are one
+    process, so with no workers it stops every one.
 
     Python gives the memory back as a stopped calculation unwinds, which takes
     a moment (0.4 s for 2 GB). Attempts started meanwhile, as when another job
     starts its next one, would be stopped for the memory of the one before,
-    so after stopping them it waits until the memory has fallen below the
+    so after stopping some it waits until the memory has fallen below the
     limit, or `grace` seconds have passed, before it stops any for memory
     again. (The second is in case it never sees the memory fall: the next
-    attempt may use as much again before it looks.)
+    attempt may use as much again before it looks.) If the memory hasn't fallen
+    by then, a worker process whose task it stopped is ended (`shed`), which
+    frees its memory at once, before any more are stopped.
     """
 
     def __init__(self, memory: Callable[[], int] | None = None, memory_limit: int = 0, period: float = 0.02,
@@ -80,6 +88,7 @@ class Watchdog:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._freeing: float | None = None  # when it last stopped attempts for memory, until the memory falls
+        self._stopped: list[Any] = []  # those attempts
 
     def watch(self, attempt: Attempt) -> None:
         with self._lock:
@@ -104,11 +113,26 @@ class Watchdog:
         if self.memory is None or not self.memory_limit:
             return
         if self.memory() <= self.memory_limit:
-            self._freeing = None
-        elif attempts and (self._freeing is None or now >= self._freeing + self.grace):
-            for attempt in attempts:
+            self._freeing, self._stopped = None, []
+        elif self._freeing is None or now >= self._freeing + self.grace:
+            stopped, self._stopped = self._stopped, []
+            if any([shed() for a in stopped if (shed := getattr(a, "shed", None)) is not None]):
+                return  # a process was ended: look at the memory again before stopping more
+            self._stopped = self._largest(attempts)
+            for attempt in self._stopped:
                 attempt.stop(MEMORY)
-            self._freeing = now
+            if self._stopped:
+                self._freeing = now
+
+    @staticmethod
+    def _largest(attempts: list[Any]) -> list[Any]:
+        """The attempts of the process that has grown most: each worker process's task is its own, and those
+        running in the app (which don't say how much it has grown) are one, the largest only if alone."""
+        own = [a for a in attempts if not hasattr(a, "grown")]
+        remote = [(grown, a) for a in attempts if hasattr(a, "grown") and (grown := a.grown()) is not None]
+        if not remote:
+            return own
+        return [max(remote, key=lambda found: found[0])[1]]
 
     def _run(self) -> None:
         while True:
@@ -152,6 +176,32 @@ class Control:
             attempts = list(self._attempts)
         for attempt in attempts:
             attempt.stop(reason)
+
+    def stop_attempts(self, reason: str) -> None:
+        """Stop the attempts running now for a limit (`reason`: TIME or MEMORY), as the watchdog does: the job
+        itself isn't cancelled. A worker process does this when the app finds the memory limit reached."""
+        with self._lock:
+            attempts = list(self._attempts)
+        for attempt in attempts:
+            attempt.stop(reason)
+
+    def attach(self, attempt: Any) -> None:
+        """Have `attempt` stopped (its `stop(reason)`) with the job, or by the watchdog over the memory limit,
+        until it's detached: a task running in a worker process (pool.ProcessRunner), which has no deadline
+        here (its `deadline` is never). One attached to a cancelled job is stopped at once."""
+        with self._lock:
+            reason = (self.reason or REPLACED) if self._event.is_set() else None
+            self._attempts.add(attempt)
+        if self._watchdog is not None:
+            self._watchdog.watch(attempt)
+        if reason is not None:
+            attempt.stop(reason)
+
+    def detach(self, attempt: Any) -> None:
+        if self._watchdog is not None:
+            self._watchdog.unwatch(attempt)
+        with self._lock:
+            self._attempts.discard(attempt)
 
     @contextmanager
     def limited(self, seconds: float) -> Iterator[Attempt]:

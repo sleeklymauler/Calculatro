@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from calculatro import report
+from calculatro import report, tasks
 from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, DiscardOutcome, Estimate, estimate_discard, evaluate_cards, evaluate_discard
 from calculatro.hands import combine, get_target
 from calculatro.report import BOUNDS, ESTIMATE, PENDING, SAMPLE, SLOW, Approx, build_report
 from calculatro.state import SUITS, Card, GameState, Joker
 from calculatro.worker import MEMORY, TIME, Control, Limits, TooSlow, Watchdog
-from fakes import taking
+from fakes import ThreadRunner, taking
 
 pytestmark = pytest.mark.usefixtures("no_estimates")
 
@@ -45,8 +45,8 @@ def calls(monkeypatch) -> list[tuple]:
             return evaluate(state, row, discard, *rest, **kw)
         return wrapper
 
-    monkeypatch.setattr(report, "evaluate_discard", counted(evaluate_discard, lambda t: t.name))
-    monkeypatch.setattr(report, "evaluate_cards", counted(evaluate_cards, lambda q: q.text))
+    monkeypatch.setattr(tasks, "evaluate_discard", counted(evaluate_discard, lambda t: t.name))
+    monkeypatch.setattr(tasks, "evaluate_cards", counted(evaluate_cards, lambda q: q.text))
     return seen
 
 
@@ -120,7 +120,7 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
             raise Cancelled
         return evaluate_discard(state, target, discard, cancel)
 
-    monkeypatch.setattr(report, "evaluate_discard", cancelled_on_discard)
+    monkeypatch.setattr(tasks, "evaluate_discard", cancelled_on_discard)
     known = {}
     with pytest.raises(Cancelled):
         build_report(selecting(STATE, 0), [get_target("Pair")], known=known)
@@ -130,7 +130,7 @@ def test_a_cancelled_report_keeps_the_rows_it_finished(monkeypatch):
         assert discard
         return evaluate_discard(state, target, discard, cancel)
 
-    monkeypatch.setattr(report, "evaluate_discard", only_the_discard)
+    monkeypatch.setattr(tasks, "evaluate_discard", only_the_discard)
     assert build_report(selecting(STATE, 0), [get_target("Pair")], known=known).targets[0].discard is not None
 
 
@@ -138,7 +138,7 @@ def test_quick_values_first_then_the_slow_ones_then_given_up(monkeypatch):
     """Each value gets a quick try first, so a slow one never holds up the rest; the slow ones then get longer, and
     one that doesn't finish then is given up on, and isn't tried again."""
     calls: list[tuple] = []
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 0.3, "Straight Flush": 10}, calls))
     targets = [get_target(n) for n in ("Pair", "Flush", "Straight Flush")]
     control, known, partials = Control(Watchdog(period=0.005)), {}, []
     found = build_report(selecting(STATE, 0), targets, cancel=control, known=known,
@@ -180,7 +180,7 @@ def test_a_value_using_too_much_memory_is_given_up(monkeypatch):
         finally:
             used[0] = 0  # given back as it unwinds
 
-    monkeypatch.setattr(report, "evaluate_discard", hungry)
+    monkeypatch.setattr(tasks, "evaluate_discard", hungry)
     control = Control(Watchdog(lambda: used[0], memory_limit=1000, period=0.005, grace=0.05))
     found = build_report(selecting(STATE, 0), [get_target("Flush"), get_target("Pair")], cancel=control,
                          limits=Limits(quick=5, exact=5))
@@ -201,7 +201,7 @@ def test_a_new_state_cancels_a_value_on_its_last_try(monkeypatch):
         calls.append((target.name, tuple(discard)))
         return slow(state, target, discard, cancel)
 
-    monkeypatch.setattr(report, "evaluate_discard", cancelled_on_last_try)
+    monkeypatch.setattr(tasks, "evaluate_discard", cancelled_on_last_try)
     known = {}
     with pytest.raises(Cancelled):
         build_report(selecting(STATE, 0), [get_target("Pair")], cancel=control, known=known,
@@ -218,7 +218,7 @@ def test_any_target_shows_bounds_until_its_exact_odds(monkeypatch):
     calls: list[tuple] = []
     any_name = "Pair / Flush"
     odds = {"Pair": Fraction(1, 5), "Flush": Fraction(1, 10), any_name: Fraction(1, 4)}
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, any_name: 0.8}, calls, odds))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 0.3, any_name: 0.8}, calls, odds))
     targets = [get_target("Pair"), get_target("Flush")]
     control, known, partials = Control(Watchdog(period=0.005)), {}, []
     limits = Limits(quick=0.1, exact=0.5)
@@ -230,7 +230,7 @@ def test_any_target_shows_bounds_until_its_exact_odds(monkeypatch):
                      Approx(Fraction(1, 5), Fraction(3, 10), BOUNDS, TIME)]  # given up on
     assert [p.partial for p in partials] == [True, True, True, False] and partials[-1] == found
     calls.clear()
-    monkeypatch.setattr(report, "evaluate_discard", taking({any_name: 0.3}, calls, odds))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({any_name: 0.3}, calls, odds))
     partials.clear()
     # As if cancelled during its exact pass, before giving up.
     known = {k: SLOW if isinstance(v, TooSlow) else v for k, v in known.items()}
@@ -244,11 +244,11 @@ def test_bounds_that_meet_are_the_exact_odds(monkeypatch):
     """When a hand is certain, or none can be made, "Any target"'s bounds meet: it isn't worked out at all."""
     calls: list[tuple] = []
     odds = {"Pair": Fraction(1), "Flush": Fraction(0)}
-    monkeypatch.setattr(report, "evaluate_discard", taking({}, calls, odds))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({}, calls, odds))
     found = build_report(STATE, [get_target("Pair"), get_target("Flush")])
     assert found.targets[0].keep == 1 and calls == [("Pair", 0), ("Flush", 0)]
     calls.clear()
-    monkeypatch.setattr(report, "evaluate_discard", taking({}, calls, {"Pair": Fraction(0), "Flush": Fraction(0)}))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({}, calls, {"Pair": Fraction(0), "Flush": Fraction(0)}))
     assert build_report(STATE, [get_target("Pair"), get_target("Flush")]).targets[0].keep == 0
     assert len(calls) == 2
 
@@ -265,8 +265,8 @@ def test_a_slow_value_shows_its_estimate_until_its_exact_odds(monkeypatch):
     """A value found slow is estimated before the exact pass, once, and the estimate shown meanwhile; kept, final, if
     the exact odds are given up on. Asked again, it shows at once, straight to the exact pass."""
     calls: list[tuple] = []
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 0.3, "Straight": 10}, calls))
-    monkeypatch.setattr(report, "estimate_discard", estimating(
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 0.3, "Straight": 10}, calls))
+    monkeypatch.setattr(tasks, "estimate_discard", estimating(
         {"Flush": Estimate(0.25, 0.2, 0.3, 1000), "Straight": None}, calls))
     targets = [get_target("Flush"), get_target("Straight")]
     control, known, partials = Control(Watchdog(period=0.005)), {}, []
@@ -283,7 +283,7 @@ def test_a_slow_value_shows_its_estimate_until_its_exact_odds(monkeypatch):
     calls.clear()
     partials.clear()
     known = {k: SLOW if isinstance(v, DiscardOutcome) and k[0].name == "Flush" else v for k, v in known.items()}
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10}, calls))
     again = build_report(selecting(STATE, 0), targets, cancel=control, known=known, limits=limits,
                          progress=partials.append)
     assert partials[0].targets[1].keep == estimate  # at once
@@ -295,8 +295,8 @@ def test_no_more_quick_tries_once_one_ran_out_checking_the_sorts(monkeypatch):
     """Once a quick try has run out of time before the hand's sorts were checked, the values that check them first
     skip theirs, as they'd run out too: they go straight to their estimates. The others still get theirs."""
     calls: list[tuple] = []
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
-    monkeypatch.setattr(report, "estimate_discard", estimating({}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
+    monkeypatch.setattr(tasks, "estimate_discard", estimating({}, calls))
     # Keep uses the sorts
     monkeypatch.setattr(report, "evidence_unchecked", lambda state, discard, session: not discard)
     targets = [get_target("Flush"), get_target("Straight")]
@@ -313,8 +313,8 @@ def test_slow_values_estimated_during_the_quick_pass_once_it_has_taken_long_enou
     straight after its quick try, so a panel of many slow values isn't left without any for long. A quick try that
     finishes doesn't count towards it."""
     calls: list[tuple] = []
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
-    monkeypatch.setattr(report, "estimate_discard", estimating({"Flush": Estimate(0.25, 0.2, 0.3, 1000)}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
+    monkeypatch.setattr(tasks, "estimate_discard", estimating({"Flush": Estimate(0.25, 0.2, 0.3, 1000)}, calls))
     targets = [get_target("Pair"), get_target("Flush"), get_target("Straight")]
     partials: list = []
     build_report(STATE, targets, cancel=Control(Watchdog(period=0.005)), progress=partials.append,
@@ -329,8 +329,8 @@ def test_any_targets_estimate_stays_within_its_bounds(monkeypatch):
     """"Any target"'s estimate is shown rather than its bounds, but within them, which are certain."""
     calls: list[tuple] = []
     odds = {"Pair": Fraction(3, 10), "Flush": Fraction(1, 10)}
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair / Flush": 10}, calls, odds))
-    monkeypatch.setattr(report, "estimate_discard", estimating({"Pair / Flush": Estimate(0.33, 0.2, 0.45, 50)}, calls))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Pair / Flush": 10}, calls, odds))
+    monkeypatch.setattr(tasks, "estimate_discard", estimating({"Pair / Flush": Estimate(0.33, 0.2, 0.45, 50)}, calls))
     found = build_report(STATE, [get_target("Pair"), get_target("Flush")], cancel=Control(Watchdog(period=0.005)),
                          limits=Limits(quick=0.05, approx=0.1, exact=0.1))
     assert found.targets[0].keep == Approx(Fraction(3, 10), Fraction(2, 5), SAMPLE, TIME, Fraction(33, 100))
@@ -409,9 +409,127 @@ def test_any_target_bounds_hold_the_exact_odds():
         assert max(each) <= p <= min(1, sum(each)), (state, discard, [t.name for t in targets])
 
 
+# --- Side by side, in worker processes (threads here: fakes.ThreadRunner) ---------------------------------
+
+def began(runner: ThreadRunner, *kinds: int) -> list[tuple]:
+    """The tasks of those priorities `runner` has started, in order: (row, cards discarded)."""
+    return [(task.row.name, len(task.discard)) for kind, task in runner.began if kind in kinds]
+
+
+def test_side_by_side_the_report_is_the_same(calls):
+    targets = [get_target(n) for n in ("Pair", "Flush", "Straight")]
+    queries = [parse_query("at least 2 queen")]
+    state = selecting(STATE, 0, 1)
+    alone = build_report(state, targets, queries, cancel=Control())
+    asked = sorted(map(str, calls))
+    calls.clear()
+    runner, known, partials = ThreadRunner(3), {}, []
+    found = build_report(state, targets, queries, cancel=Control(), known=known, runner=runner,
+                         progress=partials.append)
+    assert found == alone == partials[-1] and not found.partial
+    assert sorted(map(str, calls)) == asked and len(runner.began) == len(calls)
+    assert build_report(state, targets, queries, cancel=Control(), known=known, runner=runner) == alone
+    assert len(runner.began) == len(calls)  # nothing again
+
+
+def test_side_by_side_every_quick_try_then_the_estimates_then_the_exact_tries(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10, "Straight": 10}, calls))
+    monkeypatch.setattr(tasks, "estimate_discard", estimating({"Flush": Estimate(0.25, 0.2, 0.3, 1000)}, calls))
+    targets = [get_target(n) for n in ("Pair", "Flush", "Straight")]
+    runner = ThreadRunner(2)
+    found = build_report(selecting(STATE, 0), targets, cancel=Control(), runner=runner,
+                         limits=Limits(quick=0.05, approx=0.05, exact=0.1))
+    slow = [(name, n) for n in (0, 1) for name in ("Flush", "Straight")]
+    assert [kind for kind, _ in runner.began] == [tasks.QUICK] * 8 + [tasks.ESTIMATE] * 4 + [tasks.EXACT] * 4
+    assert began(runner, tasks.QUICK)[:6] == [(name, n) for n in (0, 1) for name in ("Pair", "Flush", "Straight")]
+    assert sorted(began(runner, tasks.ESTIMATE)) == sorted(slow) and began(runner, tasks.EXACT) == slow
+    assert found.targets[1].keep == Fraction(1, 2) and found.targets[0].keep == Fraction(1, 2)  # Pair, "Any target"
+    assert found.targets[2].keep == Approx(Fraction(1, 5), Fraction(3, 10), SAMPLE, TIME, Fraction(1, 4))
+    assert found.targets[3].discard == TooSlow(TIME) and not found.partial
+
+
+def test_side_by_side_estimates_go_first_once_the_quick_tries_have_taken_long_enough(monkeypatch):
+    """`Limits.quick_pass` for each worker: after that, a value found slow is estimated before the quick tries
+    still waiting."""
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10, "Straight": 10}))
+    targets = [get_target(n) for n in ("Flush", "Straight", "Pair", "Two Pair")]
+    runner = ThreadRunner(2)
+    build_report(selecting(STATE, 0), targets, cancel=Control(), runner=runner,
+                 limits=Limits(quick=0.05, approx=0.05, quick_pass=0.02, exact=0.05))
+    kinds = [kind for kind, _ in runner.began]
+    last_quick = max(i for i, kind in enumerate(kinds) if kind == tasks.QUICK)
+    assert kinds[:2] == [tasks.QUICK] * 2 and kinds.index(tasks.OVERDUE) < last_quick
+    assert kinds.count(tasks.QUICK) == 10 and kinds.count(tasks.OVERDUE) + kinds.count(tasks.ESTIMATE) == 4
+
+
+def test_side_by_side_quick_tries_are_cancelled_once_one_ran_out_checking_the_sorts(monkeypatch):
+    """The values that check the sorts first would run out too, so their quick tries are cancelled, started or
+    not, and they go to their estimates. The rest get theirs."""
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Flush": 10, "Straight": 10}))
+    monkeypatch.setattr(report, "evidence_unchecked", lambda state, discard, session: not discard)  # Keep does
+    targets = [get_target(n) for n in ("Flush", "Straight", "Pair")]
+    runner = ThreadRunner(2)
+    found = build_report(selecting(STATE, 0), targets, cancel=Control(), runner=runner,
+                         limits=Limits(quick=0.1, approx=0.05, exact=0.05))
+    # Straight's Keep had started beside Flush's; Pair's, which would have been quick, hardly or not at all.
+    quick = began(runner, tasks.QUICK)
+    assert quick[:2] == [("Flush", 0), ("Straight", 0)]
+    assert {(name, 1) for name in ("Flush", "Straight", "Pair", "Flush / Straight / Pair")} <= set(quick)
+    assert sorted(began(runner, tasks.ESTIMATE)) == sorted(
+        [(name, 0) for name in ("Flush", "Straight", "Pair", "Flush / Straight / Pair")]
+        + [("Flush", 1), ("Straight", 1)])
+    assert ("Pair", 0) in began(runner, tasks.EXACT) and found.targets[3].keep == Fraction(1, 2)
+
+
+def test_side_by_side_any_targets_try_is_cancelled_once_its_bounds_meet(monkeypatch):
+    calls: list[tuple] = []
+    odds = {"Pair": Fraction(1), "Flush": Fraction(0)}
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Pair / Flush": 30, "Pair": 0.05}, calls, odds))
+    runner = ThreadRunner(3)
+    found = build_report(STATE, [get_target("Pair"), get_target("Flush")], cancel=Control(), runner=runner,
+                         limits=Limits(quick=20))
+    assert ("Pair / Flush", 0) in calls  # started, and stopped long before its limit
+    assert found.targets[0].keep == 1 and not found.partial
+
+
+def stopped_for_memory(calls: list[str], tries: dict[str, list]):
+    """A stand-in for `evaluate_discard`: each target's tries in turn, by its name, are a number of seconds it
+    takes (stopping when cancelled), or MEMORY, for one stopped at the memory limit at once."""
+    def evaluate(state, target, discard, cancel=None, **_):
+        calls.append(target.name)
+        step = tries[target.name][calls.count(target.name) - 1] if target.name in tries else 0
+        if step == MEMORY:
+            cancel.stop(MEMORY)
+            raise Cancelled
+        return taking({target.name: step})(state, target, discard, cancel)
+    return evaluate
+
+
+def test_side_by_side_a_value_stopped_for_memory_beside_another_is_tried_once_more_alone(monkeypatch):
+    """It may have been stopped for the other's memory (the watchdog stops the largest, as far as it can tell)."""
+    calls: list[str] = []
+    monkeypatch.setattr(tasks, "evaluate_discard", stopped_for_memory(
+        calls, {"Flush": [10, MEMORY, 0], "Straight": [10, 0.2]}))
+    limits = Limits(quick=0.05, approx=0.05, exact=5)
+    targets, runner = [get_target("Flush"), get_target("Straight")], ThreadRunner(2)
+    found = build_report(STATE, targets, cancel=Control(), runner=runner, limits=limits)
+    assert [t.keep for t in found.targets[1:]] == [Fraction(1, 2)] * 2
+    assert calls.count("Flush") == 3 and began(runner, tasks.EXACT)[-1] == ("Flush", 0)  # after Straight's
+    # Stopped again, it's given up on; and at once, with nothing beside it.
+    monkeypatch.setattr(tasks, "evaluate_discard", stopped_for_memory(
+        calls, {"Flush": [10, MEMORY, MEMORY], "Straight": [10, 0.2]}))
+    calls.clear()
+    found = build_report(STATE, targets, cancel=Control(), runner=ThreadRunner(2), limits=limits)
+    assert found.targets[1].keep == TooSlow(MEMORY) and calls.count("Flush") == 3
+    calls.clear()
+    found = build_report(STATE, targets[:1], cancel=Control(), runner=ThreadRunner(2), limits=limits)
+    assert found.targets[0].keep == TooSlow(MEMORY) and calls.count("Flush") == 2
+
+
 def test_no_limits_without_a_job(monkeypatch):
     """Called with a plain Event (or none), as the console and the benchmarks do, every value is worked out."""
-    monkeypatch.setattr(report, "evaluate_discard", taking({"Pair": 0.1}))
+    monkeypatch.setattr(tasks, "evaluate_discard", taking({"Pair": 0.1}))
     found = build_report(selecting(STATE, 0), [get_target("Pair")], cancel=threading.Event(),
                          limits=Limits(quick=0.01, exact=0.01))
     assert found.targets[0].discard == Fraction(1, 3)

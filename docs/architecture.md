@@ -53,6 +53,7 @@ have no cycles, and each loads on its own), and returns only what other modules 
 | `uibox` | what's done to a built box, `remove_box` |
 | `anim` | the panel's animation |
 | `memory` | the "Memory limit" setting's choices, from the computer's memory (through the FFI) |
+| `cores` | the "Cores used" setting's choices, from the computer's cores |
 | `odds`, `editor`, `settings` | the panel's three views: model, definition (`settings` also keeps the settings file) |
 | `panel` | placing and refreshing it |
 | `observe` | what the hand's order has shown about its face-down cards |
@@ -84,7 +85,7 @@ itself (`Calculatro.replace_file`, `read_odds`).
 The player's settings ([panel.md](panel.md#settings)) are kept in `settings.json`, which only
 the mod uses. It's read once as the mod starts, before the thread does, and written on the thread
 (its newest settings, in the same pass as the newest snapshot), or by the mod itself without one. The
-app learns the one it needs, "Memory limit", from the snapshot (`memory_gb`).
+app learns the two it needs, "Memory limit" and "Cores used", from the snapshot (`memory_gb`, `cores`).
 
 ### File access
 
@@ -144,7 +145,8 @@ imports from `engine` itself, which re-exports what it uses (`engine/__init__.py
   `Attempt`, a cancel event of its own that the job's cancellation, its deadline or the memory limit
   sets, saying which (`reason`: `TIME`, `MEMORY`, or the job's). One `worker.Watchdog` thread checks
   them every 20 ms: a deadline passed, or the app's committed memory (`process.memory_used`) over
-  `process.memory_limit`, which stops every running attempt, of both jobs. The limit is the player's
+  `process.memory_limit`, which stops every running attempt, of both jobs (with
+  [worker processes](#worker-processes), only the largest one's). The limit is the player's
   "Memory limit" setting (1, 2, 4 or 8 GB; 2 by default), or half the computer's memory as installed
   (`process.installed_memory`) if that's less. Each state sets it (`run_watch`'s `memory_limit`), and
   it's part of `odds_basis` and `search_basis`, so changing it tries again what was given up on. A part stopped by a limit is `worker.TooSlow`; one stopped by a new state still
@@ -153,7 +155,7 @@ imports from `engine` itself, which re-exports what it uses (`engine/__init__.py
   memory again until it falls below the limit or 2 s pass (`grace`), so another job's next part isn't
   stopped for the memory of the one before. A search is one part, with `Limits.search` (30 s), and if
   it's given up on, a second answers from estimates of what it had found, in about
-  `Limits.search_estimate` (5 s; `__main__.search_within`, `search.estimated_best`). The engine needs
+  `Limits.search_estimate` (5 s; `tasks.search_within`, `search.estimated_best`). The engine needs
   nothing for any of this: it raises `Cancelled` as before.
 - **The garbage collector.** `engine.gc_paused` turns it off while any job runs (`worker.Job`): a pass
   of the collector runs on the thread that triggers it, without checking `cancel`: over the benchmark's
@@ -200,6 +202,73 @@ imports from `engine` itself, which re-exports what it uses (`engine/__init__.py
 - **Settled hands only.** Odds are only calculated while the hand is `settled` (`SELECTING_HAND`, or
   no state given). While cards are dealt, a played hand scores or a pack is open, the hand changes
   card by card, so the app only answers `pending` and the panel keeps the last odds greyed.
+
+### Worker processes
+
+The release's Python has the global interpreter lock, so threads can't use a second core. With the
+"Cores used" setting ([panel.md](panel.md#settings)) above 1, the calculations run in that many worker
+processes instead (`pool.ProcessRunner`), and the app only reads states, gives out tasks and writes the
+odds file. With 1, there are no workers and the app is as described above (`pool.InProcessRunner`).
+
+- **Tasks.** Each calculation is a task (`tasks.py`): a value's exact try (`Odds`), its estimate
+  (`Approximate`), a whole search (`BestDiscard`) or one of a search's steps, with the limits it's given
+  up at. A job's thread
+  gives its tasks to the runner (`Runner.submit`) and waits for their results. A task and its result
+  cross to a worker pickled, so they hold only what pickles. A card query goes by its text
+  (`CardQuery.__reduce__`). A state is sent to a worker once, under a number.
+- **How many.** `process.cores_used` turns the setting into a number: Auto is `process.auto_cores`, and
+  a number is held to one fewer than the cores in the app's affinity mask (`process.usable_cores`).
+  Each state resizes the pool (`ProcessRunner.resize`). Workers are started at the first state, which
+  the mod writes at the main menu, and take about 0.3 s between them. The setting is part of neither
+  `odds_basis` nor `search_basis`, so changing it keeps what's worked out.
+- **A worker** (`pool._serve`) runs one task at a time on its main thread, with its own
+  `engine.Session`, caches and `Watchdog` (time limits only). A listener thread reads the app's
+  messages, so a cancel reaches a running task. A worker has no log: a failed task sends back its
+  traceback (`pool.TaskFailed`, which `Failures` logs once), and what's printed to stderr goes to the
+  app, which logs each line once whichever worker says it.
+- **Order.** A free worker takes the waiting task that comes first by priority, then by age
+  (`tasks.QUICK` and the rest): quick tries, estimates, searches, exact tries. It goes to the worker that
+  last ran a task for the same row if that one is free, since its patterns are cached there.
+- **A report's values side by side.** With workers, `build_report` gives out every quick try at once,
+  estimates each value found slow as workers come free, and starts the exact tries when those are done
+  (`_Builder.spread`). A panel of 30 values, 21 of them slow, showed its last approximation after 17.5 s
+  on one core, 9.0 s on 2 and 4.9 s on 4 (2026-11-16).
+- **A search's choices side by side.** With workers, a search is run in steps by its job's thread
+  (`spread.best_discards`). One task lays it out (`search.plan`: the groups, the choices, a discard for
+  each and its relabel key). Then each choice's odds are a task (`search.choice_odds`), as many at once
+  as there are workers, started in order of their upper bounds and dropped once that's below the best
+  found. The app picks the best as they come in (`search.settle`). The answer is the same as from one
+  process, whatever order the choices finish in (`tests/test_spread.py`). `Limits.search` is for the
+  whole search, counted from when a worker starts its first task; at the limit the app cancels what's
+  left and one task answers from estimates. Each worker keeps an `engine.Reuse` for the search until
+  it's over (`Runner.release`), so memory grows with the workers: a choice stopped for memory is tried
+  again with one fewer of the search's tasks side by side, and with one left the search is given up for
+  memory. On 4 cores the searches that take over 0.1 s take about half as long or less (2026-11-16);
+  the quickest gain nothing.
+- **Quick work takes a worker from a search.** A new selection doesn't cancel a search. So a quick try
+  or an estimate that has waited 50 ms (`pool.PATIENCE`) with every worker on a search's tasks has the
+  one that started last stopped. That task waits its turn again: it's pure, so only its time is lost.
+- **The hand's sorts are checked once.** Each result says what its worker has found of them
+  (`engine.evidence_checked`), and the app tells the others with their next task (`note_evidence`). It's
+  also how the app answers `evidence_unchecked` itself.
+- **Memory.** The limit is for the app and its workers together (`ProcessRunner.memory_used`, read
+  through each worker's process handle). Over it, the watchdog stops only the task of the worker that
+  has grown most. A worker that doesn't give the memory back within the grace is ended and replaced,
+  which frees it at once. So is one left holding more than a quarter of the limit after a task. An
+  exact try stopped for memory with others beside it is made once more on its own.
+- **Cancelling.** A cancelled task is over for its job at once. Its worker has 2 s to answer
+  (`CANCEL_GRACE`) before it's ended and replaced, which also covers a hang inside a calculation. A
+  late result is dropped: every task has a number.
+- **Failing safe.** A worker that dies fails its task (`pool.WorkerDied`, answered as a failed job is)
+  and is replaced. After 3 deaths in a session, or if a worker can't be started, the app logs it once
+  and runs everything itself until the game is restarted. Workers the app ends itself don't count.
+- **Ending with the app.** A worker exits when its pipe to the app closes, whatever it's doing. The
+  workers are also in a Windows job object that ends them when the app's handle to it closes
+  (`process.kill_on_close_job`). Either is enough alone (`test_workers_end_when_the_app_is_killed`).
+- **Priority.** With `--game-pid` the app puts itself below normal priority (`process.set_low_priority`),
+  and its workers inherit that, so the game gets the CPU first.
+- **`__main__` does nothing on import.** A spawned worker imports the app's main module again. It must
+  never claim the mutex or open the log there.
 
 ## Starting and stopping the app
 
@@ -299,7 +368,8 @@ may be the last session's file, which the app replaces once it answers, so it's 
   request; the odds file's `search` answers it ([panel.md](panel.md#best-discard-button)).
 - Every snapshot, in a run or not, sends `memory_gb`, the "Memory limit" setting as the panel shows it
   (`Calculatro.memory_gb`: already no more than half the computer's memory). Anything but a whole
-  number above 0 parses as `None`, the default.
+  number above 0 parses as `None`, the default. And `cores`, the "Cores used" setting the same way
+  (`Calculatro.cores`): 0 for Auto, which is also what anything but a whole number above 0 parses as.
 - Empty Lua tables can arrive as `{}` rather than `[]`; the encoder tags arrays with an `ARRAY`
   metatable, and `state._cards` also handles it.
 - Card fields mirror Balatro internals: `rank_id` 2..14 (Ace=14), `enhancement` is the center key

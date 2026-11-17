@@ -96,6 +96,22 @@ Get-ChildItem $package -Recurse -Filter *.py | Where-Object { $_.FullName -notma
 # Check the bundled Python can import and run the app.
 & (Join-Path $python "python.exe") -m calculatro --help | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "The bundled Python couldn't run the app" }
+# And that it can start worker processes ("Cores used" above 1) and work a state's odds out in them: the
+# embeddable package has to bring multiprocessing, and a worker has to import the app again. The odds of a
+# Pair with a 9 held and the other three unseen, among 8 cards to draw 4 from: `odds --cores` fails if the
+# workers don't start.
+$schema = & (Join-Path $python "python.exe") -c "from calculatro.state import SCHEMA; print(SCHEMA)"
+$check = Join-Path $stage "check-state.json"
+$cards = { param($suit, $ranks) ($ranks | ForEach-Object { "{`"rank_id`": $_, `"suit`": `"$suit`"}" }) -join ", " }
+$state = "{`"schema`": $schema, `"in_run`": true, `"state`": `"SELECTING_HAND`", `"hand_size`": 5, " +
+    "`"hands_left`": 2, `"discards_left`": 2, `"hand`": [$(& $cards 'Hearts' @(2, 3, 4, 5, 9))], " +
+    "`"unseen`": [$(& $cards 'Spades' @(6, 7, 8, 9, 10, 11, 12, 13))], `"tracked`": {`"hands`": [`"Pair`"]}}"
+[System.IO.File]::WriteAllText($check, $state, (New-Object System.Text.UTF8Encoding $false))
+$odds = & (Join-Path $python "python.exe") -m calculatro odds $check --cores 2 | Out-String
+if ($LASTEXITCODE -ne 0 -or $odds -notmatch 'Pair\s+0\.00%') {
+    throw "The bundled Python couldn't work out odds in worker processes:`n$odds"
+}
+Remove-Item $check
 Get-ChildItem $app -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
 
 $zip = Join-Path $dist "Calculatro-$version-windows.zip"

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import calculatro.__main__ as cli
-from calculatro import report
+from calculatro import tasks
 from calculatro.engine import Cancelled, Estimate
 from calculatro.search import Search
 from calculatro.state import SCHEMA
@@ -56,7 +56,7 @@ def test_prints_the_state_and_its_odds(tmp_path, odds):
 def test_values_given_up_on_and_approximated(tmp_path, odds, monkeypatch):
     """What isn't exact says so: "?" for a value given up on, and an approximation's range."""
     any_name = "Pair / Flush / Straight Flush"
-    monkeypatch.setattr(report, "evaluate_discard", taking(
+    monkeypatch.setattr(tasks, "evaluate_discard", taking(
         {"Straight Flush": 10, any_name: 10}, odds={"Pair": Fraction(1, 5), "Flush": Fraction(1, 10)}))
     path = state_file(tmp_path, tracked={"hands": ["Pair", "Flush", "Straight Flush"]})
     _, out, _ = odds(path, limits=Limits(quick=0.05, exact=0.2))
@@ -66,13 +66,13 @@ def test_values_given_up_on_and_approximated(tmp_path, odds, monkeypatch):
 
 
 def test_the_best_discard_the_state_asks_for(tmp_path, odds, monkeypatch):
-    monkeypatch.setattr(cli, "best_discards", lambda state, target, *_, **__: Search([[2]], Fraction(1)))
+    monkeypatch.setattr(tasks, "best_discards", lambda state, target, *_, **__: Search([[2]], Fraction(1)))
     _, out, _ = odds(state_file(tmp_path, search={"key": "Pair", "nonce": 1}))
     assert out.splitlines()[-1] == "Best discard for Pair: discard 2♣, 100.00%"
 
 
 def test_the_best_discard_for_another_row(tmp_path, odds, monkeypatch):
-    monkeypatch.setattr(cli, "best_discards", lambda state, target, *_, **__: Search([[]], Fraction(1)))
+    monkeypatch.setattr(tasks, "best_discards", lambda state, target, *_, **__: Search([[]], Fraction(1)))
     path = state_file(tmp_path, search={"key": "Pair", "nonce": 1})
     _, out, _ = odds(path, "Pair")
     assert out.splitlines()[-1] == "Best discard for Pair: keep the hand, 100.00%"
@@ -87,7 +87,7 @@ def until_cancelled(state, target, cancel, progress=None, **_):
 
 
 def test_a_best_discard_given_up_on(tmp_path, odds, monkeypatch):
-    monkeypatch.setattr(cli, "best_discards", until_cancelled)
+    monkeypatch.setattr(tasks, "best_discards", until_cancelled)
     _, out, _ = odds(state_file(tmp_path), "Pair", Limits(search=0.1))
     assert out.splitlines()[-1] == "Best discard for Pair: too slow, given up on"
 
@@ -100,7 +100,7 @@ def test_a_best_discard_from_estimates(tmp_path, odds, monkeypatch):
                        lambda discard, cancel, seconds: guesses[tuple(discard)])
         return until_cancelled(state, target, cancel)
 
-    monkeypatch.setattr(cli, "best_discards", search)
+    monkeypatch.setattr(tasks, "best_discards", search)
     _, out, _ = odds(state_file(tmp_path), "Pair", Limits(search=0.1, search_estimate=0.5))
     assert out.splitlines()[-1] == ("Best discard for Pair: discard 9♠, 60.00%* (* by estimates, too slow to "
                                     "compare exactly; likely 55.00% to 65.00%)")

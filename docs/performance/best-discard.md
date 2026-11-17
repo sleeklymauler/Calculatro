@@ -190,6 +190,19 @@ that could still be best (`search.estimated_best`, in about 5 s), marked: see
 soon as it has its choices, the worst case, and says how far below the best
 its discard is: on 2026-11-11, 100 of the 107 scenarios found the best discard, and the rest were at most 0.32 points below it (0.01 on average), each in at most 5 s.
 
+With "Cores used" above 1 the choices' odds are worked out side by side in
+worker processes ([architecture.md](../architecture.md#worker-processes)),
+with the same result. On 4 cores (`benchmark.py --cores 4 -k "Best discard"`,
+2026-11-16) the slow cases above take a little under half as long: "11
+cards, holding no target" 1.9 s against 4.6 s, and the slowest, Four Fingers
++ Shortcut with 2 cards face down, sorted by rank, "Any target", 9.7 s against
+20.9 s. It isn't a quarter: laying the search out is one task, each worker
+fills its own `Reuse`, and the choices aren't alike in cost. That also costs
+memory. The same search peaks at 2.4 GB in one process and at over 4 GB in
+four, so under the default 2 GB limit it falls back to fewer workers, and
+then to estimates, as it does on one core. Searches under about 50 ms gain
+nothing, and a few lose some milliseconds to the tasks' round trips.
+
 Ideas not yet tried:
 
 - Ordering by a cheap estimate and bounding single targets too, e.g.

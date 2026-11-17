@@ -7,7 +7,7 @@ from typing import Any
 
 from .rules import Rules
 
-SCHEMA = 17
+SCHEMA = 18
 
 RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
 RANK_SHORT = {"10": "T", "Jack": "J", "Queen": "Q", "King": "K", "Ace": "A"}
@@ -290,6 +290,9 @@ class GameState:
     # The player's "Memory limit" setting: the most the app's calculations may use, in GB, as the
     # panel shows it (already no more than half the computer's); None without one (process.memory_limit).
     memory_gb: int | None = None
+    # The player's "Cores used" setting: how many cores the calculations may use, 0 for the app to choose
+    # (process.cores_used). It changes no odds, only how soon they come.
+    cores: int = 0
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> GameState:
@@ -315,7 +318,8 @@ class GameState:
     @classmethod
     def _parse(cls, d: dict[str, Any]) -> GameState:
         if not d.get("in_run"):
-            return cls(in_run=False, id=_text(d, "id"), memory_gb=_memory_gb(d.get("memory_gb")))
+            return cls(in_run=False, id=_text(d, "id"), memory_gb=_memory_gb(d.get("memory_gb")),
+                       cores=max(0, _number(d, "cores")))
         tracked = d.get("tracked") or {}
         hand = _cards(d.get("hand"))
         discard = _cards(d.get("discard"))
@@ -346,6 +350,7 @@ class GameState:
             observations=observations,
             observed=observed,
             memory_gb=_memory_gb(d.get("memory_gb")),
+            cores=max(0, _number(d, "cores")),
         )
 
     @property

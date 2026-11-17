@@ -10,7 +10,7 @@ from fractions import Fraction
 import pytest
 
 import calculatro.__main__ as cli
-from calculatro import overlay
+from calculatro import overlay, tasks
 from calculatro.cards import parse_query
 from calculatro.hands import get_target
 from calculatro.paths import LOG_FILE, ODDS_FILE, STATE_FILE, data_dir
@@ -1964,7 +1964,8 @@ def reply_search(tmp_path, options=None):
     state = read_state(tmp_path)
     payload = cli.calculate(state, *cli.tracked(state))
     key, nonce = state.search
-    found = Search(options, Fraction(1)) if options is not None else cli.find_best(state, cli.search_target(state, key))
+    found = (Search(options, Fraction(1)) if options is not None
+             else tasks.find_best(state, cli.search_target(state, key)))
     payload["search"] = overlay.search(key, nonce, found)
     assert overlay.write(data_dir(tmp_path) / ODDS_FILE, payload)
     return found

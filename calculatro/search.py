@@ -148,9 +148,7 @@ def best_discards(state: GameState, target: Target, cancel: Event | None = None,
     if budget >= 0:
         choices += [c for c in _counts([len(g) for g in groups], budget) if forced is not None or any(c)]
     progress = progress or Progress()
-    progress.start(state, groups, forced, choices,
-                   lambda discard, cancel, seconds: estimate_discard(state, target, discard, cancel, seconds,
-                                                                     session=session))
+    progress.start(state, groups, forced, choices, _estimator(state, target, session))
     discards = progress.discards
     # The odds of any of several hands are at least each one's and at most
     # their sum (or 1), and each hand alone is much quicker to work out than
@@ -204,27 +202,17 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
     session = session or Session()
     state = with_usable_evidence(state, cancel, session)
     hand = state.hand
-    rule_sets = _rule_sets(state)
     forced = state.forced if state.bell else None
     limit = min(state.select_limit, len(hand)) if can_redraw(state) else 0
     budget = limit - (forced is not None)
-    groups: dict[object, list[int]] = {}
-    for i, c in enumerate(hand):
-        if i != forced:
-            group = _hidden_group(c) if c.hidden else tuple(query.filter.test(c, rules) for rules in rule_sets)
-            groups.setdefault(group, []).append(i)
-    group_list = list(groups.values())
+    group_list = _query_groups(state, query, forced)
 
     choices: list[tuple[int, ...] | None] = [None]  # keeping the hand
     if budget >= 0:
         choices += [c for c in _counts([len(g) for g in group_list], budget) if forced is not None or any(c)]
 
-    def estimate(discard: list[int], cancel: Event | None, seconds: float) -> Estimate | Fraction:
-        # Without the hand's sorts telling about face-down cards, a query's odds are quick.
-        found = estimate_cards(state, query, discard, cancel, seconds, session)
-        return found if found is not None else evaluate_cards(state, query, discard, cancel, session).probability
     progress = progress or Progress()
-    progress.start(state, group_list, forced, choices, estimate)
+    progress.start(state, group_list, forced, choices, _estimator(state, query, session))
     best: Fraction | None = None
     winners: list[tuple[int, ...] | None] = []
     for j, counts in enumerate(choices):
@@ -238,6 +226,108 @@ def best_card_discards(state: GameState, query: CardQuery, cancel: Event | None 
 
     options = {tuple(sorted(o)) for counts in winners for o in _expand(hand, group_list, counts, forced)}
     return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
+
+
+def _query_groups(state: GameState, query: CardQuery, forced: int | None) -> list[list[int]]:
+    """Hand indices (bar the forced card) in groups whose cards a query's odds can't tell apart: by whether
+    each matches, under each set of rules (`_rule_sets`), the face-down ones as in `_groups`."""
+    rule_sets = _rule_sets(state)
+    groups: dict[object, list[int]] = {}
+    for i, c in enumerate(state.hand):
+        if i != forced:
+            group = _hidden_group(c) if c.hidden else tuple(query.filter.test(c, rules) for rules in rule_sets)
+            groups.setdefault(group, []).append(i)
+    return list(groups.values())
+
+
+def _estimator(state: GameState, row: Target | CardQuery, session: Session) -> Estimator:
+    """`Progress.estimate` for a search of `row`'s best discards."""
+    if isinstance(row, Target):
+        return lambda discard, cancel, seconds: estimate_discard(state, row, discard, cancel, seconds, session=session)
+
+    def estimate(discard: list[int], cancel: Event | None, seconds: float) -> Estimate | Fraction:
+        # Without the hand's sorts telling about face-down cards, a query's odds are quick.
+        found = estimate_cards(state, row, discard, cancel, seconds, session)
+        return found if found is not None else evaluate_cards(state, row, discard, cancel, session).probability
+    return estimate
+
+
+# --- A search in steps, for one spread over worker processes (spread.py) ---------------------------------
+#
+# `plan` lays the search out, `choice_odds` works out one choice's odds (any number of them side by side),
+# and `settle` turns the best choices into the search's result: together they're best_discards, or
+# best_card_discards, and give the same answer, whatever order the choices are worked out in.
+
+@dataclass(frozen=True)
+class Plan:
+    """How a search is laid out: its groups of hand cards, the forced card, each choice of how many to discard
+    from each group (None keeps the hand) and a discard standing for it. For a target, `keys` has each
+    choice's relabel key for the target, or for each of its hands if it has several, by name: choices with the
+    same key have the same odds of that one (`_relabelled`)."""
+    groups: list[list[int]]
+    forced: int | None
+    choices: list[tuple[int, ...] | None]
+    discards: list[list[int]]
+    keys: dict[str, list[object]]
+
+
+def plan(state: GameState, row: Target | CardQuery, cancel: Event | None = None,
+         session: Session | None = None) -> Plan:
+    """The layout of the search for `row`'s best discards."""
+    state = with_usable_evidence(state, cancel, session or Session())
+    forced = state.forced if state.bell else None
+    limit = min(state.select_limit, len(state.hand)) if can_redraw(state) else 0
+    budget = limit - (forced is not None)
+    groups = _groups(state, row, forced) if isinstance(row, Target) else _query_groups(state, row, forced)
+    choices: list[tuple[int, ...] | None] = [None]
+    if budget >= 0:
+        choices += [c for c in _counts([len(g) for g in groups], budget) if forced is not None or any(c)]
+    discards = [_representative(groups, counts, forced) for counts in choices]
+    keys: dict[str, list[object]] = {}
+    if isinstance(row, Target):
+        goals = [get_target(h) for h in row.hands] if len(row.hands) > 1 else [row]
+        keys = {goal.name: relabel_keys(state, goal, discards, cancel, session) for goal in goals}
+    return Plan(groups, forced, choices, discards, keys)
+
+
+def relabel_keys(state: GameState, target: Target, discards: list[list[int]], cancel: Event | None = None,
+                 session: Session | None = None) -> list[object]:
+    """Each discard's relabel key for `target`: two with the same key have the same odds of it."""
+    state = with_usable_evidence(state, cancel, session or Session())
+    relabelled = [_relabelled(state, target, rules, cancel) for rules in _rule_sets(state)]
+    return [tuple(k(discard) for k in relabelled) for discard in discards]
+
+
+def choice_odds(state: GameState, row: Target | CardQuery, discard: list[int], cancel: Event | None = None,
+                reuse: Reuse | None = None, session: Session | None = None, miss: bool = False) -> Fraction | None:
+    """The odds of `row` after discarding `discard`. With `miss`, odds of 1 have been found for another
+    choice: None if this one's are below 1 (a draw that misses was found, `engine.can_miss`). `state` is one
+    with usable evidence (`with_usable_evidence`), and `reuse` one for its hand, as in best_discards."""
+    session = session or Session()
+    if isinstance(row, CardQuery):
+        return evaluate_cards(state, row, discard, cancel, session).probability
+    if miss and can_miss(state, row, discard, Random(0), cancel=cancel, session=session):
+        return None
+    return evaluate_discard(state, row, discard, cancel, reuse, session).probability
+
+
+def settle(state: GameState, laid: Plan, winners: list[int], best: Fraction, session: Session | None = None) -> Search:
+    """The search's result: the choices `winners` (indices into the plan's), whose odds are `best`."""
+    hand = with_usable_evidence(state, None, session or Session()).hand
+    options = {tuple(sorted(o)) for j in winners for o in _expand(hand, laid.groups, laid.choices[j], laid.forced)}
+    return Search(sorted((list(o) for o in options), key=lambda o: _order(hand, o)), best)
+
+
+def estimated_from(state: GameState, row: Target | CardQuery, laid: Plan, lows: list[Fraction],
+                   highs: list[Fraction], exact: dict[int, Fraction], out: set[int], cancel: Event | None = None,
+                   seconds: float = 5.0, session: Session | None = None) -> Search | None:
+    """estimated_best, for a search in steps given up on, from what it had found of its choices."""
+    session = session or Session()
+    state = with_usable_evidence(state, cancel, session)
+    progress = Progress()
+    progress.start(state, laid.groups, laid.forced, laid.choices, _estimator(state, row, session))
+    progress.lows, progress.highs, progress.exact, progress.out = list(lows), list(highs), dict(exact), set(out)
+    return estimated_best(progress, cancel, seconds)
 
 
 FIRST_SHARE = 0.02  # the most seconds each choice's first estimate gets (estimated_best)

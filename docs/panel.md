@@ -244,7 +244,7 @@ passed to `popup_definition` as `text`; a function where they depend on the comp
 Settings are the player's, not the run's, so they're kept in `settings.json` in the data folder
 ([architecture.md](architecture.md)) rather than on `G.GAME` (see [architecture.md](architecture.md#snapshots) for when it's read
 and written). Their defaults are in `core.lua`; a file that can't be read, or a setting of the wrong
-type, keeps the default. There are two:
+type, keeps the default. There are three:
 
 - **Face-down hints** (`face_down`, off by default): the [face-down hint](#face-down-hint), and
   only that. The snapshot's `observations` ([architecture.md](architecture.md#shapes)), which the
@@ -261,6 +261,17 @@ type, keeps the default. There are two:
   size that isn't offered shows, and is sent, as the largest offered below it (`memory_gb`), and the
   file keeps it, so it comes back on a computer with more. The popup says the half in GB. Slow cases
   measured by the benchmark need up to about 2 GB (`docs/performance/README.md`, peak memory).
+- **Cores used** (`cores`, Auto by default): how many of the CPU's cores the app's calculations may use
+  ([architecture.md](architecture.md#worker-processes)). The choices (`cores.lua`: `cores_choices`) are
+  Auto (saved and sent as 0) and 1 up to one fewer than the computer's logical cores
+  (`love.system.getProcessorCount`), 8 at most, so one is always left to the game. 1 is the app on its
+  own; more are that many worker processes. With Auto the app chooses (`process.auto_cores`): a quarter
+  of the cores it may use, 4 at most, and no more than the memory limit has 512 MB for each, so 1 on a PC
+  with fewer than 8 cores. The popup says how many that comes to here (`cores.lua`: `auto_cores`, a copy
+  of the app's rule from the computer's cores and the memory limit). A saved number that isn't offered shows, and is sent, as the largest offered
+  below it (`cores`), and the file keeps it, like the memory limit. The game can't see an affinity mask
+  that holds it to fewer cores (`start /affinity`), so the row may offer more than the app will use: the
+  app counts the cores in its own mask (`process.usable_cores`) and holds the setting to one fewer.
 
 ## Target editor
 

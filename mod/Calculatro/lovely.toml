@@ -111,6 +111,12 @@ name = "calculatro.memory"
 
 [[patches]]
 [patches.module]
+source = "cores.lua"
+before = "main.lua"
+name = "calculatro.cores"
+
+[[patches]]
+[patches.module]
 source = "settings.lua"
 before = "main.lua"
 name = "calculatro.settings"

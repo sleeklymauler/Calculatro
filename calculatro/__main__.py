@@ -12,17 +12,18 @@ from dataclasses import replace
 from pathlib import Path
 from threading import Event
 
-from . import overlay, paths, process, text
+from . import overlay, paths, process, spread, text
 from .cards import CardQuery, parse_query
 from .engine import Session, clear_caches
 from .hands import Target, combine, get_target
 from .log import header, open_log
+from .pool import InProcessRunner, ProcessRunner, Runner, TaskFailed
 from .report import build_report, row_key
 from .rules import RULE_JOKERS
-from .search import Progress, Search, best_card_discards, best_discards, estimated_best
+from .search import Search
 from .source import FileStateSource, StateSource
 from .state import GameState, MalformedState, SchemaMismatch
-from .worker import LIMITS, Control, Job, Limits, TooSlow, Watchdog, limited
+from .worker import LIMITS, Control, Job, Limits, TooSlow, Watchdog
 
 
 def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
@@ -52,12 +53,13 @@ def tracked(state: GameState) -> tuple[list[Target], list[CardQuery]]:
 
 def calculate(state: GameState, targets: list[Target], queries: list[CardQuery],
               cancel: Control | Event | None = None, known: dict | None = None, limits: Limits = LIMITS,
-              progress: Callable[[dict], None] | None = None, session: Session | None = None) -> dict:
+              progress: Callable[[dict], None] | None = None, session: Session | None = None,
+              runner: Runner | None = None) -> dict:
     """The odds as the payload for the mod's panel. `progress` is given the
-    partial payloads as values are found. `known`, `limits`, `session`: see `build_report`."""
+    partial payloads as values are found. `known`, `limits`, `session`, `runner`: see `build_report`."""
     report = build_report(state, targets, queries, cancel, known, limits,
                           None if progress is None else lambda partial: progress(overlay.odds(state, partial)),
-                          session)
+                          session, runner)
     return overlay.odds(state, report)
 
 
@@ -71,40 +73,13 @@ def search_target(state: GameState, key: str) -> Target | CardQuery | None:
             or next((q for q in queries if q.text == key), None))
 
 
-def find_best(state: GameState, target: Target | CardQuery, cancel: Event | None = None,
-              progress: Progress | None = None, session: Session | None = None) -> Search:
-    """The best discards for a row's target hand or card query."""
-    if isinstance(target, CardQuery):
-        return best_card_discards(state, target, cancel, progress, session=session)
-    return best_discards(state, target, cancel, progress, session=session)
-
-
-def search_within(state: GameState, target: Target | CardQuery, control: Control | Event | None,
-                  limits: Limits = LIMITS, session: Session | None = None) -> Search | TooSlow:
-    """find_best, given up after `limits.search` (or at the memory limit). One
-    given up on answers from estimates of what it had found
-    (`search.estimated_best`, in about `limits.search_estimate`), marked with
-    what stopped it; TooSlow if it can't. (Unmarked if they turn out exact.)"""
-    progress = Progress()
-    found = limited(control, limits.search, lambda cancel: find_best(state, target, cancel, progress, session))
-    if not isinstance(found, TooSlow):
-        return found
-    # The estimates stop themselves; the limit is for ones that can't.
-    estimated = limited(control, 2 * limits.search_estimate,
-                        lambda cancel: estimated_best(progress, cancel, limits.search_estimate))
-    if not isinstance(estimated, Search):
-        return found
-    if estimated.estimated is None:
-        return estimated  # every choice that could be best was quick after all: exact
-    return replace(estimated, estimated=replace(estimated.estimated, limit=found.limit))
-
-
 def search_basis(state: GameState) -> GameState:
     """What a best-discard search depends on: the state, but not what's selected
-    (the search selects cards itself), what's tracked or the game's state name.
-    The observations are part of it: a new sort can change the odds."""
+    (the search selects cards itself), what's tracked, the game's state name or the
+    "Cores used" setting, which changes no odds. The observations are part of it: a
+    new sort can change the odds."""
     return replace(state, id=None, state=None, hand=[replace(c, highlighted=False) for c in state.hand],
-                   tracked_hands=[], tracked_cards=[], search=None)
+                   tracked_hands=[], tracked_cards=[], search=None, cores=0)
 
 
 def rule_jokers(state: GameState) -> frozenset[str]:
@@ -143,17 +118,21 @@ NOTHING_TRACKED = "Nothing tracked: add targets with the + on the Calculatro pan
 
 class Failures:
     """Logs what failed (a bug, not a cancellation) on stderr, once per run for each kind of error and place it's
-    raised: a message's values may change, and the same failure would otherwise fill the log."""
+    raised: a message's values may change, and the same failure would otherwise fill the log. A task that
+    failed in a worker process (pool.TaskFailed) goes by the error raised there, and its traceback."""
 
     def __init__(self):
         self.logged: set[tuple] = set()
 
     def __call__(self, what: str, error: Exception) -> None:
-        where = tuple((frame.f_code.co_filename, line) for frame, line in traceback.walk_tb(error.__traceback__))
-        if (type(error), where) in self.logged:
+        if isinstance(error, TaskFailed):
+            key, message = error.key, error.text
+        else:
+            where = tuple((frame.f_code.co_filename, line) for frame, line in traceback.walk_tb(error.__traceback__))
+            key, message = (type(error), where), "".join(traceback.format_exception(error))
+        if key in self.logged:
             return
-        self.logged.add((type(error), where))
-        message = "".join(traceback.format_exception(error))
+        self.logged.add(key)
         try:
             print(f"{what} failed:\n{message}", file=sys.stderr, end="", flush=True)
         except Exception:
@@ -211,10 +190,15 @@ class OddsJobs:
     or once `watchdog` finds the app using too much memory, and is given up on (`worker.TooSlow`).
 
     A job that fails is logged (`failures`) and answered with odds without values, so the panel isn't left
-    waiting."""
+    waiting.
 
-    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures):
-        self.limits, self.watchdog, self.session, self.failures = limits, watchdog, session, failures
+    The job's thread gives each value to `runner` (pool.Runner) and waits for it; without one, each is worked
+    out in that thread, with `session`."""
+
+    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures,
+                 runner: Runner | None = None):
+        self.limits, self.watchdog, self.failures = limits, watchdog, failures
+        self.runner = runner or InProcessRunner(session)
         self.job: Job[dict] | None = None
         self.state: GameState | None = None  # the state the job is for
         self.progress_sent = 0  # the job's progress last sent (`Control.updates`)
@@ -237,7 +221,7 @@ class OddsJobs:
             self.known, self.known_for = {}, basis
         self.job = Job(lambda control, known=self.known:
                        calculate(state, targets, queries, control, known=known, limits=self.limits,
-                                 progress=control.progress, session=self.session), self.watchdog)
+                                 progress=control.progress, runner=self.runner), self.watchdog)
         self.progress_sent, self.next_partial = 0, time.monotonic() + PARTIAL_INTERVAL
         return overlay.pending(state)
 
@@ -281,11 +265,17 @@ class SearchJobs:
     changes, and the mod drops its copy once a payload comes without it.
 
     A search stops at its `limits`, or at the memory limit. One given up on answers from estimates if it can
-    (`search_within`), and is answered the same at once when asked for again, until what it depends on changes.
-    One that fails is logged (`failures`) and answered with no options, so the panel isn't left waiting."""
+    (`tasks.search_within`), and is answered the same at once when asked for again, until what it depends on
+    changes. One that fails is logged (`failures`) and answered with no options, so the panel isn't left waiting.
 
-    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures):
-        self.limits, self.watchdog, self.session, self.failures = limits, watchdog, session, failures
+    The job's thread gives the search to `runner` (pool.Runner) and waits for it: as one task, or with worker
+    processes, a task for each of its choices (`spread.best_discards`). Without a runner, it runs in that
+    thread, with `session`."""
+
+    def __init__(self, limits: Limits, watchdog: Watchdog, session: Session, failures: Failures,
+                 runner: Runner | None = None):
+        self.limits, self.watchdog, self.failures = limits, watchdog, failures
+        self.runner = runner or InProcessRunner(session)
         self.job: Job[Search | TooSlow] | None = None
         self.asked: tuple[GameState, str, int, Target | CardQuery | None] | None = None  # basis, key, nonce, target
         self.given_up: dict[object, Search | TooSlow] = {}  # searches given up on for `given_up_for`, by `row_key`
@@ -319,7 +309,7 @@ class SearchJobs:
         if target is None or row_key(target) in self.given_up:
             self.found = overlay.search(key, nonce, None if target is None else self.given_up[row_key(target)])
         else:
-            self.job = Job(lambda control: search_within(state, target, control, self.limits, self.session),
+            self.job = Job(lambda control: spread.best_discards(self.runner, state, target, control, self.limits),
                            self.watchdog)
 
     def poll(self) -> bool:
@@ -346,7 +336,8 @@ class SearchJobs:
 def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_interval: float = 0.05,
               stop: Callable[[], bool] = lambda: False,
               limits: Limits = LIMITS, watchdog: Watchdog | None = None,
-              memory_limit: Callable[[int | None], int] | None = None) -> None:
+              memory_limit: Callable[[int | None], int] | None = None, runner: Runner | None = None,
+              cores: Callable[[int, int], int] | None = None) -> None:
     """Work out the odds of what each new state tracks, and the best discards it asks for, in the background
     (`OddsJobs`, `SearchJobs`), for the mod's panel, until `stop()`.
 
@@ -358,19 +349,27 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
     "Memory limit" setting. The setting is part of `odds_basis` and `search_basis`, so changing it starts afresh:
     what was given up on under the old limit is tried again.
 
-    A state holding other rule jokers (`rule_jokers`) empties the engine's caches (`engine.clear_caches`), so what
-    the old rules built doesn't keep its memory.
+    The jobs give their calculations to `runner` (pool.Runner; by default they run in the jobs' own threads).
+    With `cores`, each state sets how many worker processes a pool.ProcessRunner has, to
+    `cores(state.cores, the memory limit)`: the player's "Cores used" setting, which is part of neither basis,
+    as it changes no odds.
+
+    A state holding other rule jokers (`rule_jokers`) empties the engine's caches (`engine.clear_caches`, and the
+    worker processes'), so what the old rules built doesn't keep its memory.
 
     Any error in the loop (a bad state that `GameState.from_json` didn't catch, say) is logged as a failed job is
-    (`Failures`), and the app carries on with the next state. Once stopped, nothing is left running.
+    (`Failures`), and the app carries on with the next state. Once stopped, nothing is left running: the
+    runner is closed.
     """
     if watchdog is None:
         watchdog = Watchdog()  # time limits only
-    session = Session()  # what the engine keeps between the jobs
+    if runner is None:
+        runner = InProcessRunner()
+    session = runner.session  # what the engine keeps between the jobs
     failures = Failures()
     outbox = Outbox(panel)
-    odds = OddsJobs(limits, watchdog, session, failures)
-    searches = SearchJobs(limits, watchdog, session, failures)
+    odds = OddsJobs(limits, watchdog, session, failures, runner)
+    searches = SearchJobs(limits, watchdog, session, failures, runner)
     rules_held: frozenset[str] | None = None  # `rule_jokers` of the latest state
     while not stop():
         try:
@@ -380,9 +379,12 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
                 if rule_jokers(state) != rules_held:
                     if rules_held is not None:
                         clear_caches()  # what the old rules built only holds memory now
+                        runner.clear_caches()
                     rules_held = rule_jokers(state)
                 if memory_limit is not None:
                     watchdog.memory_limit = memory_limit(state.memory_gb)
+                if cores is not None:
+                    runner.resize(cores(state.cores, watchdog.memory_limit), watchdog.memory_limit)
                 searches.update(state)
                 outbox.show(odds.update(state), searches.found)
             if searches.poll():
@@ -398,6 +400,7 @@ def run_watch(source: StateSource, panel: Callable[[dict], object], *, poll_inte
             time.sleep(poll_interval)
     odds.cancel()  # stopped: nothing is left calculating for a loop that's gone
     searches.cancel()
+    runner.close()
 
 
 def _finish[T](job: Job[T]) -> T:
@@ -411,12 +414,14 @@ def _finish[T](job: Job[T]) -> T:
     return job.result()
 
 
-def print_odds(path: Path | None, key: str | None, limits: Limits = LIMITS, watchdog: Watchdog | None = None) -> int:
+def print_odds(path: Path | None, key: str | None, limits: Limits = LIMITS, watchdog: Watchdog | None = None,
+               cores: int = 1) -> int:
     """Print the state in the file at `path`, the odds of what it tracks, and the
     best discard for the row `key` (by default the one the state asks for, if
     any), worked out with the same limits as in game (`watchdog` by default has
-    the player's memory limit). For debugging: run by hand, or on a state file a
-    player sent with a bug report. Writes no odds file."""
+    the player's memory limit), in `cores` worker processes if that's more than 1
+    (whatever the state's "Cores used" setting). For debugging: run by hand, or on
+    a state file a player sent with a bug report. Writes no odds file."""
     source = FileStateSource(path)
     try:
         state = source.read()
@@ -429,25 +434,35 @@ def print_odds(path: Path | None, key: str | None, limits: Limits = LIMITS, watc
     print(text.summarize(state))
     if not state.in_run:
         return 0
+    runner = ProcessRunner()  # its session is shared by the report and the search, as in game
     if watchdog is None:
-        watchdog = Watchdog(process.memory_used, process.memory_limit(state.memory_gb, process.installed_memory()))
-    session = Session()  # shared by the report and the search, as in game
-    targets, queries = tracked(state)
-    if targets or queries:
-        report = _finish(Job(lambda control: build_report(state, targets, queries, control, limits=limits,
-                                                          session=session), watchdog))
-        print(text.format_report(report) if report else "Nothing to calculate with this hand.")
-    else:
-        print(NOTHING_TRACKED)
-    if key is None and state.search is not None:
-        key = state.search[0]
-    if key is not None:
-        target = search_target(state, key)
-        if target is None:
-            print(f"Best discard for {key}: no such row is tracked.")
+        watchdog = Watchdog(lambda: process.memory_used() + runner.memory_used(),
+                            process.memory_limit(state.memory_gb, process.installed_memory()))
+    try:
+        if cores > 1:
+            runner.resize(cores, watchdog.memory_limit)
+            if not runner.wait_ready():
+                print("The worker processes didn't start.", file=sys.stderr)
+                return 1
+        targets, queries = tracked(state)
+        if targets or queries:
+            report = _finish(Job(lambda control: build_report(state, targets, queries, control, limits=limits,
+                                                              runner=runner), watchdog))
+            print(text.format_report(report) if report else "Nothing to calculate with this hand.")
         else:
-            found = _finish(Job(lambda control: search_within(state, target, control, limits, session), watchdog))
-            print(text.format_search(state, key, found))
+            print(NOTHING_TRACKED)
+        if key is None and state.search is not None:
+            key = state.search[0]
+        if key is not None:
+            target = search_target(state, key)
+            if target is None:
+                print(f"Best discard for {key}: no such row is tracked.")
+            else:
+                found = _finish(Job(lambda control: spread.best_discards(runner, state, target, control, limits),
+                                    watchdog))
+                print(text.format_search(state, key, found))
+    finally:
+        runner.close()
     return 0
 
 
@@ -465,6 +480,9 @@ def main(argv: list[str] | None = None) -> int:
     odds.add_argument("--search", metavar="ROW",
                       help="also find the best discard for this row: a hand's name, \"Any target\" or a card "
                            "query (default: the one the state asks for, if any)")
+    odds.add_argument("--cores", type=int, default=1, metavar="N",
+                      help="work the odds out in N worker processes, as the game's \"Cores used\" setting does "
+                           "(default: 1, in this process)")
     args = parser.parse_args(argv)
     # Suit symbols: Windows pipes/redirects default to cp1252.
     if hasattr(sys.stdout, "reconfigure"):
@@ -472,7 +490,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "odds":
         try:
-            return print_odds(args.file, args.search)
+            return print_odds(args.file, args.search, cores=args.cores)
         except KeyboardInterrupt:
             return 130
     source = FileStateSource(args.file)
@@ -494,18 +512,26 @@ def main(argv: list[str] | None = None) -> int:
             print(header(source.path, args.game_pid), file=sys.stderr)
         except OSError:
             pass  # the odds are still worth having; printing to no stderr (None) does nothing
+        # Beside the game, the game gets the CPU first. (Started by hand, the app's priority is the player's.)
+        if not process.set_low_priority():
+            print("Couldn't lower the app's priority; carrying on at the usual one.", file=sys.stderr)
         stop = process.exited(args.game_pid)
         if stop():
             print(f"Game process {args.game_pid} isn't running or can't be opened: exiting.", file=sys.stderr)
     print(f"Watching {source.path} and writing the panel's odds (Ctrl+C to stop). Errors show here; "
           "`python -m calculatro odds` prints the current odds.")
     installed = process.installed_memory()
+    runner = ProcessRunner()  # no worker processes until a state's "Cores used" setting asks for some
     try:
         run_watch(source, lambda payload: overlay.write(odds_file, payload), stop=stop,
-                  watchdog=Watchdog(process.memory_used, process.memory_limit(None, installed)),
-                  memory_limit=lambda gb: process.memory_limit(gb, installed))
+                  watchdog=Watchdog(lambda: process.memory_used() + runner.memory_used(),
+                                    process.memory_limit(None, installed)),
+                  memory_limit=lambda gb: process.memory_limit(gb, installed), runner=runner,
+                  cores=process.cores_used)
     except KeyboardInterrupt:
         pass
+    finally:
+        runner.close()
     return 0
 
 

@@ -11,6 +11,7 @@ local report = require('calculatro.log').report
 local widgets = require('calculatro.widgets')
 require('calculatro.editor')
 require('calculatro.memory')
+require('calculatro.cores')
 
 local array, encode, decode = json.array, json.encode, json.decode
 local SETTINGS_FILE = worker.SETTINGS_FILE
@@ -48,9 +49,25 @@ local SETTINGS = {
                   or 'Up to half your computer\'s memory.',
           }
       end },
+    { key = 'cores', name = 'Cores used', kind = 'cycle',
+      choices = function() return Calculatro.cores_choices() end,
+      value = function() return Calculatro.cores() end,
+      text = function(n) return n == 0 and 'Auto' or tostring(n) end,
+      about = function()
+          local auto = Calculatro.auto_cores()
+          return {
+              "How many of your CPU's cores the odds",
+              'and best-discard searches may use.',
+              '1 runs beside the game in one process,',
+              'using the least memory. More finish',
+              'slow odds and searches sooner.',
+              auto and string.format('Auto: %d here, from your cores and memory.', auto)
+                  or 'Auto: chosen from your cores and memory.',
+          }
+      end },
 }
 
-local NAME_W, TOGGLE_W, MEMORY_W = CARD_NAME_W, 0.6, 0.85  -- MEMORY_W fits "8 GB" with room either side
+local NAME_W, TOGGLE_W, MEMORY_W = CARD_NAME_W, 0.6, 0.85  -- MEMORY_W fits "8 GB" or "Auto" with room either side
 local CONTROL_W = math.max(TOGGLE_W, cycle_w(MEMORY_W))  -- toggles sit at its right
 local SETTINGS_W = NAME_W + CONTROL_W + 3 * ROW_PAD + 2 * INSET_PAD
 

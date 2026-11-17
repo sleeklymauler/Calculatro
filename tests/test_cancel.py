@@ -19,7 +19,7 @@ from calculatro.cards import parse_query
 from calculatro.engine import Cancelled, estimate_cards, estimate_discard, evaluate_cards, gc_paused
 from calculatro.search import Progress, best_card_discards, best_discards, estimated_best
 from calculatro.worker import Job
-from scenarios import SCENARIOS
+from slow_cases import HOUSE_BOTH, SLOW, scenario
 
 # The longest the job's thread may go between two checks of `cancel`. The mod waits 0.3 s for the odds of a new
 # state (core.lua), and a cancelled job still running shares the interpreter with the new one.
@@ -50,10 +50,6 @@ class Checks:
         if self.set_at is None and self.left < 0:
             self.set_at = now
         return self.set_at is not None
-
-
-def scenario(sid: str):
-    return next(s for s in SCENARIOS if s.id == sid)
 
 
 def _search(sid: str) -> Callable[[object], object]:
@@ -92,9 +88,6 @@ def _given_up(sid: str) -> Callable[[object], object]:
     return run
 
 
-HOUSE_BOTH = "standard | 8 unknown: The House (all face-down), sorted both ways | Pair | No jokers"
-
-
 def _card_odds(text: str) -> Callable[[object], object]:
     state, discard = scenario(HOUSE_BOTH).state()
     return lambda cancel: evaluate_cards(state, parse_query(text), discard, cancel)
@@ -110,39 +103,9 @@ def _card_estimate(text: str) -> Callable[[object], object]:
     return lambda cancel: estimate_cards(state, parse_query(text), discard, cancel, seconds=60)
 
 
-CASES = {
-    # Odds rows: The House's union by suit, Cerulean Bell's forced card, The Hook taking from face-down cards,
-    # The Mark's face cards in a sort, and a posterior of every deal fitting two sorts.
-    "odds, The House, any": _odds(
-        "wild | 8 unknown: The House (all face-down) | Full House + Straight Flush (any) | Four Fingers + Shortcut"),
-    "odds, Cerulean Bell": _odds(
-        "standard | Keep 6, draw 2, Cerulean Bell | Full House + Straight Flush (any) | Four Fingers + Shortcut"),
-    "odds, The Hook, sorted": _odds(
-        "standard | 5 unknown: 5 face-down kept, sorted by rank, The Hook, 1 played | Pair | No jokers"),
-    "odds, The Mark, sorted": _odds(
-        "standard | 6 unknown: The Mark, 3 face-down, draw 3, sorted by rank | Full House + Straight Flush (any) "
-        "| Four Fingers + Shortcut"),
-    "odds, sorted both ways": _odds(
-        "standard | 8 unknown: The House (all face-down), sorted both ways | Straight Flush | No jokers"),
-    "estimate, sorted both ways": _estimate(
-        "standard | 8 unknown: The House (all face-down), sorted both ways | Straight Flush | No jokers"),
-    # Best-discard searches.
-    "search, 10 cards": _search("standard | Best discard: 10 cards | Straight Flush | Four Fingers + Shortcut"),
-    "search, 11 cards, any": _search(
-        "standard | Best discard: 11 cards, holding no target | Flush + Straight + Full House (any) | No jokers"),
-    "search, Crimson Heart": _search(
-        "standard | Best discard: 8 cards, Crimson Heart, played, Joker debuffed | Straight Flush "
-        "| Four Fingers + Shortcut"),
-    "search, sorted": _search(
-        "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Flush + Straight + Full House (any) "
-        "| Four Fingers + Shortcut"),
-    "search given up, sorted": _given_up(
-        "standard | Best discard: 8 cards, 2 face-down, sorted by rank | Straight Flush | Four Fingers + Shortcut"),
-    # Card queries, over The House's first hand sorted both ways.
-    "card odds, sorted both ways": _card_odds("2+ face cards"),
-    "card search, sorted both ways": _card_search("2+ face cards"),
-    "card estimate, sorted both ways": _card_estimate("2+ face cards"),
-}
+BUILD = {"odds": _odds, "estimate": _estimate, "search": _search, "search given up": _given_up,
+         "card odds": _card_odds, "card search": _card_search, "card estimate": _card_estimate}
+CASES = {name: BUILD[kind](what) for name, (kind, what) in SLOW.items()}  # what each is: see slow_cases
 
 
 @pytest.mark.parametrize("name", CASES)
