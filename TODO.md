@@ -245,8 +245,15 @@ is worth pulling forward if bug reports start arriving, and I2 if step 9 leaves 
     most 64, by query; `builder_for` depends only on it). Now 51 µs, nearly all the one `encode(model)` that
     tells whether anything changed. Removing that would mean tracking every input of the model, the clock's
     messages included; not worth it.
-- [ ] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)
+- [x] **P12** **[low] (carried)** Each changed snapshot is encoded twice, without and with its `id` (`files.lua:89-96`)
   - `sorted_cards` also encodes every unseen card for each snapshot, changed or not (`snapshot.lua:102-109`).
+  - Measured (2026-11-16) in `lupa`'s LuaJIT, 8 cards in hand, 44 undrawn, 5 jokers: `snapshot()` 134 µs (113 of
+    it `unseen_pool`'s sort), encoding it as much again, 268 µs a snapshot; a changed one encodes once more, about
+    130 µs. At 5 a second, about 1.3 ms of CPU a second, less than the panel's 51 µs a frame (P11). Left as is:
+    `encode` as the sort key covers every field, where a hand-written key missing one would let ties keep the
+    deck's order.
+  - Done anyway, for clarity rather than speed: `write_snapshot` encodes the snapshot once and puts the `id` in
+    as the first key of that text, so what's written is exactly what was compared.
 - [x] **P13** **[low] (seen)** The game-started app formats console text nobody reads (`__main__.py:380`, `143-145`)
   - With `--game-pid`, stdout is the null device, but `summarize`, `format_report` and `format_search` still run for every state. It's cheap. It's also one more reason to decide what the console half is for.
   - Done with A9: `run_watch` formats no text.

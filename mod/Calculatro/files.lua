@@ -93,21 +93,24 @@ end
 -- Writes the snapshot if it changed, tagged with a new id: on the worker's thread
 -- (`Calculatro.check_worker` hears how it went), or here if there isn't one.
 function Calculatro.write_snapshot()
-    local snapshot = Calculatro.snapshot()
-    local json = encode(snapshot)
+    local json = encode(Calculatro.snapshot())
     if json == Calculatro.last_json then return end
     Calculatro.seq = Calculatro.seq + 1
-    snapshot.id = Calculatro.session .. ':' .. Calculatro.seq
+    local id = Calculatro.session .. ':' .. Calculatro.seq
+    -- The id goes in as the object's first key, so what's written is exactly what was
+    -- compared. This assumes `json` is a non-empty object, '{"...', which it always is:
+    -- every snapshot has `schema`. An empty one, '{}', would come out as '{"id":"..",}'.
+    local tagged = '{"id":' .. encode(id) .. ',' .. json:sub(2)
     local thread = worker.start()
     if thread then
-        thread.requests:push({ id = snapshot.id, json = encode(snapshot) })
-        Calculatro.last_json, Calculatro.writing = json, snapshot.id
+        thread.requests:push({ id = id, json = tagged })
+        Calculatro.last_json, Calculatro.writing = json, id
         return
     end
-    local ok, err = write_state(encode(snapshot))
+    local ok, err = write_state(tagged)
     if ok then
         Calculatro.last_json = json
-        write_succeeded(snapshot.id)
+        write_succeeded(id)
     else
         write_failed(err)
     end
